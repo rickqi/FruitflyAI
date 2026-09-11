@@ -443,7 +443,7 @@ async def run(args) -> None:
             elif previous_escape:
                 # Escape just ended — resolve
                 dx = pose_ev[0] - event_last_pos[0]
-                dz = pose_ev[2] - event_last_pos[2]
+                dz = pose_ev[2] - event_last_pos[1]
                 dist = math.sqrt(dx * dx + dz * dz)
                 escape_buffer.resolve_current(dist)
                 current_escape_event = None
