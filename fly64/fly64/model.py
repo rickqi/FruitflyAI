@@ -59,6 +59,11 @@ class FlyModel:
         self.visual_connected = True
         self.tonic_current = 0.180
         self.synaptic_gain = 1.50
+        # Ornstein-Uhlenbeck noise for physiological motor fluctuations
+        self.ou_state = np.zeros(4, dtype=np.float32)  # [fwd, left, right, jump]
+        self.ou_theta = 2.0   # mean reversion rate (higher = faster decay)
+        self.ou_sigma = 0.12  # noise amplitude
+        self.ou_mu = 0.0      # mean
 
     def _load_demo(self):
         self.n = 4096
@@ -136,29 +141,31 @@ class FlyModel:
         self.spikes[:] = fired
         self.activity *= 0.82
         self.activity[fired] = 1.0
-        # Modulate motor neuron firing to create visible chart fluctuations
-        # Direct rate modulation: randomly skip some motor spikes with frequency-dependent probability
-        mod_t = self.step_count * self.dt
+        # Ornstein-Uhlenbeck noise adds correlated fluctuations to motor neuron voltage
+        # Each motor group gets slow-varying OU noise simulating E-I balance fluctuations
+        dt = self.dt
+        theta = self.ou_theta
+        sigma = self.ou_sigma
+        self.ou_state += theta * (self.ou_mu - self.ou_state) * dt + \
+            sigma * np.sqrt(dt) * self.rng.normal(size=self.ou_state.shape).astype(np.float32)
         offset = 0
-        # Forward (60 cells): modulated at 0.5-1.5Hz to create varying y-control
-        fwd_prob = 0.5 + 0.5 * np.sin(mod_t * np.pi * 0.7)
         n_fwd = len(self.forward)
-        fired[self.motor_nodes[offset:offset+n_fwd]] &= self.rng.random(n_fwd) < fwd_prob
+        self.v[self.motor_nodes[offset:offset+n_fwd]] += self.ou_state[0] * 0.15
         offset += n_fwd
-        # Left turn (40 cells): modulated at 0.8Hz
-        left_prob = 0.5 + 0.5 * np.sin(mod_t * np.pi * 0.8 + 1.0)
         n_left = len(self.turn_left)
-        fired[self.motor_nodes[offset:offset+n_left]] &= self.rng.random(n_left) < left_prob
+        self.v[self.motor_nodes[offset:offset+n_left]] += self.ou_state[1] * 0.15
         offset += n_left
-        # Right turn (40 cells): modulated at 1.2Hz, out of phase with left
-        right_prob = 0.5 + 0.5 * np.sin(mod_t * np.pi * 1.2 + 3.0)
         n_right = len(self.turn_right)
-        fired[self.motor_nodes[offset:offset+n_right]] &= self.rng.random(n_right) < right_prob
+        self.v[self.motor_nodes[offset:offset+n_right]] += self.ou_state[2] * 0.15
         offset += n_right
-        # Jump (20 cells): burst modulation at 2Hz
-        jump_prob = 0.2 + 0.6 * (np.sin(mod_t * np.pi * 2.0) ** 2)
-        n_jump = len(self.jump_nodes)
-        fired[self.motor_nodes[offset:offset+n_jump]] &= self.rng.random(n_jump) < jump_prob
+        self.v[self.motor_nodes[offset:offset+len(self.jump_nodes)]] += self.ou_state[3] * 0.15
+        # Re-check firing after OU noise injection
+        refired = self.v >= self.threshold
+        newly_fired = refired & ~fired
+        self.v[newly_fired] = self.reset
+        self.spikes |= newly_fired
+        self.activity[newly_fired] = 1.0
+        fired = self.spikes.copy()
         self.history.append(fired[self.motor_nodes].copy())
         self.step_count += 1
 

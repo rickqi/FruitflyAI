@@ -9,9 +9,17 @@
 | 平台 | 状态 | 说明 |
 |------|------|------|
 | **macOS** (原始) | ✅ | Apple Silicon (M1/M2), Homebrew |
-| **WSL2 Ubuntu 22.04** | ✅ **已验证** | Windows 10/11 + WSL2 + WSLg |
-| **Linux (Ubuntu 22.04+)** | ✅ 理论可行 | 需 x86_64 + NVIDIA/Intel GPU |
-| **原生 Windows** | ❌ | 需要 MSYS2 + 大量移植，不推荐 |
+| **WSL2 Ubuntu 22.04** | ✅ **推荐部署方案** | **已验证** — 原生 POSIX 兼容，WSLg GPU 加速 GUI |
+| **Linux (Ubuntu 22.04+)** | ✅ | 需 x86_64 + NVIDIA/Intel GPU |
+| **原生 Windows** | ❌ | 需要 MSYS2 + Win32 mmap 重写，不推荐 |
+
+### 部署建议
+
+> **推荐方案：WSL2 (Windows Subsystem for Linux)**
+>
+> 本项目最初仅支持 macOS（Apple Silicon + Homebrew）。我们全面解决了在 **Windows 10/11 上通过 WSL2 运行** 的所有技术障碍，验证了完整的视觉→神经→运动控制闭环。WSL2 提供了与原生 Linux 几乎一致的 POSIX 环境，同时无缝集成 Windows 文件系统和网络。
+>
+> 相比原生 macOS 方案的不足，WSL 方案提供了更高的硬件可用性和可扩展性。不建议在原生 Windows（MSYS2/MinGW）上运行，因 mmap 共享内存桥接等 POSIX 依赖需大量移植。
 
 ## 📋 前置要求
 
