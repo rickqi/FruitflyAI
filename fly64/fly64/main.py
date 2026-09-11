@@ -447,16 +447,28 @@ async def run(args) -> None:
                         control.x = -50; control.y = 60; control.jump = True
                     else:
                         escape_toggle_timer = 0.0
-                        escape_x = model.rng.integers(40, 70) * (-1 if model.rng.random() < 0.5 else 1)
+                        asym = model.flow_asymmetry
+                        if asym > 0.12:
+                            escape_x = 60
+                        elif asym < -0.12:
+                            escape_x = -60
+                        else:
+                            escape_x = model.rng.integers(40, 70) * (-1 if model.rng.random() < 0.5 else 1)
                 else:
                     if escape_toggle_timer < 0.8:
                         if escape_toggle_timer < model.dt:
                             avoid = memory_ctrl.failures.avoid_direction(pose_ev[0], pose_ev[2], pose_ev[3])
-                            escape_x = model.rng.integers(40, 70)
+                            asym = model.flow_asymmetry
                             if avoid > 0:
-                                escape_x = abs(escape_x)
-                            elif model.rng.random() < 0.5:
-                                escape_x = -escape_x
+                                escape_x = 60
+                            elif asym > 0.12:
+                                escape_x = 60
+                            elif asym < -0.12:
+                                escape_x = -60
+                            else:
+                                escape_x = model.rng.integers(40, 70)
+                                if model.rng.random() < 0.5:
+                                    escape_x = -escape_x
                         control.x = escape_x; control.y = 0
                     elif escape_toggle_timer < 1.6:
                         control.x = -escape_x // 2; control.y = 70
