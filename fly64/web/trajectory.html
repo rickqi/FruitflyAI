@@ -91,17 +91,22 @@ function loadTrajectory(data){
   fitView();update();
 }
 
-async function loadFile(name){
-  try{const r=await fetch('/trajectory-load?file='+encodeURIComponent(name));if(!r.ok)throw Error('HTTP '+r.status);
-    const data=await r.json();loadTrajectory(data);}catch(e){$('errorMsg').textContent='Load error: '+e.message;$('errorMsg').style.display='block';}
-}
-
 async function loadList(){
   try{const r=await fetch('/trajectory-list.json');if(!r.ok)throw Error('HTTP '+r.status);
     const list=await r.json();
-    if(!list.length){sel.innerHTML='<option>No files</option>';return;}
-    sel.innerHTML=list.map((f,i)=>'<option value="'+f.name+'"'+(i===list.length-1?' selected':'')+'>'+f.name.replace(/\.trajectory\.npz$/,'').slice(-30)+' ('+(f.size/1024|0)+'KB)</option>').join('');
-    loadFile(list[list.length-1].name);}catch(e){sel.innerHTML='<option>Error loading list</option>';$('errorMsg').textContent='List error: '+e.message;$('errorMsg').style.display='block';}
+    let html='<option value="__live__" selected>🔴 Live (current session)</option>';
+    if(list.length)html+=list.map(f=>'<option value="'+f.name+'">'+f.name.replace(/\.trajectory\.npz$/,'').slice(-30)+' ('+(f.size/1024|0)+'KB)</option>').join('');
+    sel.innerHTML=html;
+    loadFile('__live__');}catch(e){sel.innerHTML='<option>Error loading list</option>';$('errorMsg').textContent='List error: '+e.message;$('errorMsg').style.display='block';}
+}
+
+async function loadFile(name){
+  try{
+    let data;
+    if(name==='__live__'){const r=await fetch('/trajectory.json');if(!r.ok)throw Error('HTTP '+r.status);data=await r.json();}
+    else{const r=await fetch('/trajectory-load?file='+encodeURIComponent(name));if(!r.ok)throw Error('HTTP '+r.status);data=await r.json();}
+    loadTrajectory(data);
+  }catch(e){$('errorMsg').textContent='Load error: '+e.message;$('errorMsg').style.display='block';}
 }
 
 function update(){
