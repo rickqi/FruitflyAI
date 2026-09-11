@@ -54,7 +54,10 @@ class Observatory:
                    jump_event=bool(control.jump), cooldown=max(0., .8-(t-m.last_jump)),
                    game_x=game["x"], game_y=game["y"], game_a=game["jump"],
                    game_state=game["state"], game_age=game["age_ms"],
-                   frame_age=t-self.frame_time)
+                   frame_age=t-self.frame_time,
+                   flow_asymmetry=m.flow_asymmetry,
+                   flow_looming=m.flow_looming,
+                   flow_cliff=m.flow_cliff)
         self.rows.append(row)
         return row
 

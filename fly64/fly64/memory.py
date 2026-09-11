@@ -363,7 +363,10 @@ class MemoryController:
 
     def update(self, temporal_energy: float, frame_seq: int,
                forward_rate: float, x: float, z: float,
-               pos_y: float = 0.0, heading: float = 0.0) -> tuple:
+               pos_y: float = 0.0, heading: float = 0.0,
+               flow_asymmetry: float = 0.0,
+               flow_looming: float = 0.0,
+               flow_cliff: float = 1.0) -> tuple:
         """Feed one tick; returns ``(stuck_score, stuck_duration, novelty,
         escape_behavior, fallen)``."""
         self._stuck_score, self._stuck_duration, self._fallen = self.stuck.update(
@@ -379,9 +382,16 @@ class MemoryController:
             self._fall_pos = self._last_pos
             self.failures.record_failure(x, z)
 
+        # Flow-aware escape threshold: looming lowers threshold,
+        # cliff forces immediate escape
+        flow_danger = max(0.0, flow_looming - 0.3) * 2.0  # 0..1+ from looming
+        cliff_emergency = flow_cliff < 0.3 and temporal_energy > 0.005
+        adjusted_threshold = 0.8 - flow_danger * 0.4
         self.escape_behavior = (
-            self._stuck_score >= 0.8
-            and (self.spatial.exploration_mode or self._fallen)
+            (self._stuck_score >= adjusted_threshold
+             and self.spatial.exploration_mode)
+            or self._fallen
+            or cliff_emergency
         )
         return (self._stuck_score, self._stuck_duration,
                 self._novelty, self.escape_behavior, self._fallen)

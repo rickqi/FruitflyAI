@@ -32,6 +32,7 @@ class DashboardHTTP(BaseHTTPRequestHandler):
     bridge = None
     assets = {}
     memory_json = b"{}"
+    flow_json = b"{}"
 
     def do_GET(self):
         path = urlsplit(self.path).path
@@ -49,6 +50,8 @@ class DashboardHTTP(BaseHTTPRequestHandler):
             body, mime = self.trajectory, "application/json"
         elif path == "/memory.json":
             body, mime = self.memory_json, "application/json"
+        elif path == "/flow.json":
+            body, mime = self.flow_json, "application/json"
         elif path == "/trajectory-list.json":
             import glob as _glob
             arts = Path(__file__).resolve().parent.parent / "artifacts"
@@ -307,6 +310,23 @@ async def run(args) -> None:
             model.escape_mode = memory_ctrl.escape_behavior
             control, spikes = model.step(frame, model.step_count * model.dt,
                                          novelty=memory_ctrl.novelty)
+
+            # ---- Pre-emptive collision avoidance (fires BEFORE escape) ----
+            if not memory_ctrl.escape_behavior:
+                # 1. Strong asymmetry > 0.3: bias turn AWAY from obstacle
+                if model.flow_asymmetry > 0.3:
+                    control.x = min(control.x if control.x < 0 else -max(abs(control.x), 8) - 10, -8)
+                elif model.flow_asymmetry < -0.3:
+                    control.x = max(control.x if control.x > 0 else max(abs(control.x), 8) + 10, 8)
+                # 2. Looming > 0.4: reduce forward speed
+                if model.flow_looming > 0.4:
+                    control.y = int(control.y * 0.3)
+                # 3. Cliff < 0.3: force turn away from edge
+                if model.flow_cliff < 0.3 and model.step_count > 10:
+                    turn_dir = -50 if model.rng.random() < 0.5 else 50
+                    control.x = turn_dir
+                    control.y = min(control.y, 10)
+
             # Escape control: override when stuck & looping
             if memory_ctrl.escape_behavior:
                 escape_toggle_timer += model.dt
@@ -383,6 +403,9 @@ async def run(args) -> None:
                     forward_rate=getattr(control, 'forward_rate', 0.0),
                     x=pose[0], z=pose[2], pos_y=pose[1],
                     heading=pose[3],
+                    flow_asymmetry=model.flow_asymmetry,
+                    flow_looming=model.flow_looming,
+                    flow_cliff=model.flow_cliff,
                 )
                 xs, zs, heats = memory_ctrl.spatial.get_heatmap()
                 DashboardHTTP.memory_json = json.dumps({
@@ -398,6 +421,12 @@ async def run(args) -> None:
                     "xs": [round(float(v), 1) for v in xs[:2500]],
                     "zs": [round(float(v), 1) for v in zs[:2500]],
                     "heats": [round(float(v), 3) for v in heats[:2500]],
+                }, separators=(",", ":")).encode()
+                DashboardHTTP.flow_json = json.dumps({
+                    "asymmetry": round(model.flow_asymmetry, 4),
+                    "looming": round(model.flow_looming, 4),
+                    "cliff": round(model.flow_cliff, 4),
+                    "tick": model.step_count,
                 }, separators=(",", ":")).encode()
 
             next_tick += model.dt

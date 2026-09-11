@@ -67,6 +67,10 @@ class FlyModel:
         # Novelty-driven modulation and escape
         self.escape_mode = False
         self.escape_current = 0.15  # extra depolarisation during escape
+        # Optic flow signals (set by encode_retina, consumed in step)
+        self.flow_asymmetry = 0.0   # left/right motion imbalance (-1..1)
+        self.flow_looming = 0.0     # center expansion index (-1..1)
+        self.flow_cliff = 1.0       # lower-field green ratio (1=grass, 0=void)
 
     def _load_demo(self):
         self.n = 4096
@@ -127,6 +131,11 @@ class FlyModel:
         self.previous_rgb = frame
         self.mean_luminance = float(lum.mean())
         self.temporal_energy = float(temporal.mean())
+        # --- Optic flow signals ---
+        flow = self.retina.compute_flow(rgb)
+        self.flow_asymmetry = float(flow["left_right_asymmetry"])
+        self.flow_looming = float(flow["center_expansion"])
+        self.flow_cliff = float(flow["lower_field_green"])
         return drive
 
     def step(self, rgb: np.ndarray, now: float | None = None,
@@ -191,9 +200,34 @@ class FlyModel:
 
         raw_y = np.clip((forward_rate - 0.008) * 2000.0, 0, 70)
         raw_x = np.clip(turn_rate * 1100.0, -70, 70)
+
+        # ---- Optic flow modulation (pre-emptive collision avoidance) ----
+        # Only apply when synapses are active (no connectome shortcut test)
+        if self.visual_connected and self.w.nnz > 0:
+            # 1. Asymmetry → bias turn toward the side with more motion
+            if abs(self.flow_asymmetry) > 0.05:
+                raw_x -= self.flow_asymmetry * 20.0
+
+            # 2. Looming → reduce forward drive, shorten jump cooldown
+            if self.flow_looming > 0.15:
+                looming_factor = 1.0 - min(self.flow_looming * 1.2, 0.8)
+                raw_y *= looming_factor
+
+            # 3. Low cliff → force pre-emptive turn away from edge
+            # Only when scene is visible (not in dark/initial state)
+            if self.flow_cliff < 0.3 and self.mean_luminance > 0.02:
+                turn_dir = 1.0 if self.rng.random() < 0.5 else -1.0
+                raw_x += turn_dir * 40.0
+
+        raw_y = np.clip(raw_y, 0, 70)
+        raw_x = np.clip(raw_x, -70, 70)
+
         self.filtered_y = 0.78 * self.filtered_y + 0.22 * raw_y
         self.filtered_x = 0.78 * self.filtered_x + 0.22 * raw_x
         jump = jump_rate > 0.04 and now - self.last_jump >= 0.8
+        # Increase jump likelihood during looming (only with active synapses)
+        if self.visual_connected and self.w.nnz > 0 and self.flow_looming > 0.4 and jump_rate > 0.02 and now - self.last_jump >= 0.6:
+            jump = True
         if jump:
             self.last_jump = now
         return Control(int(self.filtered_x) if abs(self.filtered_x) >= 8 else 0,
