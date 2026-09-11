@@ -339,9 +339,9 @@ async def run(args) -> None:
                 packet_queue.put_nowait(packet)
                 log.write(json.dumps(dict(wall_s=tick_start-started, steps=model.step_count, rtf=rtf,
                     latency_ms=latency_ms, rss_mb=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1e6,
-                    x=control.x, y=control.y, jump=pending_jump, frame_seq=last_frame_seq,
-                    dropped=dropped, visual_contrast=model.temporal_energy,
-                    camera=bridge.frame_metadata, game=bridge.game_status())) + "\n")
+                    x=control.x, y=control.y, jump=pending_jump, frame_seq=int(last_frame_seq),
+                    dropped=dropped, visual_contrast=float(model.temporal_energy),
+                    camera=bridge.frame_metadata, game=bridge.game_status()), default=str) + "\n")
                 pending_jump = False
                 # Record trajectory
                 pose = bridge.frame_metadata.get("pose", [0,0,0,0])

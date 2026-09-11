@@ -65,7 +65,7 @@ class Observatory:
                     dt=self.model.dt, window_ticks=denom, rate_max=1/self.model.dt,
                     has_comparison=self.has_comparison, visual_connected=self.model.visual_connected,
                     rows=self.rows, **performance)
-        encoded = json.dumps(meta, separators=(",", ":"), allow_nan=False).encode()
+        encoded = json.dumps(meta, separators=(",", ":"), allow_nan=False, default=str).encode()
         packet = HEADER.pack(b"F643", len(encoded)) + encoded + activity.tobytes() + self.preview.tobytes() + self.change.tobytes()
         self.rows = []
         return packet

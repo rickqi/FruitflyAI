@@ -177,7 +177,7 @@ class FlyModel:
         refired = self.v >= self.threshold
         newly_fired = refired & ~fired
         self.v[newly_fired] = self.reset
-        self.spikes |= newly_fired
+        self.spikes[newly_fired] = 1.0
         self.activity[newly_fired] = 1.0
         fired = self.spikes.copy()
         self.history.append(fired[self.motor_nodes].copy())
