@@ -47,6 +47,19 @@ D:\codes\flygym\
 
 ## 修改记录
 
+### Phase 1 导航增强 — 空间记忆 & 卡住检测
+- `fly64/memory.py`: StuckDetector (3 信号融合)、SpatialMemoryMap (50×50 网格)、MemoryController
+- `main.py`: memory 集成、escape 行为控制、`/memory.json` API
+- `model.py`: novelty 门控视觉增益、escape_mode 去极化
+- `web/memory-heatmap.js`: 50×50 网格热力图 canvas
+
+### Stuck 诊断与修复 (v2)
+- **根因**: Y=-221（低于地面），马里奥掉出世界边缘
+- **修复**: StuckDetector 新增 Y 轴异常检测（`pos_y < -100 ∨ > 1000 → fallen`）
+- **FailureMemory**: 记录坠落位置，`avoid_direction()` 偏转逃脱方向避开已知坠落点
+- **Fallen Recovery**: 特殊恢复模式 → 跳跃 + 前进 + 持续跳跃直至回到地面
+- **Escape 优化**: 交替转向(0.8s) + 前进(0.8s) 循环，避免 y=0 死锁
+
 ### 轨迹回放页 (trajectory.html)
 - Three.js 3D 轨迹显示 (CDN r160)
 - OrbitControls 自由视角
