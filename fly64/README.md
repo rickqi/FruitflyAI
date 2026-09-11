@@ -1,219 +1,216 @@
-# Fly64
+# FruitflyAI — Fly64: 果蝇大脑控制 Super Mario 64
 
-See: https://x.com/barrelshifter/status/2097004115826200898
+[![Fly64 Neural Observatory](https://img.shields.io/badge/Fly64-Neural%20Observatory-6cdaed)](https://github.com/rickqi/FruitflyAI)
 
-The fly brain model got popular on social media. I decided to try to:
+将果蝇（Drosophila）真实神经连接组（MaleCNS v1.0，**166,700 神经元，2,560 万突触连接**）接入 Super Mario 64，实现完整的视觉→神经→运动控制闭环。
 
-- Take the fly brain model from here: http://male-cns.janelia.org
-- Make it play a game
+## 🖥️ 支持平台
 
-I chose SM64 because I like SM64 and a decompiled version is available. I made
-this work specifically on my Macbook (M2, 16 GB RAM).
+| 平台 | 状态 | 说明 |
+|------|------|------|
+| **macOS** (原始) | ✅ | Apple Silicon (M1/M2), Homebrew |
+| **WSL2 Ubuntu 22.04** | ✅ **已验证** | Windows 10/11 + WSL2 + WSLg |
+| **Linux (Ubuntu 22.04+)** | ✅ 理论可行 | 需 x86_64 + NVIDIA/Intel GPU |
+| **原生 Windows** | ❌ | 需要 MSYS2 + 大量移植，不推荐 |
 
-You will need
+## 📋 前置要求
 
-- 1.1 GB space for the brain data
-- a US mario 64 rom (for assets)
-- Homebrew (mac)
-- Google Chrome
-- Standard dev tools (e.g. on a mac `xcode select --install`)
+- **操作系统**: Windows 10 2004+ / Windows 11（WSL2 方案）
+- **WSL2**: 已启用（`wsl --install -d Ubuntu`）
+- **磁盘空间**: 至少 5GB 可用
+- **内存**: 建议 8GB+
+- **SM64 ROM**: 需要一份**未修改的美版 Super Mario 64 ROM** (`.z64`)
 
-This code is *literally 100% vibe coded* with GPT Astra, and I did it just for
-fun. I have not reviewed the code, so be cautious if you want to use this
-for anything "real".
+## 🚀 快速开始 (WSL)
 
-I'm posting this because people are interested/for educational purposes.
+### 1. 初始化 WSL 环境
 
-# Running it
+```bash
+# 启动 WSL
+wsl
 
-I've only tested this on one macbook in existence.
+# 更新系统包
+sudo apt update && sudo apt upgrade -y
 
-```sh
-cd "/path/to/fly64"
-./run-fly64 --rom "/path/to/base_mario_64_rom.us.z64"
+# 安装工具链
+sudo apt install -y build-essential libsdl2-dev libglew-dev pkg-config \
+                    python3 python3-venv python3-pip curl git make
 ```
 
-This
+### 2. 克隆项目
 
-- Installs deps
-- Downloads brain data
-- Builds decompiled SM64
-- Opens the SM64 build, and the demo window
-
-This might take a while to download etc.
-
-You need your own **unmodified US Super Mario 64 .z64 ROM**. It is not included
-and can live anywhere on your computer; pass its path after `--rom`.
-
-## Stop it
-
-Click the game, then press **Escape**. Or press **Ctrl+C** in Terminal.
-
-**F8** turns neural control on or off. Try **fn+F8** if your Mac uses media keys.
-
-## Build without opening the demo
-
-From your project folder, using the same ROM path:
-
-```sh
-./run-fly64 --prepare-data
-./scripts/setup_sm64.sh "/path/to/baserom.us.z64"
+```bash
+git clone https://github.com/rickqi/FruitflyAI.git
+cd FruitflyAI/fly64
 ```
 
-## If something looks wrong
+### 3. 设置 Python 环境
 
-- **“Already running”:** close the existing game before starting another.
-- **“ROM validation failed”:** use an unmodified US `.z64` ROM.
-- **No dashboard:** open [the local dashboard](http://127.0.0.1:8765/) while the demo is running.
-- **Mario isn't moving:** click the game and check F8. Look for **“Game: receiving”**
-  and the **sent → received** values. Mario can also get stuck against walls.
-
-## Record a video
-
-Close any running demo first. From your project folder, using the same ROM path:
-
-```sh
-./scripts/record_demo.sh "/path/to/baserom.us.z64"
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 ```
 
-Requires macOS 15 or newer. Allow screen recording if macOS asks.
-It launches the demo and saves a roughly 75-second MP4 in `artifacts/`.
-Only the game and dashboard are recorded, without audio.
+### 4. 下载脑数据（~1.3GB）
 
-## How it works
+MaleCNS 果蝇连接组数据来自 Google Cloud Storage（中国大陆下载较慢，约 40-60 分钟）：
 
-This runs 3 programs:
-
-- Mario
-- the brain model
-- the dashboard.
-
-They form a loop:
-
-```text
-Mario's world → fly eyes → brain network → controller → Mario's world
+```bash
+# 重要：使用 curl 下载（aria2c 会产生截断文件）
+python -m fly64.data --prepare --cache .cache/malecns
 ```
 
-### The fly has its own camera
+> **下载慢？** Google Cloud Storage 在中国大陆有带宽限制。如果下载缓慢，可尝试：
+> - 使用代理/VPN
+> - 夜间下载（速度可能提升）
 
-You watch the normal third-person game. The fly sees from Mario's eye height.
-Moving your camera does not move the fly's camera.
+### 5. 设置 sm64ex 并编译
 
-Ten times a second, the game takes six hidden pictures around Mario.
-Each is 128 by 128 pixels. Together they cover a sphere.
-The fly gets no HUD and cannot see Mario's own body.
+```bash
+# 克隆 sm64ex（如果 GitHub 直连慢，可用 ghfast.top 代理）
+git clone https://ghfast.top/https://github.com/sm64pc/sm64ex.git .cache/sm64ex
 
-Each eye cell samples light from a small patch of that sphere.
-The two eyes cover about 270 degrees around Mario, not the full sphere.
-The dashboard shows their views as two fisheye pictures.
+# 进入目录并切换到指定 commit
+cd .cache/sm64ex
+git checkout d7ca2c04364a6dd0dac58b47151e04e26887e6f0
 
-The eyes follow Mario's heading. They stay level and do not bob with his head.
-This is a simple model, not a measured copy of a fly's eyes. The game has RGB
-colors, not the ultraviolet light a real fly can detect.
+# 应用 Fly64 补丁
+git apply ../../patches/sm64ex-fly64.patch
 
-The code measures light, color, and changes between pictures.
+# 将 SM64 ROM 放入目录
+# cp /path/to/baserom.us.z64 .
 
-It sends those signals to the modeled eye cells.
+# 编译（注意：需要 -lGLEW 链接）
+make -j$(nproc) VERSION=us BETTERCAMERA=1 NODRAWINGDISTANCE=1 EXT_OPTIONS_MENU=1
 
-Most cell ordering comes from anatomy or connections in the data. Some is
-estimated. The map from that order to viewing angles is also an estimate.
+# 如果编译报 GLEW 链接错误，先运行：
+sed -i 's/BACKEND_LDFLAGS += -lGL/BACKEND_LDFLAGS += -lGLEW -lGL/' Makefile
 
-### Signals pass through the network
+cd ../..
+```
 
-The network comes from MaleCNS, a map of a male fly's nerve cells and their
-connections.
+### 6. 修复桥接兼容性
 
-The wiring for the nerve cells comes from measured data.
+```bash
+# bridge.py 默认仅支持 macOS（Apple Silicon 内存屏障）
+# Linux/WSL 需要打补丁（仓库版本已包含此修复）
+```
 
-The rules for how cells fire are specific to this repo.
+### 7. 运行
 
-Each cell has a number that stands in for its voltage. That number fades toward
-zero. Signals from other cells can raise or lower it. When it reaches a set
-level, the cell fires and resets. Its signal reaches other cells on the next step.
-The model takes 50 steps a second.
+#### 合成模式（无需 ROM，展示脑模型）
 
-We also add a steady background drive and repeatable noise. So the screen is
-not the cause of every movement.
+```bash
+source venv/bin/activate
+python3 -m fly64.main --bridge /tmp/f64b --record /tmp/f64r.npz \
+  --synthetic --demo-model --no-browser --duration 600
+```
 
-The code stores cells and connections as compact arrays of numbers.
+浏览器打开 **http://127.0.0.1:8765/** 查看仪表板。
 
-### Some signals become Mario's controls
+#### 完整模式（需要 SM64 ROM）
 
-We read the last quarter-second of activity in a few chosen groups of cells:
+```bash
+source venv/bin/activate
+./run-fly64 --rom /path/to/baserom.us.z64
+```
 
-- DNg100 controls forward movement.
-- The right-minus-left difference in DNa02/DNg13 controls steering.
-- A burst in DNp01/DNp10 triggers a jump.
+或手动启动脑模型 + 游戏：
 
-The code smooths the stick, ignores small changes, and limits its strength.
-Each jump holds A for two game frames.
+```bash
+# 终端1：启动脑模型
+source venv/bin/activate
+mkdir -p runtime artifacts
+python3 -m fly64.main --bridge runtime/fly64_bridge.bin \
+  --record artifacts/latest-replay.npz --no-browser --duration 0
 
-There is a short wait before another jump.
+# 终端2：启动 SM64
+cd .cache/sm64ex
+FLY64_BRIDGE=../runtime/fly64_bridge.bin ./build/us_pc/sm64.us.f3dex2e --skip-intro
+```
 
-These are rules we wrote to turn neural activity into game controls.
+## 🎮 操作说明
 
-For the fly, forward means the way Mario faces. It does not mean the way your
-camera faces. Human stick input still uses the normal game controls.
+| 按键 | 功能 |
+|------|------|
+| **F8** | 切换果蝇脑神经控制 |
+| **方向键** | 手动控制马里奥 |
+| **A / 空格** | 跳跃 |
+| **ESC** | 退出游戏 |
 
-There are no simulated fly legs or muscles. There is no training, reward, or
-goal to collect stars. Mario can walk into a wall and stay there.
+## 🌐 仪表板
 
-### The game and model share a small block of memory
+游戏/模型运行时访问 **http://127.0.0.1:8765/**：
 
-The game writes pictures into it. The model writes controls back. Both sides
-check that a message is complete before reading it.
+| 面板 | 功能 |
+|------|------|
+| **Vision** | 果蝇 270° 复眼视野预览 + 帧差异 |
+| **Neurons → controls** | 神经活动实时图表（前进/转向/跳跃） |
+| **Brain** | 全脑 WebGL 热力图 |
+| **Trajectory** | 马里奥运动轨迹回放（`/trajectory.html`） |
 
-The model also sends an “I'm still here” signal. If it goes quiet for a quarter
-of a second, the game releases the neural controls. Both programs use the same
-clock to check this.
+API 端点：
+- `http://127.0.0.1:8765/trajectory.json` — 实时运动轨迹数据
+- `http://127.0.0.1:8765/bridge-status.json` — 桥接状态
 
-### The dashboard
+## 🧠 技术架构
 
-Read it from top to bottom:
+```
+┌──────────────┐    ┌──────────────────┐    ┌──────────────┐
+│  SM64 Game   │───▶│  Shared Memory   │───▶│ Fly64 脑模型 │
+│  (sm64ex)    │◀───│  Bridge (mmap)   │◀───│ 166,700 神经元│
+│  渲染 3D画面 │    │  seqlock 协议    │    │ LIF 网络     │
+└──────────────┘    └──────────────────┘    └──────────────┘
+       │                     ▲                     │
+       │ 写入 6面体贴图       │ 读取游戏帧          │ 计算控制信号
+       ▼                     │                     ▼
+┌──────────────────────────────────────────────────────────┐
+│  Web Dashboard (http://127.0.0.1:8765)                   │
+│  • 果蝇复眼视图 (270°) • 神经活动图表 • 全脑热力图      │
+│  • 轨迹回放 • 实时数据 WebSocket                         │
+└──────────────────────────────────────────────────────────┘
+```
 
-1. **Eyes:** what the fly sees, and what changed since the last picture.
-2. **Controls:** which cell groups fired, which gates they crossed, and what
-   controls reached the game. All charts show the same ten seconds.
-3. **Brain:** a still map. Brighter cells fired more often. Pick a cell group
-   to see where its known locations are.
+### 关键组件
 
-Hz means spikes per cell per second. The rate uses the last 13 steps, or 260 ms.
-The scales stay fixed. A small signal does not become bright just because
-everything else is quiet.
+| 组件 | 说明 |
+|------|------|
+| `fly64/main.py` | 主循环：视觉→脑模型→控制闭环 |
+| `fly64/bridge.py` | 共享内存桥接（跨进程通信） |
+| `fly64/model.py` | LIF 神经元模型 + 连接组加载 |
+| `fly64/retina.py` | 球面复眼采样（270° 视野） |
+| `fly64/telemetry.py` | 仪表板遥测数据 |
+| `fly64/data.py` | MaleCNS 脑数据下载与预处理 |
+| `web/trajectory.html` | 马里奥运动轨迹回放页面 |
 
-Gold ticks on the jump chart are requests. Cyan ticks mean the game reported A.
-Neither proves Mario left the ground. The game can ignore a jump in some states.
+## 🔧 常见问题
 
-Click **Freeze display** to read one moment. The game keeps running.
-Click **Resume live** to return; the charts start a fresh history.
+### Q: 游戏崩溃（Segmentation fault）
+**原因**: GLEW 未正确初始化。确保：
+```bash
+# 在 fly64_vision.c 中添加 glewInit()
+# 已在 patches/sm64ex-fly64.patch 中包含此修复
+```
 
-Missing cell locations are left off the map. Those cells still run in the model.
-Broad activity can come from the shared background drive, not just the eyes.
-The display shows signals and rules. It cannot show what a fly thinks.
+### Q: Frame difference 没有变化
+**原因**: 合成世界场景变化太小。已在 SyntheticWorld 中添加高频闪烁。
 
-[Display design, signal definitions, and sources](docs/dashboard-design.md)
+### Q: 脑数据下载慢
+**原因**: Google Cloud Storage 带宽限制。使用 curl（非 aria2c）可避免文件截断。
 
-### Each step is saved
+### Q: 仪表板 "Connecting..."
+**原因**: WebSocket 连接未建立。检查浏览器是否可访问端口 8766。
 
-The code saves the pictures, spikes, controls, and random seed.
+## 📜 许可证
 
-The replay tool can run those pictures through the model again and check that
-the same spikes and controls come out.
+本项目基于 [ornata/fly](https://github.com/ornata/fly)（MIT License）修改。
+MaleCNS 数据集遵循 [CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/)。
+Super Mario 64 为 Nintendo 版权作品，需要用户自行提供合法获取的 ROM。
 
-It does not need Mario running to do that.
+## 🙏 致谢
 
-This is an experiment built from real wiring and simple rules.
-
-It is not a validated living fly or a trained Mario player.
-
-[Model details, limitations, and tests](docs/technical-notes.md)
-
-## References
-
-- [MaleCNS v1.0](https://male-cns.janelia.org/download/): the measured wiring.
-- [sm64ex](https://github.com/sm64pc/sm64ex/tree/d7ca2c04364a6dd0dac58b47151e04e26887e6f0): the native Mario engine we patch.
-- [NeuroMechFly v2](https://www.nature.com/articles/s41592-024-02497-y) (2024): a guide for wide-angle fly vision.
-- [Eye structure shapes neuron function in Drosophila motion vision](https://www.nature.com/articles/s41586-025-09276-5) (2025): why eye geometry matters.
-
-These sources informed the demo. They do not validate its brain dynamics or
-its eye-to-neuron map. See [what comes from each source](docs/technical-notes.md#research-references).
+- [ornata/fly](https://github.com/ornata/fly) — 原始 Fly64 项目
+- [MaleCNS](https://male-cns.janelia.org) — 果蝇中枢神经连接组
+- [sm64ex](https://github.com/sm64pc/sm64ex) — Super Mario 64 PC 移植
+- [NeuroMechFly](https://www.nature.com/articles/s41592-024-02497-y) — 果蝇视觉参考
