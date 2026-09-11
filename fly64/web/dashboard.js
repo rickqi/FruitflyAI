@@ -130,3 +130,160 @@ async function start() {
 if (typeof document !== 'undefined') start().catch(error=>{$('status').textContent=error.message;$('status').dataset.state='bad';});
 // Lazy-init memory heatmap when the section exists
 import('./memory-heatmap.js').then(m => m.initMemoryHeatmap()).catch(() => {});
+
+// ── History charts (stuck trend + optic flow) ──────────────────────────
+
+let historyData = [];
+
+async function fetchHistory() {
+  try {
+    const r = await fetch('/history.json');
+    if (r.ok) historyData = await r.json();
+    renderHistoryCharts();
+  } catch (_) {}
+}
+
+const CYAN2 = '#6cdaed', GOLD2 = '#ffca72', INK2 = '#f0f4f8', MUTED2 = '#b0bdcc';
+
+function renderHistoryCharts() {
+  if (!historyData.length) return;
+
+  // ── Stuck Trend chart ──
+  const stuckCanvas = $('stuckChart');
+  if (stuckCanvas) {
+    const ctx = stuckCanvas.getContext('2d');
+    const w = stuckCanvas.clientWidth, h = stuckCanvas.clientHeight;
+    const d = window.devicePixelRatio || 1;
+    stuckCanvas.width = Math.round(w * d);
+    stuckCanvas.height = Math.round(h * d);
+    ctx.scale(d, d);
+    const top = 10, bottom = h - 2, left = 4, right = w - 4;
+    const range = bottom - top;
+
+    // Clear
+    ctx.fillStyle = '#10151c';
+    ctx.fillRect(0, 0, w, h);
+
+    // Get the last 60s of data
+    const now = historyData.length > 0 ? historyData[historyData.length - 1].t : 60;
+    const cutoff = now - 60;
+    const pts = historyData.filter(p => p.t >= cutoff);
+    if (pts.length < 2) return;
+
+    // X/Y mapping
+    const xpos = (t) => left + (t - cutoff) / 60 * (right - left);
+    const ypos = (v) => bottom - v * range;
+
+    // Grid lines
+    ctx.strokeStyle = '#303a45';
+    ctx.lineWidth = 0.5;
+    for (let s = 0; s <= 60; s += 15) {
+      const xx = xpos(cutoff + s);
+      ctx.beginPath(); ctx.moveTo(xx, top); ctx.lineTo(xx, bottom); ctx.stroke();
+    }
+    ctx.fillStyle = MUTED2;
+    ctx.font = '9px -apple-system, sans-serif';
+    ctx.fillText('0', left, bottom + 9);
+    ctx.fillText('1', left, top + 9);
+
+    // Threshold line at 0.8
+    ctx.strokeStyle = '#ff6b6b';
+    ctx.lineWidth = 0.5;
+    ctx.setLineDash([2, 3]);
+    ctx.beginPath(); ctx.moveTo(left, ypos(0.8)); ctx.lineTo(right, ypos(0.8)); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Draw stuck_score line with color per segment
+    ctx.lineWidth = 1.5;
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], b = pts[i];
+      const val = (a.stuck_score + b.stuck_score) / 2;
+      // Color gradient: green (low) → yellow → red (high)
+      const t = Math.min(1, Math.max(0, val));
+      const r = Math.round(30 + t * 225);
+      const g = Math.round(200 - t * 180);
+      const bv = Math.round(80 - t * 60);
+      ctx.strokeStyle = `rgb(${r},${g},${bv})`;
+      ctx.beginPath();
+      ctx.moveTo(xpos(a.t), ypos(a.stuck_score));
+      ctx.lineTo(xpos(b.t), ypos(b.stuck_score));
+      ctx.stroke();
+    }
+  }
+
+  // ── Optic Flow chart ──
+  const flowCanvas = $('flowChart');
+  if (flowCanvas) {
+    const ctx = flowCanvas.getContext('2d');
+    const w = flowCanvas.clientWidth, h = flowCanvas.clientHeight;
+    const d = window.devicePixelRatio || 1;
+    flowCanvas.width = Math.round(w * d);
+    flowCanvas.height = Math.round(h * d);
+    ctx.scale(d, d);
+    const top = 10, bottom = h - 2, left = 4, right = w - 4;
+    const range = bottom - top;
+
+    ctx.fillStyle = '#10151c';
+    ctx.fillRect(0, 0, w, h);
+
+    const now = historyData.length > 0 ? historyData[historyData.length - 1].t : 60;
+    const cutoff = now - 60;
+    const pts = historyData.filter(p => p.t >= cutoff);
+    if (pts.length < 2) return;
+
+    const xpos = (t) => left + (t - cutoff) / 60 * (right - left);
+    const ypos = (v) => bottom - v * range;
+
+    ctx.strokeStyle = '#303a45';
+    ctx.lineWidth = 0.5;
+    for (let s = 0; s <= 60; s += 15) {
+      const xx = xpos(cutoff + s);
+      ctx.beginPath(); ctx.moveTo(xx, top); ctx.lineTo(xx, bottom); ctx.stroke();
+    }
+    ctx.fillStyle = MUTED2;
+    ctx.font = '9px -apple-system, sans-serif';
+    ctx.fillText('0', left, bottom + 9);
+    ctx.fillText('1', left, top + 9);
+
+    // 0.3 reference line
+    ctx.strokeStyle = '#536170';
+    ctx.lineWidth = 0.5;
+    ctx.setLineDash([2, 3]);
+    ctx.beginPath(); ctx.moveTo(left, ypos(0.3)); ctx.lineTo(right, ypos(0.3)); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Draw three flow lines
+    const flowSeries = [
+      { key: 'asymmetry', color: CYAN2, label: 'asym' },
+      { key: 'looming', color: GOLD2, label: 'loom' },
+      { key: 'cliff', color: MUTED2, label: 'cliff' },
+    ];
+    ctx.lineWidth = 1.2;
+    for (const series of flowSeries) {
+      ctx.strokeStyle = series.color;
+      ctx.beginPath();
+      let started = false;
+      for (const p of pts) {
+        const v = p[series.key];
+        if (v === undefined) { started = false; continue; }
+        const xx = xpos(p.t), yy = ypos(v);
+        if (!started) { ctx.moveTo(xx, yy); started = true; }
+        else ctx.lineTo(xx, yy);
+      }
+      ctx.stroke();
+      // Label at the end
+      if (pts.length > 0) {
+        const last = pts[pts.length - 1];
+        ctx.fillStyle = series.color;
+        ctx.font = '8px -apple-system, sans-serif';
+        ctx.fillText(series.label, right - 30, top + 4 + flowSeries.indexOf(series) * 10);
+      }
+    }
+  }
+}
+
+// Start history fetch cycle when the chart canvases exist
+if (typeof document !== 'undefined' && $('stuckChart')) {
+  fetchHistory();
+  setInterval(fetchHistory, 1000);
+}

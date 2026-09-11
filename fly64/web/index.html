@@ -25,7 +25,13 @@
 </section>
 <section aria-labelledby="memory-title">
 <div class="section-head"><h2 id="memory-title">Spatial memory</h2><span id="memoryInfo" class="memory-info">Waiting for data…</span></div>
-<div class="memory-row"><div class="map memory-map"><canvas id="memoryHeatmap" aria-label="Visit-count heatmap of spatial memory grid"></canvas><div class="legend"><span>Cold</span><i style="background:linear-gradient(to right,#1e4a6e,#1e8a3e,#f0c030,#e03020)"></i><span>Hot</span></div></div><div class="memory-note"><p class="muted">50×50 grid · 200 u/cell<br>White dot = current position</p></div></div>
+<div class="memory-row"><div class="map memory-map"><canvas id="memoryHeatmap" aria-label="Visit-count heatmap of spatial memory grid with trajectory and escape markers"></canvas><div class="legend"><span>Cold</span><i style="background:linear-gradient(to right,#1e4a6e,#1e8a3e,#f0c030,#e03020)"></i><span>Hot</span></div><div class="escape-legend" style="margin-top:4px;font-size:10px;color:#b0bdcc;display:flex;gap:10px;justify-content:center">
+<span>● <span style="color:#ffc832">Stuck</span></span>
+<span>✕ <span style="color:#ff3c3c">Fall</span></span>
+<span>◆ <span style="color:#32b4ff">Flow/Cliff</span></span>
+<span>─ <span style="color:#6cdaed">Trajectory</span></span>
+</div></div><div class="memory-note"><p class="muted">50×50 grid · 200 u/cell<br>White dot = current<br>Hover markers for details</p></div></div>
+<div class="history-row"><div class="chart-wrap"><div class="chart-label-sm"><strong>Stuck Trend</strong><span>60s · score</span></div><canvas id="stuckChart" role="img" aria-label="Stuck score trend over 60 seconds"></canvas></div><div class="chart-wrap"><div class="chart-label-sm"><strong>Optic Flow</strong><span>60s · asymmetry / looming / cliff</span></div><canvas id="flowChart" role="img" aria-label="Optic flow signal trends over 60 seconds"></canvas></div></div>
 </section>
 <footer><p id="performance">Waiting for performance counters…</p><p>Measured wiring; modeled dynamics & controls. Activity ≠ intent.</p></footer>
 </main><script type="module" src="/dashboard.js"></script></body></html>

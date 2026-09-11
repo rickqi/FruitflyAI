@@ -9,8 +9,10 @@ import threading
 import time
 import webbrowser
 import json
+import math
 import signal
 import resource
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -25,6 +27,51 @@ from .retina import BASES, CALIBRATION
 from .telemetry import Observatory
 from .memory import MemoryController
 
+class EscapeEventBuffer:
+    """Ring buffer of last 200 escape events.
+
+    Each event records: timestamp, reason (stuck/fallen/flow/cliff),
+    duration, position (x,z), outcome (resolved/still_escaping).
+    """
+
+    def __init__(self, maxlen: int = 200):
+        self._events: deque = deque(maxlen=maxlen)
+
+    def start_event(self, timestamp: float, reason: str,
+                    position_x: float, position_z: float) -> dict:
+        """Record the start of a new escape event."""
+        event: dict = {
+            "timestamp": round(timestamp, 2),
+            "reason": reason,
+            "duration": 0.0,
+            "position": {"x": round(position_x, 1), "z": round(position_z, 1)},
+            "outcome": "still_escaping",
+            "distance_moved": 0.0,
+        }
+        self._events.append(event)
+        return event
+
+    def update_current(self, dt: float) -> None:
+        """Accumulate tick duration onto the current (latest) event."""
+        if self._events:
+            self._events[-1]["duration"] = round(
+                self._events[-1]["duration"] + dt, 3)
+
+    def resolve_current(self, distance_moved: float) -> None:
+        """Mark the current event as resolved and record distance covered."""
+        if self._events:
+            self._events[-1]["outcome"] = "resolved"
+            self._events[-1]["distance_moved"] = round(distance_moved, 1)
+
+    def get_recent(self, n: int = 100) -> list[dict]:
+        """Return the last *n* events as a list."""
+        events = list(self._events)
+        return events[-n:]
+
+    def clear(self) -> None:
+        self._events.clear()
+
+
 class DashboardHTTP(BaseHTTPRequestHandler):
     html = b""
     positions = b""
@@ -33,6 +80,9 @@ class DashboardHTTP(BaseHTTPRequestHandler):
     assets = {}
     memory_json = b"{}"
     flow_json = b"{}"
+    events_json = b"{}"
+    history_json = b"[]"
+    signal_history = deque(maxlen=600)
 
     def do_GET(self):
         path = urlsplit(self.path).path
@@ -52,6 +102,10 @@ class DashboardHTTP(BaseHTTPRequestHandler):
             body, mime = self.memory_json, "application/json"
         elif path == "/flow.json":
             body, mime = self.flow_json, "application/json"
+        elif path == "/events.json":
+            body, mime = self.events_json, "application/json"
+        elif path == "/history.json":
+            body, mime = self.history_json, "application/json"
         elif path == "/trajectory-list.json":
             import glob as _glob
             arts = Path(__file__).resolve().parent.parent / "artifacts"
@@ -264,6 +318,12 @@ async def run(args) -> None:
     memory_ctrl = MemoryController()
     escape_x = 0
     escape_toggle_timer = 0.0
+    escape_buffer = EscapeEventBuffer()
+    event_counters = {"total_escapes": 0, "total_falls": 0,
+                      "total_flow_avoid": 0, "current_stuck_duration": 0.0}
+    current_escape_event = None
+    previous_escape: bool = False
+    event_last_pos = (0.0, 0.0)
 
     async def ws_handler(socket):
         clients.add(socket)
@@ -328,6 +388,7 @@ async def run(args) -> None:
                     control.y = min(control.y, 10)
 
             # Escape control: override when stuck & looping
+            pose_ev = bridge.frame_metadata.get("pose", [0, 0, 0, 0])
             if memory_ctrl.escape_behavior:
                 escape_toggle_timer += model.dt
                 model.escape_mode = True
@@ -343,7 +404,7 @@ async def run(args) -> None:
                 else:
                     if escape_toggle_timer < 0.8:
                         if escape_toggle_timer < model.dt:
-                            avoid = memory_ctrl.failures.avoid_direction(pose[0], pose[2], pose[3])
+                            avoid = memory_ctrl.failures.avoid_direction(pose_ev[0], pose_ev[2], pose_ev[3])
                             escape_x = model.rng.integers(40, 70)
                             if avoid > 0:
                                 escape_x = abs(escape_x)
@@ -356,6 +417,42 @@ async def run(args) -> None:
                         escape_toggle_timer = 0.0; control.jump = True
             else:
                 escape_toggle_timer = 0.0
+
+            # ---- Escape event tracking ----
+            currently_escaping = memory_ctrl.escape_behavior
+            if currently_escaping and not previous_escape:
+                # Escape just started — determine reason
+                if memory_ctrl.fallen:
+                    reason = "fallen"
+                    event_counters["total_falls"] += 1
+                elif memory_ctrl.stuck_score > 0.8:
+                    reason = "stuck"
+                elif model.flow_cliff < 0.3:
+                    reason = "cliff"
+                elif model.flow_asymmetry > 0.3:
+                    reason = "flow"
+                else:
+                    reason = "stuck"
+                current_escape_event = escape_buffer.start_event(
+                    round(tick_start - started, 2), reason,
+                    pose_ev[0], pose_ev[2])
+                event_counters["total_escapes"] += 1
+                event_last_pos = (pose_ev[0], pose_ev[2])
+            if currently_escaping:
+                escape_buffer.update_current(model.dt)
+            elif previous_escape:
+                # Escape just ended — resolve
+                dx = pose_ev[0] - event_last_pos[0]
+                dz = pose_ev[2] - event_last_pos[2]
+                dist = math.sqrt(dx * dx + dz * dz)
+                escape_buffer.resolve_current(dist)
+                current_escape_event = None
+            previous_escape = currently_escaping
+            event_counters["current_stuck_duration"] = round(memory_ctrl.stuck_duration, 3)
+            if model.flow_asymmetry > 0.3 or model.flow_cliff < 0.3:
+                if not current_escape_event and not currently_escaping:
+                    event_counters["total_flow_avoid"] += 1
+
             latest_control = control
             bridge.write_control(control.x, control.y, control.jump)
             replay.add((model.step_count - 1) * model.dt, frame, control, spikes, bridge.frame_metadata)
@@ -428,6 +525,22 @@ async def run(args) -> None:
                     "cliff": round(model.flow_cliff, 4),
                     "tick": model.step_count,
                 }, separators=(",", ":")).encode()
+                DashboardHTTP.events_json = json.dumps({
+                    "events": escape_buffer.get_recent(100),
+                    "counters": event_counters,
+                }, separators=(",", ":")).encode()
+                # Push signal history
+                DashboardHTTP.signal_history.append({
+                    "t": round(tick_start - started, 2),
+                    "stuck_score": round(memory_ctrl.stuck_score, 3),
+                    "stuck_duration": round(memory_ctrl.stuck_duration, 3),
+                    "asymmetry": round(model.flow_asymmetry, 4),
+                    "looming": round(model.flow_looming, 4),
+                    "cliff": round(model.flow_cliff, 4),
+                })
+                DashboardHTTP.history_json = json.dumps(
+                    list(DashboardHTTP.signal_history),
+                    separators=(",", ":")).encode()
 
             next_tick += model.dt
             delay = next_tick - time.monotonic()
