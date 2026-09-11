@@ -45,6 +45,35 @@ class DashboardHTTP(BaseHTTPRequestHandler):
             body, mime = json.dumps(self.bridge.game_status()).encode(), "application/json"
         elif path == "/trajectory.json":
             body, mime = self.trajectory, "application/json"
+        elif path == "/trajectory-list.json":
+            import glob as _glob
+            arts = Path(__file__).resolve().parent.parent / "artifacts"
+            files = sorted(_glob.glob(str(arts / "*.trajectory.npz")) + _glob.glob(str(arts / "latest-replay.trajectory.npz")))
+            listing = []
+            for f in files:
+                p = Path(f)
+                size = p.stat().st_size
+                mtime = p.stat().st_mtime
+                import datetime as _dt
+                listing.append({"name": p.name, "size": size, "time": _dt.datetime.fromtimestamp(mtime).isoformat()})
+            body, mime = json.dumps(listing, default=str).encode(), "application/json"
+        elif path == "/trajectory-load":
+            from urllib.parse import parse_qs as _pq
+            qs = _pq(urlsplit(self.path).query)
+            fname = qs.get("file", [None])[0]
+            if fname:
+                tpath = Path(__file__).resolve().parent.parent / "artifacts" / fname
+                if tpath.exists():
+                    import numpy as _np
+                    data = _np.load(tpath)
+                    pts = [{"t": float(t), "x": float(x), "y": float(y), "z": float(z), "heading": float(h),
+                            "ctrl_x": int(cx), "ctrl_y": int(cy), "game_frame": int(gf)}
+                           for t, x, y, z, h, cx, cy, gf in zip(data["t"], data["x"], data["y"], data["z"], data["heading"], data["ctrl_x"], data["ctrl_y"], data["game_frame"])]
+                    body, mime = json.dumps(pts, default=str).encode(), "application/json"
+                else:
+                    body, mime = json.dumps({"error": "file not found"}).encode(), "application/json"
+            else:
+                body, mime = json.dumps({"error": "no file specified"}).encode(), "application/json"
         else:
             self.send_error(404)
             return

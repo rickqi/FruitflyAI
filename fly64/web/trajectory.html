@@ -1,31 +1,32 @@
 <!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Fly64 3D Trajectory Replay</title>
 <style>
 *{box-sizing:border-box}
-body{margin:0;font:14px -apple-system,sans-serif;background:#0b1015;color:#f0f4f8;overflow:auto;height:100vh;display:flex;flex-direction:column}
-#canvasWrap{position:relative;flex:1;min-height:300px;transition:all .3s ease}
-#canvasWrap.mini{position:fixed;bottom:80px;right:16px;width:360px;height:240px;border-radius:10px;overflow:hidden;border:1px solid #354250;box-shadow:0 4px 20px rgba(0,0,0,.5);z-index:100;flex:none}
+body{margin:0;font:14px -apple-system,sans-serif;background:#0b1015;color:#f0f4f8;overflow:hidden;height:100vh}
+#canvasWrap{position:absolute;inset:0;transition:all .3s ease}
+#canvasWrap.mini{position:fixed;bottom:80px;right:16px;width:400px;height:280px;border-radius:10px;overflow:hidden;border:1px solid #354250;box-shadow:0 4px 20px rgba(0,0,0,.6);z-index:100}
 #canvasWrap.mini canvas{width:100%!important;height:100%!important}
-#toggleView{position:fixed;bottom:60px;right:20px;z-index:9999;background:rgba(11,16,21,.85);border:1px solid #354250;border-radius:6px;color:#b0bdcc;cursor:pointer;padding:6px 10px;font-size:13px;transition:all .2s}#toggleView:hover{background:#354250;color:#f0f4f8}
-#toggleView:hover{background:#354250;color:#f0f4f8}
-.controls{display:flex;gap:8px;align-items:center;padding:10px 16px;background:#0b1015;border-top:1px solid #1a2430;flex-wrap:wrap;justify-content:center;flex-shrink:0}
-.controls button{background:#354250;color:#f0f4f8;border:none;padding:5px 14px;border-radius:4px;cursor:pointer;font-size:12px}
-.controls button:hover{background:#4a5a6a}
-.controls label{font-size:12px;color:#b0bdcc;display:flex;align-items:center;gap:4px}
-.controls select{background:#1a2430;color:#f0f4f8;border:1px solid #354250;border-radius:3px;padding:2px 4px;font-size:12px}
-input[type=range]{width:180px;background:#1a2430;height:4px;border-radius:2px;-webkit-appearance:none;accent-color:#6cdaed}
-#info{position:absolute;top:10px;left:10px;z-index:10;background:rgba(11,16,21,.8);padding:6px 12px;border-radius:6px;border:1px solid #354250;pointer-events:none}
+.controls{position:fixed;bottom:0;left:0;right:0;z-index:50;display:flex;gap:8px;align-items:center;padding:8px 14px;background:rgba(11,16,21,.92);border-top:1px solid #1a2430;flex-wrap:wrap}
+.controls button,.controls select{background:#1a2430;color:#f0f4f8;border:1px solid #354250;border-radius:4px;padding:4px 10px;font-size:12px;cursor:pointer}
+.controls button:hover{background:#2a3440}
+.controls label{font-size:11px;color:#b0bdcc;display:flex;align-items:center;gap:4px}
+.controls select{background:#0d1520}
+input[type=range]{flex:1;min-width:100px;accent-color:#6cdaed;height:4px}
+#info{position:absolute;top:8px;left:10px;z-index:10;background:rgba(11,16,21,.8);padding:4px 10px;border-radius:6px;border:1px solid #354250;pointer-events:none;font-size:12px}
 #info h2{margin:0;font-size:13px;color:#6cdaed}
-#frameInfo{color:#ffca72;font-size:12px}
-#stats{position:absolute;top:10px;right:36px;z-index:10;background:rgba(11,16,21,.8);padding:6px 10px;border-radius:6px;border:1px solid #354250;font-size:11px;line-height:1.5;min-width:120px;pointer-events:none}
+#frameInfo{color:#ffca72;margin-left:6px}
+#stats{position:absolute;top:8px;right:10px;z-index:10;background:rgba(11,16,21,.8);padding:4px 8px;border-radius:6px;border:1px solid #354250;font-size:11px;line-height:1.5;pointer-events:none;min-width:100px}
 #stats .l{color:#6cdaed}#stats .v{color:#f0f4f8}
-#errorMsg{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:20;background:#2a1515;color:#ff6b6b;padding:16px;border-radius:6px;border:1px solid #ff6b6b;display:none}
+#toggleView{position:fixed;bottom:52px;right:20px;z-index:9999;background:rgba(11,16,21,.85);border:1px solid #354250;border-radius:6px;color:#b0bdcc;cursor:pointer;padding:5px 10px;font-size:13px}
+#toggleView:hover{background:#354250;color:#f0f4f8}
+#fileSelect{max-width:200px}
+#errorMsg{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:20;background:#2a1515;color:#ff6b6b;padding:14px;border-radius:6px;border:1px solid #ff6b6b;display:none;font-size:13px}
 </style></head><body>
-<div id="canvasWrap"><div id="info"><h2>🪰 Fly64 3D</h2><span id="frameInfo">0/0</span></div>
-<div id="stats"></div><div id="errorMsg"></div></div>
-<button id="toggleView">🗖</button>
+<div id="canvasWrap"><div id="info"><h2>🪰 Fly64 3D</h2><span id="frameInfo">0/0</span></div><div id="stats"></div><div id="errorMsg"></div></div>
+<div id="toggleView">🗖</div>
 <div class="controls">
-<button id="playBtn">▶ Play</button><button id="resetBtn">⟲ Reset</button>
+<button id="playBtn">▶</button><button id="resetBtn">⟲</button>
 <label>Speed:<select id="speed"><option value="0.5" selected>0.5x</option><option value="1">1x</option><option value="2">2x</option><option value="5">5x</option><option value="10">10x</option></select></label>
+<label>File:<select id="fileSelect"><option>Loading...</option></select></label>
 <input type="range" id="slider" min="0" max="0" value="0">
 </div>
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
@@ -34,136 +35,104 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 
-const $ = id => document.getElementById(id);
-const wrap = $('canvasWrap');
-let pts = [], playing = 0, pos = 0, spd = 1, anim = null, mini = true;
+const $=id=>document.getElementById(id),wrap=$('canvasWrap');
+let pts=[],playing=0,pos=0,spd=0.5,anim=null,mini=true;
 
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0b1015);
-const camera = new THREE.PerspectiveCamera(50, 1, 1, 200000);
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+const scene=new THREE.Scene();scene.background=new THREE.Color(0x0b1015);
+const camera=new THREE.PerspectiveCamera(50,1,1,200000);
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
 wrap.prepend(renderer.domElement);
-const labelRenderer = new CSS2DRenderer();
-labelRenderer.domElement.style.position = 'absolute'; labelRenderer.domElement.style.top = '0'; labelRenderer.domElement.style.pointerEvents = 'none';
-wrap.prepend(labelRenderer.domElement);
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true; controls.dampingFactor = .08;
+const lr=new CSS2DRenderer();
+lr.domElement.style.position='absolute';lr.domElement.style.top='0';lr.domElement.style.pointerEvents='none';
+wrap.prepend(lr.domElement);
+const ctrl=new OrbitControls(camera,renderer.domElement);
+ctrl.enableDamping=true;ctrl.dampingFactor=.08;
 
-// Grid
-const grid = new THREE.GridHelper(30000, 30, 0x354250, 0x1a2430);
-scene.add(grid);
+const grid=new THREE.GridHelper(30000,30,0x354250,0x1a2430);scene.add(grid);
+const pathMat=new THREE.LineBasicMaterial({color:0x6cdaed});pathMat.linewidth=1;
+const pathGeo=new THREE.BufferGeometry();const pathLine=new THREE.Line(pathGeo,pathMat);scene.add(pathLine);
+const dotMat=new THREE.PointsMaterial({color:0x6cdaed,sizeAttenuation:true,transparent:true,opacity:.25});
+const dotGeo=new THREE.BufferGeometry();const dots=new THREE.Points(dotGeo,dotMat);scene.add(dots);
+const sphere=new THREE.Mesh(new THREE.SphereGeometry(1,12,12),new THREE.MeshBasicMaterial({color:0xffca72}));scene.add(sphere);
+const arrow=new THREE.ArrowHelper(new THREE.Vector3(1,0,0),new THREE.Vector3(0,0,0),1,0xffca72,.3,.15);scene.add(arrow);
+const mk=(t,c)=>{const d=document.createElement('div');d.textContent=t;d.style.color=c;d.style.fontSize='11px';d.style.fontWeight='bold';return new CSS2DObject(d);};
+const sL=mk('🏁 Start','#4caf50'),eL=mk('🏁 End','#ff6b6b');scene.add(sL);scene.add(eL);
+const sel=$('fileSelect');
 
-// Path
-const pathMat = new THREE.LineBasicMaterial({ color: 0x6cdaed, transparent: true, opacity: .6 });
-const pathGeo = new THREE.BufferGeometry();
-const pathLine = new THREE.Line(pathGeo, pathMat);
-scene.add(pathLine);
+function resize(){const r=wrap.getBoundingClientRect();const w=r.width||400,h=r.height||280;camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h);lr.setSize(w,h);}
 
-// Dots
-const dotMat = new THREE.PointsMaterial({ color: 0x6cdaed, size: 25, transparent: true, opacity: .25, sizeAttenuation: true });
-const dotGeo = new THREE.BufferGeometry();
-const dots = new THREE.Points(dotGeo, dotMat);
-scene.add(dots);
-
-// Sphere
-const sphere = new THREE.Mesh(new THREE.SphereGeometry(60, 12, 12), new THREE.MeshBasicMaterial({ color: 0xffca72 }));
-scene.add(sphere);
-
-// Head arrow
-const arrow = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 0), 350, 0xffca72, .25, .12);
-scene.add(arrow);
-
-// Labels
-const mk = (txt, col) => { const d = document.createElement('div'); d.textContent = txt; d.style.color = col; d.style.fontSize = '12px'; d.style.fontWeight = 'bold'; return new CSS2DObject(d); };
-const startL = mk('🏁 Start', '#4caf50'), endL = mk('🏁 End', '#ff6b6b');
-scene.add(startL); scene.add(endL);
-
-function resize() {
-  const r = wrap.getBoundingClientRect();
-  const w = r.width || 360, h = r.height || 240;
-  camera.aspect = w / h; camera.updateProjectionMatrix();
-  renderer.setSize(w, h);
-  labelRenderer.setSize(w, h);
+function fitView(){
+  if(pts.length<2)return;
+  const xs=pts.map(p=>p.x),ys=pts.map(p=>p.y),zs=pts.map(p=>p.z);
+  const cx=(Math.min(...xs)+Math.max(...xs))/2,cy=(Math.min(...ys)+Math.max(...ys))/2,cz=(Math.min(...zs)+Math.max(...zs))/2;
+  const r=Math.max(Math.max(...xs)-Math.min(...xs),Math.max(...ys)-Math.min(...ys),Math.max(...zs)-Math.min(...zs))/2+200;
+  ctrl.target.set(cx,cy,cz);
+  camera.position.set(cx+r*1.2,cy+r*0.7,cz+r*1.4);
+  ctrl.update();
+  // Scale objects proportional to trajectory bounds
+  const s=r/2000;
+  sphere.geometry.dispose();sphere.geometry=new THREE.SphereGeometry(Math.max(30,60*s),12,12);
+  arrow.setLength(Math.max(150,350*s),Math.max(100,250*s)*.3,Math.max(50,150*s)*.15);
+  dotMat.size=Math.max(8,25*s);dotMat.needsUpdate=true;
 }
 
-function fitTrajectory() {
-  if (pts.length < 2) return;
-  const xs = pts.map(p => p.x), ys = pts.map(p => p.y), zs = pts.map(p => p.z);
-  const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
-  const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
-  const cz = (Math.min(...zs) + Math.max(...zs)) / 2;
-  const r = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys), Math.max(...zs) - Math.min(...zs)) / 2 + 500;
-  controls.target.set(cx, cy, cz);
-  camera.position.set(cx + r * 1.2, cy + r * 0.8, cz + r * 1.5);
-  controls.update();
+function loadTrajectory(data){
+  pts=data;pos=0;
+  if(!pts||!pts.length){$('errorMsg').textContent='Empty trajectory';$('errorMsg').style.display='block';return;}
+  $('errorMsg').style.display='none';
+  $('slider').max=pts.length-1;
+  if(pts.length<2)return;
+  pathGeo.setAttribute('position',new THREE.Float32BufferAttribute(pts.flatMap(p=>[p.x,p.y,p.z]),3));
+  const step=Math.max(1,Math.floor(pts.length/2000));
+  dotGeo.setAttribute('position',new THREE.Float32BufferAttribute(pts.filter((_,i)=>i%step===0).flatMap(p=>[p.x,p.y,p.z]),3));
+  sL.position.set(pts[0].x,pts[0].y+200,pts[0].z);
+  eL.position.set(pts[pts.length-1].x,pts[pts.length-1].y+200,pts[pts.length-1].z);
+  fitView();update();
 }
 
-$('toggleView').onclick = () => {
-  mini = !mini;
-  wrap.classList.toggle('mini', mini);
-  $('toggleView').textContent = mini ? '🗖' : '✕';
-  setTimeout(resize, 50);
-  if (mini) fitTrajectory();
-};
-
-async function load() {
-  try {
-    const r = await fetch('/trajectory.json');
-    if (!r.ok) throw Error('HTTP ' + r.status);
-    pts = await r.json();
-    if (!pts.length) throw Error('No data');
-    $('slider').max = pts.length - 1;
-    buildPath(); update();
-    setTimeout(() => { resize(); if (mini) fitTrajectory(); }, 100);
-  } catch (e) { $('errorMsg').textContent = 'Error: ' + e.message; $('errorMsg').style.display = 'block'; $('frameInfo').textContent = 'No data'; }
+async function loadFile(name){
+  try{const r=await fetch('/trajectory-load?file='+encodeURIComponent(name));if(!r.ok)throw Error('HTTP '+r.status);
+    const data=await r.json();loadTrajectory(data);}catch(e){$('errorMsg').textContent='Load error: '+e.message;$('errorMsg').style.display='block';}
 }
 
-function buildPath() {
-  if (pts.length < 2) return;
-  pathGeo.setAttribute('position', new THREE.Float32BufferAttribute(pts.flatMap(p => [p.x, p.y, p.z]), 3));
-  const step = Math.max(1, Math.floor(pts.length / 2000));
-  dotGeo.setAttribute('position', new THREE.Float32BufferAttribute(pts.filter((_, i) => i % step === 0).flatMap(p => [p.x, p.y, p.z]), 3));
-  startL.position.set(pts[0].x, pts[0].y + 350, pts[0].z);
-  endL.position.set(pts[pts.length - 1].x, pts[pts.length - 1].y + 350, pts[pts.length - 1].z);
+async function loadList(){
+  try{const r=await fetch('/trajectory-list.json');if(!r.ok)throw Error('HTTP '+r.status);
+    const list=await r.json();
+    if(!list.length){sel.innerHTML='<option>No files</option>';return;}
+    sel.innerHTML=list.map((f,i)=>'<option value="'+f.name+'"'+(i===list.length-1?' selected':'')+'>'+f.name.replace(/\.trajectory\.npz$/,'').slice(-30)+' ('+(f.size/1024|0)+'KB)</option>').join('');
+    loadFile(list[list.length-1].name);}catch(e){sel.innerHTML='<option>Error loading list</option>';$('errorMsg').textContent='List error: '+e.message;$('errorMsg').style.display='block';}
 }
 
-function update() {
-  if (!pts.length) return;
-  const p = pts[pos] || pts[0];
-  sphere.position.set(p.x, p.y, p.z);
+function update(){
+  if(!pts||!pts.length)return;
+  const p=pts[pos]||pts[0];
+  sphere.position.set(p.x,p.y,p.z);
+  const hd=p.heading;
   arrow.position.copy(sphere.position);
-  const hd = p.heading;
-  arrow.setDirection(new THREE.Vector3(Math.sin(hd), 0, Math.cos(hd)).normalize());
-  $('frameInfo').textContent = pos + '/' + (pts.length - 1);
-  $('slider').value = pos;
-  let dist = 0; for (let i = 1; i <= pos; i++) dist += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y, pts[i].z - pts[i - 1].z);
-  $('stats').innerHTML = '<div><span class=l>⏱</span> <span class=v>' + p.t + 's</span></div>' +
-    '<div><span class=l>📍</span> <span class=v>[' + [p.x | 0, p.y | 0, p.z | 0].join() + ']</span></div>' +
-    '<div><span class=l>🧭</span> <span class=v>' + (p.heading * 180 / Math.PI | 0) + '°</span></div>' +
-    '<div><span class=l>🎮</span> <span class=v>x=' + p.ctrl_x + ' y=' + p.ctrl_y + '</span></div>' +
-    '<div><span class=l>📏</span> <span class=v>' + (dist | 0) + 'u</span></div>';
-  controls.target.copy(sphere.position);
+  arrow.setDirection(new THREE.Vector3(Math.sin(hd),0,Math.cos(hd)).normalize());
+  $('frameInfo').textContent=pos+'/'+(pts.length-1);
+  $('slider').value=pos;
+  let dist=0;for(let i=1;i<=pos;i++)dist+=Math.hypot(pts[i].x-pts[i-1].x,pts[i].y-pts[i-1].y,pts[i].z-pts[i-1].z);
+  $('stats').innerHTML='<div><span class=l>⏱</span> <span class=v>'+p.t+'s</span></div><div><span class=l>📍</span> <span class=v>['+(p.x|0)+','+(p.y|0)+','+(p.z|0)+']</span></div><div><span class=l>🧭</span> <span class=v>'+(p.heading*180/Math.PI|0)+'°</span></div><div><span class=l>🎮</span> <span class=v>x='+p.ctrl_x+' y='+p.ctrl_y+'</span></div><div><span class=l>📏</span> <span class=v>'+(dist|0)+'u</span></div>';
+  ctrl.target.copy(sphere.position);
 }
 
-$('slider').oninput = function () { pos = +this.value; update(); };
-$('playBtn').onclick = function () {
-  if (playing) { playing = 0; cancelAnimationFrame(anim); this.textContent = '▶ Play'; return; }
-  if (pos >= pts.length - 1) pos = 0;
-  playing = 1; this.textContent = '⏸ Pause'; spd = +$('speed').value;
-  const step = () => {
-    if (!playing || pos >= pts.length - 1) { playing = 0; $('playBtn').textContent = '▶ Play'; return; }
-    pos = Math.min(pos + spd, pts.length - 1); update(); anim = requestAnimationFrame(step);
-  };
-  anim = requestAnimationFrame(step);
+$('toggleView').onclick=()=>{mini=!mini;wrap.classList.toggle('mini',mini);$('toggleView').textContent=mini?'🗖':'✕';setTimeout(resize,50);if(mini)fitView();};
+sel.onchange=()=>{if(sel.value)loadFile(sel.value);};
+$('slider').oninput=function(){pos=+this.value;update();};
+$('playBtn').onclick=function(){
+  if(playing){playing=0;cancelAnimationFrame(anim);this.textContent='▶';return;}
+  if(pos>=pts.length-1)pos=0;
+  playing=1;this.textContent='⏸';spd=+$('speed').value;
+  const step=()=>{if(!playing||pos>=pts.length-1){playing=0;$('playBtn').textContent='▶';return;}
+    pos=Math.min(pos+spd,pts.length-1);update();anim=requestAnimationFrame(step);};
+  anim=requestAnimationFrame(step);
 };
-$('resetBtn').onclick = function () { playing = 0; cancelAnimationFrame(anim); $('playBtn').textContent = '▶ Play'; pos = 0; update(); };
-
-function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); labelRenderer.render(scene, camera); }
+$('resetBtn').onclick=function(){playing=0;cancelAnimationFrame(anim);$('playBtn').textContent='▶';pos=0;update();};
+function animate(){requestAnimationFrame(animate);ctrl.update();renderer.render(scene,camera);lr.render(scene,camera);}
 animate();
-window.addEventListener('resize', resize);
-// Default mini
-wrap.classList.add('mini');
-$('toggleView').textContent = '🗖';
-load();
+window.addEventListener('resize',resize);
+wrap.classList.add('mini');$('toggleView').textContent='🗖';
+setTimeout(()=>{resize();loadList();},100);
 </script></body></html>
