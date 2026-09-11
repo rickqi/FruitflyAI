@@ -23,6 +23,7 @@ from .bridge import CHANNELS, HEIGHT, WIDTH, SharedBridge
 from .model import FlyModel
 from .retina import BASES, CALIBRATION
 from .telemetry import Observatory
+from .memory import MemoryController
 
 class DashboardHTTP(BaseHTTPRequestHandler):
     html = b""
@@ -30,6 +31,7 @@ class DashboardHTTP(BaseHTTPRequestHandler):
     metadata = b"{}"
     bridge = None
     assets = {}
+    memory_json = b"{}"
 
     def do_GET(self):
         path = urlsplit(self.path).path
@@ -45,6 +47,8 @@ class DashboardHTTP(BaseHTTPRequestHandler):
             body, mime = json.dumps(self.bridge.game_status()).encode(), "application/json"
         elif path == "/trajectory.json":
             body, mime = self.trajectory, "application/json"
+        elif path == "/memory.json":
+            body, mime = self.memory_json, "application/json"
         elif path == "/trajectory-list.json":
             import glob as _glob
             arts = Path(__file__).resolve().parent.parent / "artifacts"
@@ -205,6 +209,7 @@ def start_http(project: Path, model, port: int, ws_port: int) -> ThreadingHTTPSe
     DashboardHTTP.assets = {
         "/dashboard.js": ((project / "web/dashboard.js").read_bytes(), "text/javascript"),
         "/dashboard.css": ((project / "web/dashboard.css").read_bytes(), "text/css"),
+        "/memory-heatmap.js": ((project / "web/memory-heatmap.js").read_bytes(), "text/javascript"),
         "/trajectory.html": ((project / "web/trajectory.html").read_bytes(), "text/html"),
         "/measured.bin": (model.position_measured.astype(np.uint8).tobytes(), "application/octet-stream"),
     }
@@ -252,6 +257,10 @@ async def run(args) -> None:
     pending_jump = False
     dash_seq = 0
     DashboardHTTP.trajectory_points = []
+    DashboardHTTP.memory_json = b"{}"
+    memory_ctrl = MemoryController()
+    escape_x = 0
+    escape_toggle_timer = 0.0
 
     async def ws_handler(socket):
         clients.add(socket)
@@ -295,7 +304,19 @@ async def run(args) -> None:
             if seq != last_frame_seq:
                 frame = np.frombuffer(pixels, np.uint8).reshape(HEIGHT, WIDTH, CHANNELS).copy()
                 last_frame_seq = seq
-            control, spikes = model.step(frame, model.step_count * model.dt)
+            model.escape_mode = memory_ctrl.escape_behavior
+            control, spikes = model.step(frame, model.step_count * model.dt,
+                                         novelty=memory_ctrl.novelty)
+            # Escape control: override when stuck & looping
+            if memory_ctrl.escape_behavior:
+                escape_toggle_timer += model.dt
+                if escape_toggle_timer >= 1.5:
+                    escape_toggle_timer = 0.0
+                    escape_x = model.rng.integers(40, 70) * (-1 if model.rng.random() < 0.5 else 1)
+                control.x = escape_x
+                control.y = 0
+            else:
+                escape_toggle_timer = 0.0
             latest_control = control
             bridge.write_control(control.x, control.y, control.jump)
             replay.add((model.step_count - 1) * model.dt, frame, control, spikes, bridge.frame_metadata)
@@ -336,6 +357,30 @@ async def run(args) -> None:
                     DashboardHTTP.trajectory_points = DashboardHTTP.trajectory_points[-6000:]
                 DashboardHTTP.trajectory = json.dumps(DashboardHTTP.trajectory_points[-500:], default=str).encode()
 
+                # Update spatial memory
+                memory_ctrl.update(
+                    temporal_energy=model.temporal_energy,
+                    frame_seq=last_frame_seq,
+                    forward_rate=getattr(control, 'forward_rate', 0.0),
+                    x=pose[0], z=pose[2],
+                    heading=pose[3],
+                )
+                xs, zs, heats = memory_ctrl.spatial.get_heatmap()
+                DashboardHTTP.memory_json = json.dumps({
+                    "stuck_score": round(memory_ctrl.stuck_score, 3),
+                    "stuck_duration": round(memory_ctrl.stuck_duration, 3),
+                    "novelty": round(memory_ctrl.novelty, 3),
+                    "escape_behavior": memory_ctrl.escape_behavior,
+                    "loop_score": round(memory_ctrl.spatial.loop_score, 3),
+                    "exploration_mode": memory_ctrl.spatial.exploration_mode,
+                    "visited_cells": memory_ctrl.spatial.visited_cells,
+                    "cell_x": int(pose[0]),
+                    "cell_z": int(pose[2]),
+                    "xs": [round(float(v), 1) for v in xs[:2500]],
+                    "zs": [round(float(v), 1) for v in zs[:2500]],
+                    "heats": [round(float(v), 3) for v in heats[:2500]],
+                }, separators=(",", ":")).encode()
+
             next_tick += model.dt
             delay = next_tick - time.monotonic()
             if delay > 0:
@@ -352,6 +397,18 @@ async def run(args) -> None:
         await ws_server.wait_closed()
         http.shutdown()
         bridge.close()
+        # Save memory state
+        try:
+            mem_path = project / "artifacts" / "memory_state.json"
+            mem_path.parent.mkdir(parents=True, exist_ok=True)
+            mem_path.write_text(json.dumps({
+                "visited_cells": memory_ctrl.spatial.visited_cells,
+                "stuck_score": memory_ctrl.stuck_score,
+                "stuck_duration": memory_ctrl.stuck_duration,
+                "total_ticks": memory_ctrl.spatial.total_ticks,
+            }))
+        except Exception:
+            pass
         if dashboard_process and dashboard_process.poll() is None:
             dashboard_process.terminate()
 

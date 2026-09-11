@@ -23,5 +23,9 @@
 <div class="section-head"><h2 id="brain-title">Activity map</h2><label><select id="population" aria-label="Neuron population"><option value="all">All located neurons</option><option value="visual">Visual input · R1–R8</option><option value="forward">Forward · DNg100</option><option value="left">Left steering pool</option><option value="right">Right steering pool</option><option value="jump">Jump pool</option></select></label></div>
 <div class="brain-row"><div class="map"><canvas id="brain" aria-label="Stationary projection of measured neuron locations; brightness is rolling firing rate"></canvas><div class="legend"><span>0 Hz</span><i></i><span>50 Hz</span></div></div><div class="brain-note"><p id="populationRate">—</p><p id="populationInfo">Loading anatomy…</p><p class="muted">Fixed X/Y · dim points = context<br>Missing locations still simulated.</p></div></div>
 </section>
+<section aria-labelledby="memory-title">
+<div class="section-head"><h2 id="memory-title">Spatial memory</h2><span id="memoryInfo" class="memory-info">Waiting for data…</span></div>
+<div class="memory-row"><div class="map memory-map"><canvas id="memoryHeatmap" aria-label="Visit-count heatmap of spatial memory grid"></canvas><div class="legend"><span>Cold</span><i style="background:linear-gradient(to right,#1e4a6e,#1e8a3e,#f0c030,#e03020)"></i><span>Hot</span></div></div><div class="memory-note"><p class="muted">50×50 grid · 200 u/cell<br>White dot = current position</p></div></div>
+</section>
 <footer><p id="performance">Waiting for performance counters…</p><p>Measured wiring; modeled dynamics & controls. Activity ≠ intent.</p></footer>
 </main><script type="module" src="/dashboard.js"></script></body></html>

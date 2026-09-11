@@ -64,6 +64,9 @@ class FlyModel:
         self.ou_theta = 2.0   # mean reversion rate (higher = faster decay)
         self.ou_sigma = 0.12  # noise amplitude
         self.ou_mu = 0.0      # mean
+        # Novelty-driven modulation and escape
+        self.escape_mode = False
+        self.escape_current = 0.15  # extra depolarisation during escape
 
     def _load_demo(self):
         self.n = 4096
@@ -126,16 +129,27 @@ class FlyModel:
         self.temporal_energy = float(temporal.mean())
         return drive
 
-    def step(self, rgb: np.ndarray, now: float | None = None) -> tuple[Control, np.ndarray]:
+    def step(self, rgb: np.ndarray, now: float | None = None,
+             novelty: float = 0.5) -> tuple[Control, np.ndarray]:
         now = self.step_count * self.dt if now is None else now
         sensory = self.encode_retina(rgb)
+
+        # Novelty-driven visual modulation:
+        # Low novelty (familiar) → boost sensory to seek variety
+        # High novelty (unexplored) → slight suppression for caution
+        novelty_gain = 1.0 + (0.10 if novelty < 0.3 else -0.10 if novelty > 0.7 else 0.0)
+
         current = np.asarray(self.w[:, np.flatnonzero(self.spikes)].sum(axis=1)).ravel()
         current *= self.synaptic_gain
         baseline = self.rng.random(self.n) < (1.2 * self.dt)
         self.v *= np.exp(-self.dt / self.tau_m)
         self.v += current + baseline.astype(np.float32) * 0.22 + self.tonic_current
         if self.visual_connected:
-            self.v[self.visual] += sensory * 0.62
+            self.v[self.visual] += sensory * 0.62 * novelty_gain
+
+        # Escape-mode depolarisation of motor neurons
+        if self.escape_mode:
+            self.v[self.motor_nodes] += self.escape_current
         fired = self.v >= self.threshold
         self.v[fired] = self.reset
         self.spikes[:] = fired

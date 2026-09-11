@@ -128,3 +128,5 @@ async function start() {
   setInterval(()=>{const stale=!receivedAt||performance.now()-receivedAt>1000;$('status').textContent=streamError||(stale?'Disconnected / stale':frozen?'Display frozen · game runs':'Live');$('status').dataset.state=stale?'bad':'ok';},250);
 }
 if (typeof document !== 'undefined') start().catch(error=>{$('status').textContent=error.message;$('status').dataset.state='bad';});
+// Lazy-init memory heatmap when the section exists
+import('./memory-heatmap.js').then(m => m.initMemoryHeatmap()).catch(() => {});
