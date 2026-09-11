@@ -1,0 +1,34 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+*.so
+*.npz
+*.npy
+*.feather
+
+# Build
+build/
+*.o
+*.a
+*.exe
+
+# Data
+.cache/
+runtime/
+artifacts/
+rom/
+*.log
+*.jsonl
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

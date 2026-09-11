@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [[ "${FLY64_LOCKED:-0}" != 1 ]]; then
+  exec /usr/bin/python3 "$PROJECT_DIR/scripts/locked_launcher.py" "$PROJECT_DIR/run-fly64" "$@"
+fi
+export PYTHONPATH="$PROJECT_DIR"
+export HOMEBREW_NO_INSTALL_CLEANUP=1
+export HOMEBREW_NO_AUTO_UPDATE=1
+PYTHON_BIN="${FLY64_PYTHON:-}"
+ROM_PATH=""
+SYNTHETIC=0
+PREPARE=0
+DEMO_MODEL=0
+NO_BROWSER=0
+DURATION=0
+
+usage() {
+  sed -n '1,120p' "$PROJECT_DIR/README.md"
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --rom) ROM_PATH="${2:?--rom requires a path}"; shift 2 ;;
+    --synthetic) SYNTHETIC=1; DEMO_MODEL=1; shift ;;
+    --demo-model) DEMO_MODEL=1; shift ;;
+    --prepare-data) PREPARE=1; shift ;;
+    --no-browser) NO_BROWSER=1; shift ;;
+    --duration) DURATION="${2:?--duration requires seconds}"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
+  esac
+done
+
+mkdir -p "$PROJECT_DIR/runtime" "$PROJECT_DIR/artifacts" "$PROJECT_DIR/.cache"
+
+if [[ -z "$PYTHON_BIN" ]]; then
+  if [[ -x "/opt/homebrew/opt/python@3.14/bin/python3.14" ]]; then
+    PYTHON_BIN="/opt/homebrew/opt/python@3.14/bin/python3.14"
+  elif [[ -x "$(brew --prefix python@3.12 2>/dev/null)/bin/python3.12" ]]; then
+    PYTHON_BIN="$(brew --prefix python@3.12)/bin/python3.12"
+  else
+    brew install python@3.12
+    PYTHON_BIN="$(brew --prefix python@3.12)/bin/python3.12"
+  fi
+fi
+
+if [[ ! -x "$PROJECT_DIR/.venv/bin/python" ]]; then
+  "$PYTHON_BIN" -m venv "$PROJECT_DIR/.venv"
+  "$PROJECT_DIR/.venv/bin/pip" install --upgrade pip
+  "$PROJECT_DIR/.venv/bin/pip" install -r "$PROJECT_DIR/requirements.txt"
+fi
+
+PY="$PROJECT_DIR/.venv/bin/python"
+if [[ "$PREPARE" -eq 1 ]] || [[ "$DEMO_MODEL" -eq 0 && ! -f "$PROJECT_DIR/.cache/malecns/manifest.json" ]]; then
+  "$PY" -m fly64.data --prepare --cache "$PROJECT_DIR/.cache/malecns"
+fi
+if [[ "$PREPARE" -eq 1 && -z "$ROM_PATH" && "$SYNTHETIC" -eq 0 ]]; then exit 0; fi
+
+if [[ "$SYNTHETIC" -eq 0 ]]; then
+  if [[ -z "$ROM_PATH" || ! -f "$ROM_PATH" ]]; then
+    echo "A US SM64 ROM is required. Pass --rom /absolute/path/to/file.z64" >&2
+    echo "Use --synthetic to run the ROM-free integration demo." >&2
+    exit 2
+  fi
+  "$PROJECT_DIR/scripts/setup_sm64.sh" "$ROM_PATH"
+  if [[ ! -f "$PROJECT_DIR/runtime/sm64config.txt" ]]; then
+    cp "$PROJECT_DIR/config/sm64config.txt" "$PROJECT_DIR/runtime/sm64config.txt"
+  else
+    perl -pi -e 's/^window_x .*/window_x 18/; s/^window_y .*/window_y 160/; s/^window_w .*/window_w 590/; s/^window_h .*/window_h 443/' \
+      "$PROJECT_DIR/runtime/sm64config.txt"
+  fi
+fi
+
+BRIDGE="$PROJECT_DIR/runtime/fly64_bridge.bin"
+rm -f "$BRIDGE"
+ARGS=(--bridge "$BRIDGE" --record "$PROJECT_DIR/artifacts/latest-replay.npz")
+[[ "$DEMO_MODEL" -eq 1 ]] && ARGS+=(--demo-model)
+[[ "$SYNTHETIC" -eq 1 ]] && ARGS+=(--synthetic)
+[[ "$NO_BROWSER" -eq 1 ]] && ARGS+=(--no-browser)
+[[ "$DURATION" != 0 ]] && ARGS+=(--duration "$DURATION")
+
+export PYTHONPATH="$PROJECT_DIR"
+export FLY64_BRIDGE="$BRIDGE"
+"$PY" -m fly64.main "${ARGS[@]}" &
+SIM_PID=$!
+printf '%s\n' "$SIM_PID" > "$PROJECT_DIR/runtime/simulator.pid"
+
+cleanup() {
+  kill "$SIM_PID" 2>/dev/null || true
+  [[ -n "${GAME_PID:-}" ]] && kill "$GAME_PID" 2>/dev/null || true
+  wait "$SIM_PID" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
+if [[ "$SYNTHETIC" -eq 0 ]]; then
+  sleep 1
+  "$PROJECT_DIR/.cache/sm64ex/build/us_pc/sm64.us.f3dex2e" \
+    --skip-intro --savepath "$PROJECT_DIR/runtime" &
+  GAME_PID=$!
+  printf '%s\n' "$GAME_PID" > "$PROJECT_DIR/runtime/game.pid"
+fi
+
+if [[ -n "${GAME_PID:-}" ]]; then
+  while kill -0 "$SIM_PID" 2>/dev/null && kill -0 "$GAME_PID" 2>/dev/null; do sleep 0.5; done
+  GAME_EXIT=0
+  if ! kill -0 "$GAME_PID" 2>/dev/null; then
+    wait "$GAME_PID" || GAME_EXIT=$?
+  fi
+  kill "$SIM_PID" 2>/dev/null || true
+fi
+SIM_EXIT=0
+wait "$SIM_PID" || SIM_EXIT=$?
+if [[ "${GAME_EXIT:-0}" -ne 0 ]]; then exit "$GAME_EXIT"; fi
+exit "$SIM_EXIT"

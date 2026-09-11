@@ -1,0 +1,12 @@
+.venv/
+.cache/
+runtime/
+artifacts/
+private/
+rom/
+*.z64
+*.n64
+*.v64
+__pycache__/
+.pytest_cache/
+.DS_Store

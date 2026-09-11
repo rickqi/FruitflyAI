@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Fly64 Neural Observatory</title><link rel="stylesheet" href="/dashboard.css"></head>
+<body>
+<header><div><h1>Fly64 <span id="model">Connecting…</span></h1></div><div class="session"><span id="status" role="status">Connecting</span><button id="freeze" disabled>Freeze display</button></div></header>
+<main>
+<section aria-labelledby="vision-title">
+<div class="section-head"><h2 id="vision-title">Vision</h2><span id="frameAge">Waiting for frames</span></div>
+<div class="eyes">
+<figure><figcaption>Input <span>L / R</span></figcaption><canvas id="retina" width="256" height="128" aria-label="Live left and right fly-eye previews"></canvas></figure>
+<figure><figcaption>Frame difference <span>0–100%</span></figcaption><canvas id="change" width="256" height="128" aria-label="Absolute brightness change between successive frames"></canvas></figure>
+<div class="eye-note"><p id="contrast">Waiting for two frames.</p><p id="visualRate">Eye-cell activity: —</p><p class="muted">First person · RGB · 270°<br>Difference = brightness, not flow.</p></div>
+</div></section>
+<section aria-labelledby="motor-title">
+<div class="section-head"><h2 id="motor-title">Neurons → controls</h2><span>10 s · Hz = spikes / cell / s · 260 ms window</span></div>
+<div id="decision" class="decision">Waiting for neural samples…</div>
+<div class="chart-row"><div class="chart-label"><strong>Forward pool</strong><span>DNg100 · spikes / cell / s</span><output id="forwardValue">—</output></div><canvas id="forwardChart" role="img" aria-label="Forward firing rate, zero to ten hertz, gate at point four hertz; triangles mark overflow"></canvas></div>
+<div class="chart-row"><div class="chart-label"><strong>Steering pools</strong><span>DNa02 + DNg13 · Hz</span><output id="steeringValue">—</output></div><canvas id="steeringChart" role="img" aria-label="Left and right pool rates, zero to ten hertz; triangles mark overflow"></canvas></div>
+<div class="chart-row"><div class="chart-label"><strong>Jump pool</strong><span>DNp01 + DNp10 · Hz</span><output id="jumpValue">—</output></div><canvas id="jumpChart" role="img" aria-label="Jump rate, two hertz gate, jump request and observed A marks"></canvas></div>
+<div class="chart-row"><div class="chart-label"><strong>Stick sent → received</strong><span>solid: sent · dashed: game</span><output id="stickValue">—</output></div><canvas id="stickChart" role="img" aria-label="Requested and observed game stick axes, minus seventy to plus seventy"></canvas></div>
+<div class="ack"><strong id="gameState">Game: waiting</strong><span id="jumpState">A request is not proof Mario left the ground.</span></div>
+</section>
+<section aria-labelledby="brain-title">
+<div class="section-head"><h2 id="brain-title">Activity map</h2><label><select id="population" aria-label="Neuron population"><option value="all">All located neurons</option><option value="visual">Visual input · R1–R8</option><option value="forward">Forward · DNg100</option><option value="left">Left steering pool</option><option value="right">Right steering pool</option><option value="jump">Jump pool</option></select></label></div>
+<div class="brain-row"><div class="map"><canvas id="brain" aria-label="Stationary projection of measured neuron locations; brightness is rolling firing rate"></canvas><div class="legend"><span>0 Hz</span><i></i><span>50 Hz</span></div></div><div class="brain-note"><p id="populationRate">—</p><p id="populationInfo">Loading anatomy…</p><p class="muted">Fixed X/Y · dim points = context<br>Missing locations still simulated.</p></div></div>
+</section>
+<footer><p id="performance">Waiting for performance counters…</p><p>Measured wiring; modeled dynamics & controls. Activity ≠ intent.</p></footer>
+</main><script type="module" src="/dashboard.js"></script></body></html>

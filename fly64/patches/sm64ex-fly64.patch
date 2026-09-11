@@ -1,0 +1,806 @@
+diff --git a/levels/entry.c b/levels/entry.c
+index 015eeb6..0d22670 100644
+--- a/levels/entry.c
++++ b/levels/entry.c
+@@ -4,6 +4,7 @@
+ #include "level_commands.h"
+ 
+ #include "levels/intro/header.h"
++#include "levels/scripts.h"
+ 
+ #include "make_const_nonconst.h"
+ 
+@@ -11,7 +12,7 @@ const LevelScript level_script_entry[] = {
+     INIT_LEVEL(),
+     SLEEP(/*frames*/ 2),
+     BLACKOUT(/*active*/ FALSE),
+-    SET_REG(/*value*/ 0),
+-    EXECUTE(/*seg*/ 0x14, /*script*/ _introSegmentRomStart, /*scriptEnd*/ _introSegmentRomEnd, /*entry*/ level_intro_entry_1),
++    SET_REG(/*value*/ LEVEL_BOB),
++    EXECUTE(/*seg*/ 0x15, /*script*/ _scriptsSegmentRomStart, /*scriptEnd*/ _scriptsSegmentRomEnd, /*entry*/ level_main_scripts_entry),
+     JUMP(/*target*/ level_script_entry),
+ };
+diff --git a/src/game/level_geo.c b/src/game/level_geo.c
+index 4c98e70..396848a 100644
+--- a/src/game/level_geo.c
++++ b/src/game/level_geo.c
+@@ -58,6 +58,7 @@ Gfx *geo_envfx_main(s32 callContext, struct GraphNode *node, Mat4 mtxf) {
+  * Geo function that generates a displaylist for the skybox. Can be assigned
+  * as the function of a GraphNodeBackground.
+  */
++#include "pc/fly64_vision.h"
+ Gfx *geo_skybox_main(s32 callContext, struct GraphNode *node, UNUSED Mat4 *mtx) {
+     Gfx *gfx = NULL;
+     struct GraphNodeBackground *backgroundNode = (struct GraphNodeBackground *) node;
+@@ -69,6 +70,11 @@ Gfx *geo_skybox_main(s32 callContext, struct GraphNode *node, UNUSED Mat4 *mtx)
+         struct GraphNodePerspective *camFrustum =
+             (struct GraphNodePerspective *) camNode->fnNode.node.parent;
+ 
++        if (gFly64EyePass) {
++            return create_skybox_facing_camera(1, backgroundNode->background, 90,
++                gFly64EyePosition[0], gFly64EyePosition[1], gFly64EyePosition[2],
++                gFly64EyeFocus[0], gFly64EyeFocus[1], gFly64EyeFocus[2]);
++        }
+         gfx = create_skybox_facing_camera(0, backgroundNode->background, camFrustum->fov, gLakituState.pos[0],
+                             gLakituState.pos[1], gLakituState.pos[2], gLakituState.focus[0],
+                             gLakituState.focus[1], gLakituState.focus[2]);
+diff --git a/src/game/level_update.c b/src/game/level_update.c
+index 72a6a60..7a23349 100644
+--- a/src/game/level_update.c
++++ b/src/game/level_update.c
+@@ -1307,6 +1307,12 @@ s32 lvl_set_current_level(UNUSED s16 arg0, s32 levelNum) {
+         disable_warp_checkpoint();
+     }
+ 
++    /* Fly64 starts directly in Bob-omb Battlefield and skips act selection.
++       This source tree is a dedicated, generated integration build. */
++    if (levelNum == LEVEL_BOB) {
++        return 0;
++    }
++
+     if (gCurrCourseNum > COURSE_STAGES_MAX || val4 != 0) {
+         return 0;
+     }
+diff --git a/src/game/mario.c b/src/game/mario.c
+index 5f8e511..a5c18c0 100644
+--- a/src/game/mario.c
++++ b/src/game/mario.c
+@@ -1334,6 +1334,11 @@ void update_mario_joystick_inputs(struct MarioState *m) {
+         else
+             m->intendedYaw = atan2s(-controller->stickY, controller->stickX)-newcam_yaw+0x4000;
+ #endif
++        /* Neural x/y is body-relative. Human sticks retain the stock camera map. */
++        extern int fly64_bridge_body_control(void);
++        if (fly64_bridge_body_control()) {
++            m->intendedYaw = m->faceAngle[1] - atan2s(controller->stickY, controller->stickX);
++        }
+         m->input |= INPUT_NONZERO_ANALOG;
+     } else {
+         m->intendedYaw = m->faceAngle[1];
+diff --git a/src/game/rendering_graph_node.c b/src/game/rendering_graph_node.c
+index d5bf577..1d57e37 100644
+--- a/src/game/rendering_graph_node.c
++++ b/src/game/rendering_graph_node.c
+@@ -10,6 +10,9 @@
+ #include "rendering_graph_node.h"
+ #include "shadow.h"
+ #include "sm64.h"
++#include "pc/fly64_vision.h"
++#include "object_helpers.h"
++#include "object_list_processor.h"
+ 
+ /**
+  * This file contains the code that processes the scene graph for rendering.
+@@ -199,6 +202,7 @@ static void geo_append_display_list(void *displayList, s16 layer) {
+  * Process the master list node.
+  */
+ static void geo_process_master_list(struct GraphNodeMasterList *node) {
++    struct GraphNodeMasterList saved = *node;
+     s32 i;
+     UNUSED s32 sp1C;
+ 
+@@ -211,6 +215,7 @@ static void geo_process_master_list(struct GraphNodeMasterList *node) {
+         geo_process_master_list_sub(node);
+         gCurGraphNodeMasterList = NULL;
+     }
++    if (gFly64EyePass) *node = saved;
+ }
+ 
+ /**
+@@ -236,7 +241,9 @@ static void geo_process_ortho_projection(struct GraphNodeOrthoProjection *node)
+  * Process a perspective projection node.
+  */
+ static void geo_process_perspective(struct GraphNodePerspective *node) {
+-    if (node->fnNode.func != NULL) {
++    struct GraphNodePerspective saved = *node;
++    if (gFly64EyePass) { node->fov = 90; node->near = 5; node->far = 30000; }
++    if (!gFly64EyePass && node->fnNode.func != NULL) {
+         node->fnNode.func(GEO_CONTEXT_RENDER, &node->fnNode.node, gMatStack[gMatStackIndex]);
+     }
+     if (node->fnNode.node.children != NULL) {
+@@ -249,7 +256,7 @@ static void geo_process_perspective(struct GraphNodePerspective *node) {
+         f32 aspect = (f32) gCurGraphNodeRoot->width / (f32) gCurGraphNodeRoot->height;
+ #endif
+ 
+-        guPerspective(mtx, &perspNorm, node->fov, aspect, node->near, node->far, 1.0f);
++        guPerspective(mtx, &perspNorm, node->fov, gFly64EyePass ? 1.0f : aspect, node->near, node->far, 1.0f);
+         gSPPerspNormalize(gDisplayListHead++, perspNorm);
+ 
+         gSPMatrix(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(mtx), G_MTX_PROJECTION | G_MTX_LOAD | G_MTX_NOPUSH);
+@@ -258,6 +265,7 @@ static void geo_process_perspective(struct GraphNodePerspective *node) {
+         geo_process_node_and_siblings(node->fnNode.node.children);
+         gCurGraphNodeCamFrustum = NULL;
+     }
++    if (gFly64EyePass) *node = saved;
+ }
+ 
+ /**
+@@ -283,10 +291,14 @@ static void geo_process_level_of_detail(struct GraphNodeLevelOfDetail *node) {
+  * processed next.
+  */
+ static void geo_process_switch(struct GraphNodeSwitchCase *node) {
++    s16 savedCase = node->selectedCase;
+     struct GraphNode *selectedChild = node->fnNode.node.children;
+     s32 i;
+ 
+-    if (node->fnNode.func != NULL) {
++    if (gFly64EyePass && node->fnNode.func == (GraphNodeFunc) geo_switch_anim_state && gCurGraphNodeObject) {
++        int state = ((struct Object *)gCurGraphNodeObject)->oAnimState;
++        node->selectedCase = state >= 0 && state < node->numCases ? state : 0;
++    } else if (!gFly64EyePass && node->fnNode.func != NULL) {
+         node->fnNode.func(GEO_CONTEXT_RENDER, &node->fnNode.node, gMatStack[gMatStackIndex]);
+     }
+     for (i = 0; selectedChild != NULL && node->selectedCase > i; i++) {
+@@ -295,24 +307,31 @@ static void geo_process_switch(struct GraphNodeSwitchCase *node) {
+     if (selectedChild != NULL) {
+         geo_process_node_and_siblings(selectedChild);
+     }
++    if (gFly64EyePass) node->selectedCase = savedCase;
+ }
+ 
+ /**
+  * Process a camera node.
+  */
+ static void geo_process_camera(struct GraphNodeCamera *node) {
++    struct GraphNodeCamera saved = *node;
+     Mat4 cameraTransform;
+     Mtx *rollMtx = alloc_display_list(sizeof(*rollMtx));
+     Mtx *mtx = alloc_display_list(sizeof(*mtx));
+ 
+-    if (node->fnNode.func != NULL) {
++    if (gFly64EyePass) {
++        vec3f_copy(node->pos, gFly64EyePosition);
++        vec3f_copy(node->focus, gFly64EyeFocus);
++        node->roll = node->rollScreen = 0;
++    } else if (node->fnNode.func != NULL) {
+         node->fnNode.func(GEO_CONTEXT_RENDER, &node->fnNode.node, gMatStack[gMatStackIndex]);
+     }
+     mtxf_rotate_xy(rollMtx, node->rollScreen);
+ 
+     gSPMatrix(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(rollMtx), G_MTX_PROJECTION | G_MTX_MUL | G_MTX_NOPUSH);
+ 
+-    mtxf_lookat(cameraTransform, node->pos, node->focus, node->roll);
++    if (gFly64EyePass) fly64_vision_view_matrix(cameraTransform);
++    else mtxf_lookat(cameraTransform, node->pos, node->focus, node->roll);
+     mtxf_mul(gMatStack[gMatStackIndex + 1], cameraTransform, gMatStack[gMatStackIndex]);
+     gMatStackIndex++;
+     mtxf_to_mtx(mtx, gMatStack[gMatStackIndex]);
+@@ -324,6 +343,7 @@ static void geo_process_camera(struct GraphNodeCamera *node) {
+         gCurGraphNodeCamera = NULL;
+     }
+     gMatStackIndex--;
++    if (gFly64EyePass) *node = saved;
+ }
+ 
+ /**
+@@ -476,6 +496,10 @@ static void geo_process_display_list(struct GraphNodeDisplayList *node) {
+  * the list is generated on the fly by a function.
+  */
+ static void geo_process_generated_list(struct GraphNodeGenerated *node) {
++    /* BOB's generated world node is ENVFX_MODE_NONE. Do not execute simulation
++     * callbacks or cannon overlays from observational passes. Other levels'
++     * generated effects are intentionally unsupported by this BOB demo. */
++    if (gFly64EyePass) return;
+     if (node->fnNode.func != NULL) {
+         Gfx *list = node->fnNode.func(GEO_CONTEXT_RENDER, &node->fnNode.node,
+                                      (struct AllocOnlyPool *) gMatStack[gMatStackIndex]);
+@@ -598,10 +622,10 @@ static void geo_process_animated_part(struct GraphNodeAnimatedPart *node) {
+ void geo_set_animation_globals(struct GraphNodeObject_sub *node, s32 hasAnimation) {
+     struct Animation *anim = node->curAnim;
+ 
+-    if (hasAnimation != 0) {
++    if (hasAnimation != 0 && !gFly64EyePass) {
+         node->animFrame = geo_update_animation_frame(node, &node->animFrameAccelAssist);
+     }
+-    node->animTimer = gAreaUpdateCounter;
++    if (!gFly64EyePass) node->animTimer = gAreaUpdateCounter;
+     if (anim->flags & ANIM_FLAG_HOR_TRANS) {
+         gCurAnimType = ANIM_TYPE_VERTICAL_TRANSLATION;
+     } else if (anim->flags & ANIM_FLAG_VERT_TRANS) {
+@@ -793,6 +817,7 @@ static int obj_is_in_view(struct GraphNodeObject *node, Mat4 matrix) {
+  * Process an object node.
+  */
+ static void geo_process_object(struct Object *node) {
++    if (gFly64EyePass && node == gMarioObject) return;
+     Mat4 mtxf;
+     s32 hasAnimation = (node->header.gfx.node.flags & GRAPH_RENDER_HAS_ANIMATION) != 0;
+ 
+@@ -865,6 +890,7 @@ static void geo_process_object_parent(struct GraphNodeObjectParent *node) {
+  * Process a held object node.
+  */
+ void geo_process_held_object(struct GraphNodeHeldObject *node) {
++    if (gFly64EyePass && node->objNode == gMarioObject) return;
+     Mat4 mat;
+     Vec3f translation;
+     Mtx *mtx = alloc_display_list(sizeof(*mtx));
+@@ -873,7 +899,7 @@ void geo_process_held_object(struct GraphNodeHeldObject *node) {
+     gSPLookAt(gDisplayListHead++, &lookAt);
+ #endif
+ 
+-    if (node->fnNode.func != NULL) {
++    if (!gFly64EyePass && node->fnNode.func != NULL) {
+         node->fnNode.func(GEO_CONTEXT_RENDER, &node->fnNode.node, gMatStack[gMatStackIndex]);
+     }
+     if (node->objNode != NULL && node->objNode->header.gfx.sharedChild != NULL) {
+@@ -891,7 +917,7 @@ void geo_process_held_object(struct GraphNodeHeldObject *node) {
+         mtxf_mul(gMatStack[gMatStackIndex + 1], mat, gMatStack[gMatStackIndex + 1]);
+         mtxf_scale_vec3f(gMatStack[gMatStackIndex + 1], gMatStack[gMatStackIndex + 1],
+                          node->objNode->header.gfx.scale);
+-        if (node->fnNode.func != NULL) {
++        if (!gFly64EyePass && node->fnNode.func != NULL) {
+             node->fnNode.func(GEO_CONTEXT_HELD_OBJ, &node->fnNode.node,
+                               (struct AllocOnlyPool *) gMatStack[gMatStackIndex + 1]);
+         }
+diff --git a/src/pc/controller/controller_entry_point.c b/src/pc/controller/controller_entry_point.c
+index 34ca9ca..102d3e4 100644
+--- a/src/pc/controller/controller_entry_point.c
++++ b/src/pc/controller/controller_entry_point.c
+@@ -7,6 +7,7 @@
+ #include "controller_recorded_tas.h"
+ #include "controller_keyboard.h"
+ #include "controller_sdl.h"
++#include "../fly64_bridge.h"
+ 
+ // Analog camera movement by Pathétique (github.com/vrmiguel), y0shin and Mors
+ // Contribute or communicate bugs at github.com/vrmiguel/sm64-analog-camera
+@@ -59,6 +60,7 @@ void osContGetReadData(OSContPad *pad) {
+     for (size_t i = 0; i < sizeof(controller_implementations) / sizeof(struct ControllerAPI *); i++) {
+         controller_implementations[i]->read(pad);
+     }
++    fly64_bridge_read_controller(pad);
+ }
+ 
+ u32 controller_get_raw_key(void) {
+diff --git a/src/pc/fly64_bridge.c b/src/pc/fly64_bridge.c
+new file mode 100644
+index 0000000..5a771b5
+--- /dev/null
++++ b/src/pc/fly64_bridge.c
+@@ -0,0 +1,165 @@
++#include "fly64_bridge.h"
++
++#include <errno.h>
++#include <fcntl.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <sys/mman.h>
++#include <sys/stat.h>
++#include <time.h>
++#include <unistd.h>
++
++#ifdef OSX_BUILD
++#define GLEW_STATIC
++#include <GL/glew.h>
++#include <SDL2/SDL_opengl.h>
++#endif
++
++#define FLY64_WIDTH 384
++#define FLY64_HEIGHT 256
++#define FLY64_FRAME_BYTES (FLY64_WIDTH * FLY64_HEIGHT * 3)
++#define FLY64_HEADER_BYTES 128
++#define FLY64_FILE_BYTES (FLY64_HEADER_BYTES + FLY64_FRAME_BYTES)
++#define FLY64_STALE_NS 250000000ULL
++
++#pragma pack(push, 1)
++struct Fly64Header {
++    char magic[8];
++    uint32_t version;
++    volatile uint32_t frame_seq;
++    volatile uint32_t control_seq;
++    volatile uint32_t enabled;
++    volatile uint64_t heartbeat_ns;
++    volatile int8_t stick_x;
++    volatile int8_t stick_y;
++    volatile uint16_t buttons;
++    uint32_t reserved;
++    volatile uint32_t applied_seq;
++    volatile int8_t applied_x, applied_y;
++    volatile uint16_t applied_buttons;
++    volatile uint64_t game_clock_ns;
++    volatile uint32_t game_status;
++    uint32_t padding;
++    float pose[4]; /* eye x/y/z and body yaw radians; same seqlock as RGB */
++    uint32_t game_frame;
++    float render_ms;
++    uint8_t extension[40];
++};
++struct Fly64Shared {
++    struct Fly64Header h;
++    uint8_t rgb[FLY64_FRAME_BYTES];
++};
++#pragma pack(pop)
++
++static struct Fly64Shared *shared;
++static int bridge_fd = -1;
++static int body_control;
++static unsigned jump_frames;
++static uint32_t last_jump_event;
++
++static uint64_t monotonic_ns(void) {
++    struct timespec ts;
++    clock_gettime(CLOCK_MONOTONIC, &ts);
++    return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
++}
++
++static int bridge_open(void) {
++    const char *path;
++    struct stat st;
++    if (shared != NULL) return 1;
++    path = getenv("FLY64_BRIDGE");
++    if (path == NULL || path[0] == '\0') return 0;
++    bridge_fd = open(path, O_RDWR);
++    if (bridge_fd < 0) return 0;
++    if (fstat(bridge_fd, &st) || st.st_size != FLY64_FILE_BYTES) {
++        close(bridge_fd); bridge_fd = -1; return 0;
++    }
++    shared = mmap(NULL, FLY64_FILE_BYTES, PROT_READ | PROT_WRITE, MAP_SHARED, bridge_fd, 0);
++    if (shared == MAP_FAILED) {
++        shared = NULL;
++        close(bridge_fd);
++        bridge_fd = -1;
++        return 0;
++    }
++    if (memcmp(shared->h.magic, "FLY64V2", 7) != 0 || shared->h.version != 2) {
++        fprintf(stderr, "Fly64: incompatible shared-memory bridge\n");
++        fly64_bridge_shutdown();
++        return 0;
++    }
++    fprintf(stderr, "Fly64: bridge connected at %s\n", path);
++    return 1;
++}
++
++int fly64_bridge_connected(void) { return bridge_open(); }
++int fly64_bridge_body_control(void) { return body_control; }
++
++void fly64_bridge_toggle(void) {
++    if (!bridge_open()) return;
++    shared->h.enabled = !shared->h.enabled;
++    fprintf(stderr, "Fly64: neural control %s\n", shared->h.enabled ? "enabled" : "disabled");
++}
++
++void fly64_bridge_read_controller(OSContPad *pad) {
++    int8_t x, y;
++    uint16_t buttons;
++    uint32_t before, after;
++    uint64_t heartbeat;
++    uint32_t jump_event;
++    body_control = 0;
++    if (!bridge_open()) return;
++    shared->h.game_clock_ns = monotonic_ns();
++    shared->h.applied_x = 0; shared->h.applied_y = 0; shared->h.applied_buttons = 0;
++    shared->h.game_status = 0;
++    if (!shared->h.enabled) { jump_frames = 0; return; }
++    /* Bounded seqlock read: never hang the game on a dead writer. */
++    {
++        before = __atomic_load_n(&shared->h.control_seq, __ATOMIC_ACQUIRE);
++        if (before & 1U) { shared->h.game_status = 3; return; }
++        heartbeat = shared->h.heartbeat_ns;
++        x = shared->h.stick_x;
++        y = shared->h.stick_y;
++        buttons = shared->h.buttons;
++        jump_event = shared->h.reserved;
++        __atomic_thread_fence(__ATOMIC_ACQUIRE);
++        after = __atomic_load_n(&shared->h.control_seq, __ATOMIC_ACQUIRE);
++        if (before != after || (after & 1U)) { shared->h.game_status = 3; return; }
++    }
++    if (monotonic_ns() - heartbeat > FLY64_STALE_NS) { jump_frames = 0; shared->h.game_status = 2; return; }
++    if (jump_event != last_jump_event) { jump_frames = 2; last_jump_event = jump_event; }
++    buttons &= ~A_BUTTON;
++    if (jump_frames) { buttons |= A_BUTTON; --jump_frames; }
++    /* Human stick input wins as a complete vector, retaining stock semantics. */
++    if (abs(pad->stick_x) < 8 && abs(pad->stick_y) < 8) {
++        pad->stick_x = x; pad->stick_y = y; body_control = 1;
++    }
++    pad->button |= buttons;
++    shared->h.applied_x = pad->stick_x; shared->h.applied_y = pad->stick_y;
++    shared->h.applied_buttons = pad->button;
++    shared->h.applied_seq = after;
++    shared->h.game_status = 1;
++}
++
++void fly64_bridge_publish_frame(const unsigned char *rgb, const float *pose, unsigned game_frame, float render_ms) {
++    uint32_t seq;
++    if (!bridge_open()) return;
++    seq = shared->h.frame_seq;
++    __atomic_store_n(&shared->h.frame_seq, seq | 1U, __ATOMIC_SEQ_CST);
++    memcpy(shared->rgb, rgb, FLY64_FRAME_BYTES);
++    memcpy(shared->h.pose, pose, sizeof(shared->h.pose));
++    shared->h.game_frame = game_frame;
++    shared->h.render_ms = render_ms;
++    __atomic_store_n(&shared->h.frame_seq, ((seq | 1U) + 1U), __ATOMIC_RELEASE);
++}
++
++void fly64_bridge_shutdown(void) {
++    if (shared != NULL) {
++        munmap(shared, FLY64_FILE_BYTES);
++        shared = NULL;
++    }
++    if (bridge_fd >= 0) {
++        close(bridge_fd);
++        bridge_fd = -1;
++    }
++}
+diff --git a/src/pc/fly64_bridge.h b/src/pc/fly64_bridge.h
+new file mode 100644
+index 0000000..9d1d534
+--- /dev/null
++++ b/src/pc/fly64_bridge.h
+@@ -0,0 +1,13 @@
++#ifndef FLY64_BRIDGE_H
++#define FLY64_BRIDGE_H
++
++#include <ultra64.h>
++
++void fly64_bridge_publish_frame(const unsigned char *rgb, const float *pose, unsigned game_frame, float render_ms);
++int fly64_bridge_connected(void);
++int fly64_bridge_body_control(void);
++void fly64_bridge_read_controller(OSContPad *pad);
++void fly64_bridge_toggle(void);
++void fly64_bridge_shutdown(void);
++
++#endif
+diff --git a/src/pc/fly64_vision.c b/src/pc/fly64_vision.c
+new file mode 100644
+index 0000000..7e39dc9
+--- /dev/null
++++ b/src/pc/fly64_vision.c
+@@ -0,0 +1,226 @@
++/* Observational six-face renderer. Game logic runs once, before this function.
++ * Supported scene: Bob-omb Battlefield. No menus/HUD/Mario self mesh. */
++#include <math.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <time.h>
++#define GLEW_STATIC
++#include <GL/glew.h>
++#include "fly64_vision.h"
++#include "fly64_bridge.h"
++#include "gfx/gfx_pc.h"
++#include "game/area.h"
++#include "game/game_init.h"
++#include "game/rendering_graph_node.h"
++#include "game/object_list_processor.h"
++#include "game/level_update.h"
++#include "game/camera.h"
++#include "game/mario.h"
++#include "game/shadow.h"
++#include "engine/math_util.h"
++
++#define SIDE 128
++#define ATLAS_W (SIDE * 3)
++#define ATLAS_H (SIDE * 2)
++int gFly64EyePass;
++Vec3f gFly64EyePosition, gFly64EyeFocus;
++static Vec3f right, up, forward;
++static GLuint framebuffer, color, depth;
++static Gfx eye_pool[GFX_POOL_SIZE];
++static struct Object object_snapshot[OBJECT_POOL_CAPACITY];
++static unsigned char pixels[SIDE * SIDE * 3], atlas[ATLAS_W * ATLAS_H * 3];
++static int audit_running, audit_done;
++/* Local coordinates: x right, y up, z forward. */
++static const float axes[6][3][3] = {
++    {{1,0,0},{0,1,0},{0,0,1}}, {{0,0,-1},{0,1,0},{1,0,0}},
++    {{-1,0,0},{0,1,0},{0,0,-1}}, {{0,0,1},{0,1,0},{-1,0,0}},
++    {{1,0,0},{0,0,-1},{0,1,0}}, {{1,0,0},{0,0,1},{0,-1,0}}
++};
++
++static double clock_seconds(void) {
++    struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
++    return ts.tv_sec + ts.tv_nsec * 1e-9;
++}
++
++static int init_target(void) {
++    GLint old_texture, old_renderbuffer;
++    if (framebuffer) return 1;
++    glGetIntegerv(GL_TEXTURE_BINDING_2D, &old_texture);
++    glGetIntegerv(GL_RENDERBUFFER_BINDING, &old_renderbuffer);
++    glGenFramebuffers(1, &framebuffer); glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
++    glGenTextures(1, &color); glBindTexture(GL_TEXTURE_2D, color);
++    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, SIDE, SIDE, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
++    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, color, 0);
++    glGenRenderbuffers(1, &depth); glBindRenderbuffer(GL_RENDERBUFFER, depth);
++    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, SIDE, SIDE);
++    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depth);
++    GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
++    glBindTexture(GL_TEXTURE_2D, old_texture);
++    glBindRenderbuffer(GL_RENDERBUFFER, old_renderbuffer);
++    if (status != GL_FRAMEBUFFER_COMPLETE) {
++        fprintf(stderr, "Fly64: retinal framebuffer incomplete: %x\n", status); exit(3);
++    }
++    fprintf(stderr, "Fly64: separate first-person cubemap, 6 x 128 x 128 at 10 Hz\n");
++    return 1;
++}
++
++static void world_axis(Vec3f dst, const float *src, float s, float c) {
++    /* Mario's forward=(sin(yaw),0,cos(yaw)); right=(-cos,0,sin). */
++    dst[0] = -c * src[0] + s * src[2];
++    dst[1] = src[1];
++    dst[2] = s * src[0] + c * src[2];
++}
++
++void fly64_vision_view_matrix(Mat4 m) {
++    mtxf_identity(m);
++    for (int i = 0; i < 3; ++i) {
++        m[i][0] = right[i]; m[i][1] = up[i]; m[i][2] = -forward[i];
++    }
++    m[3][0] = -vec3f_dot(gFly64EyePosition, right);
++    m[3][1] = -vec3f_dot(gFly64EyePosition, up);
++    m[3][2] = vec3f_dot(gFly64EyePosition, forward);
++}
++
++static uint64_t observer_hash(void) {
++    GLint viewport[4], pack; glGetIntegerv(GL_VIEWPORT, viewport);
++    glGetIntegerv(GL_PACK_ALIGNMENT, &pack); glPixelStorei(GL_PACK_ALIGNMENT, 1);
++    size_t count = (size_t)viewport[2] * viewport[3] * 3;
++    unsigned char *image = malloc(count);
++    if (!image) abort();
++    glReadPixels(viewport[0], viewport[1], viewport[2], viewport[3], GL_RGB, GL_UNSIGNED_BYTE, image);
++    uint64_t hash = 1469598103934665603ULL;
++    for (size_t i = 0; i < count; ++i) hash = (hash ^ image[i]) * 1099511628211ULL;
++    free(image); glPixelStorei(GL_PACK_ALIGNMENT, pack); return hash;
++}
++
++void fly64_vision_render(void) {
++    if (gGlobalTimer % 3 || !gCurrentArea || !gMarioObject ||
++        gWarpTransition.pauseRendering || !fly64_bridge_connected()) return;
++    double started = clock_seconds();
++    int audit = !audit_running && !audit_done && gGlobalTimer >= 90 && getenv("FLY64_VERIFY_VISION");
++    uint64_t human_before = audit ? observer_hash() : 0;
++    struct MarioState mario_before = *gMarioState;
++    struct LakituState lakitu_before = gLakituState;
++    unsigned timer_before = gGlobalTimer;
++    s8 carpet_before = sMarioOnFlyingCarpet, water_before = gShadowAboveWaterOrLava, ice_before = gMarioOnIceOrCarpet;
++    s16 surface_before = sSurfaceTypeBelowShadow;
++    GLint old_fbo, old_viewport[4], old_scissor[4], old_pack;
++    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &old_fbo);
++    glGetIntegerv(GL_VIEWPORT, old_viewport);
++    glGetIntegerv(GL_SCISSOR_BOX, old_scissor);
++    glGetIntegerv(GL_PACK_ALIGNMENT, &old_pack);
++    init_target();
++    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
++    struct GfxDimensions dimensions = gfx_current_dimensions;
++    Gfx *saved_head = gDisplayListHead;
++    u8 *saved_end = gGfxPoolEnd;
++    memcpy(object_snapshot, gObjectPool, sizeof(object_snapshot));
++    float yaw = gMarioState->faceAngle[1] * (3.14159265358979323846f / 32768.0f);
++    float s = sinf(yaw), c = cosf(yaw);
++    vec3f_copy(gFly64EyePosition, gMarioState->pos);
++    gFly64EyePosition[1] += 120; /* Fixed eye height, no animation bob/roll. */
++    gfx_current_dimensions = (struct GfxDimensions){SIDE, SIDE, 1.0f};
++    gFly64EyePass = 1;
++    for (int face = 0; face < 6; ++face) {
++        world_axis(right, axes[face][0], s, c);
++        world_axis(up, axes[face][1], s, c);
++        world_axis(forward, axes[face][2], s, c);
++        for (int i = 0; i < 3; ++i) gFly64EyeFocus[i] = gFly64EyePosition[i] + forward[i] * 1000;
++        glDisable(GL_SCISSOR_TEST); glDepthMask(GL_TRUE);
++        glClearColor(0,0,0,1); glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
++        glEnable(GL_SCISSOR_TEST);
++        gDisplayListHead = eye_pool;
++        gGfxPoolEnd = (u8 *)(eye_pool + GFX_POOL_SIZE);
++        init_render_image();
++        gDPSetScissor(gDisplayListHead++, G_SC_NON_INTERLACE, 0, 0, 320, 240);
++        geo_process_root(gCurrentArea->unk04, NULL, NULL, 0);
++        gSPEndDisplayList(gDisplayListHead++);
++        gfx_run_eye(eye_pool);
++        glPixelStorei(GL_PACK_ALIGNMENT, 1);
++        glReadPixels(0, 0, SIDE, SIDE, GL_RGB, GL_UNSIGNED_BYTE, pixels);
++        for (int y = 0; y < SIDE; ++y)
++            memcpy(atlas + (((face / 3) * SIDE + y) * ATLAS_W + (face % 3) * SIDE) * 3,
++                   pixels + (SIDE - 1 - y) * SIDE * 3, SIDE * 3);
++    }
++    memcpy(gObjectPool, object_snapshot, sizeof(object_snapshot));
++    sMarioOnFlyingCarpet = carpet_before; gShadowAboveWaterOrLava = water_before;
++    gMarioOnIceOrCarpet = ice_before; sSurfaceTypeBelowShadow = surface_before;
++    gDisplayListHead = saved_head; gGfxPoolEnd = saved_end;
++    gFly64EyePass = 0; gfx_current_dimensions = dimensions;
++    glBindFramebuffer(GL_FRAMEBUFFER, old_fbo);
++    glViewport(old_viewport[0], old_viewport[1], old_viewport[2], old_viewport[3]);
++    glScissor(old_scissor[0], old_scissor[1], old_scissor[2], old_scissor[3]);
++    glPixelStorei(GL_PACK_ALIGNMENT, old_pack);
++    float pose[4] = {gFly64EyePosition[0], gFly64EyePosition[1], gFly64EyePosition[2], yaw};
++    if (audit) {
++        unsigned char *baseline = malloc(sizeof(atlas));
++        if (!baseline) abort();
++        memcpy(baseline, atlas, sizeof(atlas));
++        struct GraphNodeCamera *camera = (struct GraphNodeCamera *)gCurrentArea->unk04->views[0];
++        struct GraphNodeCamera saved_camera = *camera;
++        struct Camera saved_area_camera = *gCurrentArea->camera;
++        struct Controller test_controller = *gMarioState->controller;
++        struct MarioState test_mario = *gMarioState;
++        test_mario.controller = &test_controller;
++        test_controller.stickY = 64; test_controller.stickX = 0; test_controller.stickMag = 64;
++        extern void update_mario_joystick_inputs(struct MarioState *m);
++        update_mario_joystick_inputs(&test_mario);
++        int forward_correct = test_mario.intendedYaw == test_mario.faceAngle[1];
++        test_controller.stickX = 32;
++        update_mario_joystick_inputs(&test_mario);
++        s16 intended_before = test_mario.intendedYaw;
++        int turn_correct = (s16)(intended_before - test_mario.faceAngle[1]) < 0;
++        gLakituState.pos[0] += 5000; gLakituState.pos[1] += 3000;
++        gLakituState.focus[2] -= 4000; gLakituState.yaw += 0x4000;
++        camera->pos[0] -= 5000; camera->focus[2] += 4000;
++        gCurrentArea->camera->yaw += 0x4000;
++        update_mario_joystick_inputs(&test_mario);
++        int controls_independent = forward_correct && turn_correct && test_mario.intendedYaw == intended_before;
++        audit_running = 1; fly64_vision_render(); audit_running = 0;
++        int independent = memcmp(baseline, atlas, sizeof(atlas)) == 0;
++        if (!independent) {
++            for (int face = 0; face < 6; ++face) {
++                unsigned changed = 0;
++                for (int y = 0; y < SIDE; ++y) for (int x = 0; x < SIDE; ++x) {
++                    int offset = ((face/3*SIDE+y)*ATLAS_W+face%3*SIDE+x)*3;
++                    changed += memcmp(baseline+offset, atlas+offset, 3) != 0;
++                }
++                fprintf(stderr, "Fly64: audit face %d differs in %u pixels\n", face, changed);
++            }
++            const char *dump_dir = getenv("FLY64_AUDIT_DUMP");
++            if (dump_dir) {
++                char name[1024];
++                for (int i=0;i<2;++i) {
++                    snprintf(name,sizeof(name),"%s/audit-%d.ppm",dump_dir,i);
++                    FILE *f=fopen(name,"wb");
++                    if(f){fprintf(f,"P6\n%d %d\n255\n",ATLAS_W,ATLAS_H);fwrite(i?atlas:baseline,1,sizeof(atlas),f);fclose(f);}
++                }
++            }
++        }
++        *camera = saved_camera; *gCurrentArea->camera = saved_area_camera;
++        gLakituState = lakitu_before;
++        int state_unchanged = memcmp(&mario_before, gMarioState, sizeof(mario_before)) == 0 &&
++                              gGlobalTimer == timer_before;
++        int observer_unchanged = observer_hash() == human_before;
++        const char *path = getenv("FLY64_VERIFY_VISION");
++        FILE *report = fopen(path, "w");
++        if (report) {
++            fprintf(report, "{\"observer_camera_independent\":%s,\"human_framebuffer_unchanged\":%s,"
++                "\"mario_and_tick_unchanged\":%s,\"body_controls_independent\":%s,\"game_frame\":%u}\n",
++                independent ? "true":"false", observer_unchanged ? "true":"false",
++                state_unchanged ? "true":"false", controls_independent ? "true":"false", gGlobalTimer);
++            fclose(report);
++        }
++        free(baseline); audit_done = 1;
++        if (!independent || !observer_unchanged || !state_unchanged || !controls_independent) {
++            fprintf(stderr, "Fly64: sensory isolation audit FAILED\n"); exit(4);
++        }
++        fprintf(stderr, "Fly64: PASS observer-camera independence, unchanged human framebuffer and Mario/tick\n");
++    }
++    if (audit_running) return;
++    fly64_bridge_publish_frame(atlas, pose, gGlobalTimer, (clock_seconds() - started) * 1000);
++}
+diff --git a/src/pc/fly64_vision.h b/src/pc/fly64_vision.h
+new file mode 100644
+index 0000000..e657775
+--- /dev/null
++++ b/src/pc/fly64_vision.h
+@@ -0,0 +1,9 @@
++#ifndef FLY64_VISION_H
++#define FLY64_VISION_H
++#include "types.h"
++/* Face order: forward, right, back, left, up, down; top-down 3x2 atlas. */
++extern int gFly64EyePass;
++extern Vec3f gFly64EyePosition, gFly64EyeFocus;
++void fly64_vision_render(void);
++void fly64_vision_view_matrix(Mat4 matrix);
++#endif
+diff --git a/src/pc/gfx/gfx_opengl.c b/src/pc/gfx/gfx_opengl.c
+index f332946..53b386d 100644
+--- a/src/pc/gfx/gfx_opengl.c
++++ b/src/pc/gfx/gfx_opengl.c
+@@ -39,6 +39,7 @@
+ #include "../configfile.h"
+ #include "gfx_cc.h"
+ #include "gfx_rendering_api.h"
++#include "../fly64_bridge.h"
+ 
+ #define TEX_CACHE_STEP 512
+ 
+diff --git a/src/pc/gfx/gfx_pc.c b/src/pc/gfx/gfx_pc.c
+index 5b30dd5..421d7aa 100644
+--- a/src/pc/gfx/gfx_pc.c
++++ b/src/pc/gfx/gfx_pc.c
+@@ -25,6 +25,7 @@
+ #include "gfx_screen_config.h"
+ 
+ #include "../platform.h"
++#include "../fly64_vision.h"
+ #include "../configfile.h"
+ #include "../fs/fs.h"
+ 
+@@ -748,6 +749,7 @@ static void gfx_sp_pop_matrix(uint32_t count) {
+ }
+ 
+ static float gfx_adjust_x_for_aspect_ratio(float x) {
++    if (gFly64EyePass) return x;
+     return x * (4.0f / 3.0f) / ((float)gfx_current_dimensions.width / (float)gfx_current_dimensions.height);
+ }
+ 
+@@ -1797,10 +1799,24 @@ void gfx_run(Gfx *commands) {
+     gfx_flush();
+     double t1 = gfx_wapi->get_time();
+     //printf("Process %f %f\n", t1, t1 - t0);
++    fly64_vision_render();
+     gfx_rapi->end_frame();
+     gfx_wapi->swap_buffers_begin();
+ }
+ 
++/* No window events, frame pacing, logic tick, or buffer swap in sensor passes. */
++void gfx_run_eye(Gfx *commands) {
++    gfx_sp_reset();
++    /* The FBO boundary changes GL state outside this renderer's state cache.
++     * Force viewport/scissor restoration and match the depth-clear write mask. */
++    memset(&rendering_state.viewport, 0, sizeof(rendering_state.viewport));
++    memset(&rendering_state.scissor, 0, sizeof(rendering_state.scissor));
++    rendering_state.depth_mask = true;
++    rdp.viewport_or_scissor_changed = true;
++    gfx_run_dl(commands);
++    gfx_flush();
++}
++
+ void gfx_end_frame(void) {
+     if (!dropped_frame) {
+         gfx_rapi->finish_render();
+diff --git a/src/pc/gfx/gfx_pc.h b/src/pc/gfx/gfx_pc.h
+index 716221a..a8de415 100644
+--- a/src/pc/gfx/gfx_pc.h
++++ b/src/pc/gfx/gfx_pc.h
+@@ -19,6 +19,7 @@ void gfx_init(struct GfxWindowManagerAPI *wapi, struct GfxRenderingAPI *rapi, co
+ struct GfxRenderingAPI *gfx_get_current_rendering_api(void);
+ void gfx_start_frame(void);
+ void gfx_run(Gfx *commands);
++void gfx_run_eye(Gfx *commands);
+ void gfx_end_frame(void);
+ void gfx_precache_textures(void);
+ void gfx_shutdown(void);
+diff --git a/src/pc/gfx/gfx_sdl2.c b/src/pc/gfx/gfx_sdl2.c
+index 243a704..38fc318 100644
+--- a/src/pc/gfx/gfx_sdl2.c
++++ b/src/pc/gfx/gfx_sdl2.c
+@@ -35,6 +35,7 @@
+ #include "../cliopts.h"
+ 
+ #include "src/pc/controller/controller_keyboard.h"
++#include "../fly64_bridge.h"
+ 
+ // TODO: figure out if this shit even works
+ #ifdef VERSION_EU
+@@ -218,6 +219,14 @@ static int translate_scancode(int scancode) {
+ }
+ 
+ static void gfx_sdl_onkeydown(int scancode) {
++    if (scancode == SDL_SCANCODE_ESCAPE) {
++        game_exit();
++        return;
++    }
++    if (scancode == SDL_SCANCODE_F8) {
++        fly64_bridge_toggle();
++        return;
++    }
+     if (kb_key_down)
+         kb_key_down(translate_scancode(scancode));
+ 
