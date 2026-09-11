@@ -1,17 +1,16 @@
-﻿<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8"><title>Fly64 Trajectory Replay</title>
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Fly64 Trajectory Replay</title>
 <style>
 body{font:14px -apple-system,sans-serif;background:#0b1015;color:#f0f4f8;margin:20px}
-#canvas{background:#162029;border:1px solid #354250;border-radius:8px;display:block;margin:10px 0}
-.controls{display:flex;gap:12px;align-items:center;margin:10px 0}
+canvas{background:#162029;border:1px solid #354250;border-radius:8px;display:block;margin:10px 0;width:100%;height:400px}
+.controls{display:flex;gap:12px;align-items:center;margin:10px 0;flex-wrap:wrap}
 button{background:#354250;color:#f0f4f8;border:none;padding:6px 16px;border-radius:4px;cursor:pointer}
 button:hover{background:#4a5a6a}
-input[type=range]{width:400px}
-.info{color:#b0bdcc;font-size:12px;margin:5px 0}
-#stats{display:flex;gap:20px;flex-wrap:wrap}
+input[type=range]{flex:1;min-width:200px}
+#stats{display:flex;gap:20px;flex-wrap:wrap;margin-top:10px}
 .stat{background:#162029;padding:8px 14px;border-radius:6px;border:1px solid #354250}
 .stat label{color:#6cdaed;display:block;font-size:11px}
 .stat span{font-size:16px;font-weight:600}
+.error{color:#ff6b6b;background:#2a1515;padding:10px 6px;border-radius:6px;margin:10px 0}
 </style></head><body>
 <h2>🪰 Fly64 Trajectory Replay</h2>
 <div class="controls">
@@ -20,51 +19,72 @@ input[type=range]{width:400px}
 <label>Speed: <select id="speed"><option value="1">1x</option><option value="2">2x</option><option value="5">5x</option><option value="10">10x</option></select></label>
 <span id="frameInfo">0 / 0</span>
 </div>
-<input type="range" id="slider" min="0" max="0" value="0" style="width:100%">
-<canvas id="canvas" width="600" height="400"></canvas>
+<input type="range" id="slider" min="0" max="0" value="0">
+<canvas id="canvas" width="800" height="400"></canvas>
 <div id="stats"></div>
+<div id="errMsg" class="error" style="display:none"></div>
 <script>
-const canvas=$('canvas'),ctx=canvas.getContext('2d');
-let points=[],playing=false,pos=0,speed=1,animId=null;
-async function load(){const r=await fetch('/trajectory.json');points=await r.json();max=points.length-1;document.getElementById('slider').max=max;render();}
-function render(){
-  ctx.clearRect(0,0,600,400);
-  if(!points.length)return;
-  const xs=points.map(p=>p.x),ys=points.map(p=>p.z);
-  const minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys);
-  const rangeX=Math.max(maxX-minX,1),rangeY=Math.max(maxY-minY,1);
-  const pad=40,scale=Math.min((600-2*pad)/rangeX,(400-2*pad)/rangeY);
-  const map=(x,y)=>({x:pad+(x-minX)*scale,y:400-pad-(y-minY)*scale});
-  // Draw path
-  ctx.beginPath();ctx.strokeStyle='#6cdaed';ctx.lineWidth=2;
-  for(let i=0;i<=pos&&i<points.length;i++){const p=map(points[i].x,points[i].z);i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y);}
-  ctx.stroke();
-  // Current position
-  if(pos<points.length){const p=map(points[pos].x,points[pos].z);
-    ctx.beginPath();ctx.arc(p.x,p.y,5,0,Math.PI*2);ctx.fillStyle='#ffca72';ctx.fill();
-    // Heading direction
-    const h=points[pos].heading;ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(p.x+15*Math.sin(h),p.y-15*Math.cos(h));ctx.strokeStyle='#ffca72';ctx.lineWidth=2;ctx.stroke();
-  }
+const $=id=>document.getElementById(id),cv=$('canvas'),cx=cv.getContext('2d');
+let pts=[],playing=0,pos=0,spd=1,anim=null;
+
+async function load(){
+  try{
+    const r=await fetch('/trajectory.json');
+    if(!r.ok)throw Error('HTTP '+r.status);
+    pts=await r.json();
+    if(!pts.length)throw Error('No data');
+    $('slider').max=pts.length-1;
+    draw();
+  }catch(e){$('errMsg').textContent='Error: '+e.message;$('errMsg').style.display='block';$('frameInfo').textContent='No data';}
+}
+
+function draw(){
+  cx.clearRect(0,0,cv.width,cv.height);
+  if(!pts.length)return;
+  const xs=pts.map(p=>p.x),ys=pts.map(p=>p.z);
+  const x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys);
+  const rx=Math.max(x1-x0,1),ry=Math.max(y1-y0,1),pd=40;
+  const sc=Math.min((cv.width-2*pd)/rx,(cv.height-2*pd)/ry);
+  const mp=(x,y)=>({x:pd+(x-x0)*sc,y:cv.height-pd-(y-y0)*sc});
+  // Path
+  cx.beginPath();cx.strokeStyle='#6cdaed';cx.lineWidth=2;
+  for(let i=0;i<=pos&&i<pts.length;i++){const p=mp(pts[i].x,pts[i].z);i===0?cx.moveTo(p.x,p.y):cx.lineTo(p.x,p.y);}
+  cx.stroke();
   // Start
-  const s=map(points[0].x,points[0].z);ctx.fillStyle='#4caf50';ctx.beginPath();ctx.arc(s.x,s.y,4,0,Math.PI*2);ctx.fill();ctx.fillText('Start',s.x+8,s.y+4);
+  const st=mp(pts[0].x,pts[0].z);
+  cx.fillStyle='#4caf50';cx.beginPath();cx.arc(st.x,st.y,4,0,7);cx.fill();
+  cx.fillStyle='#4caf50';cx.font='12px sans-serif';cx.fillText('Start',st.x+8,st.y+4);
+  // Current position+heading
+  if(pos<pts.length){
+    const cur=mp(pts[pos].x,pts[pos].z);
+    cx.beginPath();cx.arc(cur.x,cur.y,5,0,7);cx.fillStyle='#ffca72';cx.fill();
+    const hd=pts[pos].heading;
+    cx.beginPath();cx.moveTo(cur.x,cur.y);cx.lineTo(cur.x+15*Math.sin(hd),cur.y-15*Math.cos(hd));
+    cx.strokeStyle='#ffca72';cx.lineWidth=2;cx.stroke();
+  }
   // Info
-  const p=points[pos]||points[0];document.getElementById('frameInfo').textContent=pos+'/'+(points.length-1);
-  const h=document.getElementById('stats');
-  h.innerHTML='<div class=stat><label>Time</label><span>'+p.t+'s</span></div>'+
-    '<div class=stat><label>Position</label><span>('+(p.x|0)+', '+(p.y|0)+', '+(p.z|0)+')</span></div>'+
+  const p=pts[pos]||pts[0];
+  $('frameInfo').textContent=pos+'/'+(pts.length-1);
+  $('slider').value=pos;
+  $('stats').innerHTML=
+    '<div class=stat><label>Time</label><span>'+p.t+'s</span></div>'+
+    '<div class=stat><label>X/Y/Z</label><span>'+(p.x|0)+', '+(p.y|0)+', '+(p.z|0)+'</span></div>'+
     '<div class=stat><label>Heading</label><span>'+(p.heading*180/Math.PI|0)+'°</span></div>'+
     '<div class=stat><label>Control</label><span>x='+p.ctrl_x+' y='+p.ctrl_y+'</span></div>'+
-    '<div class=stat><label>Frame</label><span>'+p.game_frame+'</span></div>';
-  document.getElementById('slider').value=pos;
+    '<div class=stat><label>Frame</label><span>'+(p.game_frame||'—')+'</span></div>';
 }
-document.getElementById('slider').oninput=function(){pos=+this.value;render();};
-document.getElementById('playBtn').onclick=function(){
-  if(playing){playing=false;cancelAnimationFrame(animId);this.textContent='▶ Play';return;}
-  playing=true;this.textContent='⏸ Pause';speed=+document.getElementById('speed').value;
-  function step(){if(!playing||pos>=points.length-1){playing=false;document.getElementById('playBtn').textContent='▶ Play';return;}
-    pos=Math.min(pos+speed,points.length-1);render();animId=requestAnimationFrame(step);}
-  animId=requestAnimationFrame(step);
+
+$('slider').oninput=function(){pos=+this.value;draw();};
+$('playBtn').onclick=function(){
+  if(playing){playing=0;cancelAnimationFrame(anim);this.textContent='▶ Play';return;}
+  if(pos>=pts.length-1)pos=0;
+  playing=1;this.textContent='⏸ Pause';spd=+$('speed').value;
+  function step(){
+    if(!playing||pos>=pts.length-1){playing=0;$('playBtn').textContent='▶ Play';return;}
+    pos=Math.min(pos+spd,pts.length-1);draw();anim=requestAnimationFrame(step);
+  }
+  anim=requestAnimationFrame(step);
 };
-document.getElementById('resetBtn').onclick=function(){playing=false;cancelAnimationFrame(animId);document.getElementById('playBtn').textContent='▶ Play';pos=0;render();};
+$('resetBtn').onclick=function(){playing=0;cancelAnimationFrame(anim);$('playBtn').textContent='▶ Play';pos=0;draw();};
 load();
 </script></body></html>
