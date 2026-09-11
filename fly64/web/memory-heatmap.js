@@ -16,6 +16,7 @@ export function initMemoryHeatmap() {
   let lastEvents = [];
   let lastCounters = {};
   let lastFlow = null;
+  let lastDeadEnds = [];
 
   // Tooltip setup
   const tooltip = document.createElement('div');
@@ -60,6 +61,9 @@ export function initMemoryHeatmap() {
     canvas.width = Math.round(w * device);
     canvas.height = Math.round(h * device);
     ctx.scale(device, device);
+
+    // Extract dead-end cell coordinates
+    lastDeadEnds = d.dead_end_cells || [];
 
     // Determine grid extent from heatmap data
     const xs = d.xs || [], zs = d.zs || [], heats = d.heats || [];
@@ -123,6 +127,24 @@ export function initMemoryHeatmap() {
         ctx.beginPath();
         const head = trajPts[0];
         ctx.arc(px(head.x, minX, rangeX), py(head.z, minZ, rangeZ), 3, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+
+    // Draw dead-end cell markers (X marks on known dead-end grid positions)
+    if (lastDeadEnds.length > 0) {
+      const cellW = (w - 2 * pad) / Math.max(Math.sqrt(xs.length || 1), 1) * 0.8;
+      const deadEndSize = Math.max(3, cellW * 0.3);
+      ctx.strokeStyle = 'rgba(255, 60, 60, 0.7)';
+      ctx.lineWidth = 1.5;
+      for (const [dex, dez] of lastDeadEnds) {
+        const mx = px(dex * 200 + 100, minX, rangeX);
+        const my = py(dez * 200 + 100, minZ, rangeZ);
+        ctx.beginPath();
+        ctx.moveTo(mx - deadEndSize, my - deadEndSize);
+        ctx.lineTo(mx + deadEndSize, my + deadEndSize);
+        ctx.moveTo(mx + deadEndSize, my - deadEndSize);
+        ctx.lineTo(mx - deadEndSize, my + deadEndSize);
         ctx.stroke();
       }
     }
@@ -258,6 +280,20 @@ export function initMemoryHeatmap() {
       counterHtml = `<br><span class="muted">${c.total_escapes} escapes · ${c.total_falls} falls · ${c.total_flow_avoid} avoids</span>`;
     }
 
+    // Coverage and exploration indicator
+    let coverageHtml = '';
+    if (d.coverage_pct !== undefined) {
+      const pct = d.coverage_pct;
+      const pctColor = pct < 10 ? '#ff6b6b' : (pct < 25 ? '#ffc832' : '#4cdf7c');
+      coverageHtml = ` <span style="color:${pctColor}">■ ${pct}%</span>`;
+    }
+    if (d.exploration_speed !== undefined) {
+      coverageHtml += ` <span class="muted">${d.exploration_speed.toFixed(2)} cells/min</span>`;
+    }
+    if (d.dead_end_count !== undefined && d.dead_end_count > 0) {
+      coverageHtml += ` <span style="color:#ff6b6b">✕ ${d.dead_end_count}</span>`;
+    }
+
     // Cliff status from flow data
     let cliffHtml = '';
     if (lastFlow) {
@@ -281,6 +317,7 @@ export function initMemoryHeatmap() {
       ${escHtml}
       · <span class="muted">${d.visited_cells} cells</span>
       ${counterHtml}
+      <br><strong>Coverage</strong> ${coverageHtml}
       <br><strong>Cliff</strong> ${cliffHtml}
     `;
   }

@@ -271,6 +271,8 @@ class SpatialMemoryMap:
         self._current_cell: tuple[int, int] | None = None
         self._history: deque[tuple[int, int]] = deque(maxlen=loop_window)
         self._revisit_count = 0
+        self._coverage_history: deque[tuple[int, float]] = deque(maxlen=6000)
+        self._last_coverage_tick = 0
 
     # -- helpers ----------------------------------------------------------
 
@@ -315,6 +317,12 @@ class SpatialMemoryMap:
             self._last_tick[key] = self._total_ticks
 
         self._decay_recency()
+        
+        # Record coverage history every 100 ticks
+        if self._total_ticks - self._last_coverage_tick >= 100:
+            self._last_coverage_tick = self._total_ticks
+            self._coverage_history.append((self._total_ticks, self.coverage_percentage))
+        
         return self._novelty(key)
 
     def novelty_at(self, x: float, z: float) -> float:
@@ -373,6 +381,114 @@ class SpatialMemoryMap:
         )
         return xs, zs, heats
 
+    def novelty_direction(self, x: float, z: float, heading: float,
+                          dead_end_keys: set[tuple[int, int]] | None = None) -> float:
+        """Evaluate novelty in 4 directions relative to *heading* and return a
+        turn bias.
+
+        Samples novelty in the forward, left, right, and backward grid cells
+        relative to the current heading. Returns a float in [-1, +1] where:
+        - positive = turn right toward higher-novelty area
+        - negative = turn left toward higher-novelty area
+        Returns 0 when no direction offers meaningful novelty advantage.
+
+        If *dead_end_keys* is provided, cells in that set (or their immediate
+        neighbors) have their novelty score penalised by 0.5.
+        """
+        base_key = self._key(x, z)
+        cx, cz = base_key
+
+        # 4 direction offsets relative to heading (sm64: heading 0 = +Z north)
+        # Forward = (+sin(heading), +cos(heading)) in grid space
+        sin_h = math.sin(heading)
+        cos_h = math.cos(heading)
+
+        def grid_dir(sin_a, cos_a):
+            """Compute grid-step offset for absolute angle (sin, cos)."""
+            dx = 1 if sin_a > 0.3 else (-1 if sin_a < -0.3 else 0)
+            dz = 1 if cos_a > 0.3 else (-1 if cos_a < -0.3 else 0)
+            return dx, dz
+
+        forward_off = grid_dir(sin_h, cos_h)                 # heading
+        left_off = grid_dir(-cos_h, sin_h)                   # heading + 90°
+        right_off = grid_dir(cos_h, -sin_h)                  # heading - 90°
+        backward_off = grid_dir(-sin_h, -cos_h)              # heading + 180°
+
+        half = self.grid_cells // 2
+
+        def cell_novelty(off):
+            """Average novelty over the cell at offset and its onward neighbor,
+            penalised if near a dead-end cell."""
+            nk = (cx + off[0], cz + off[1])
+            if not (-half <= nk[0] < half and -half <= nk[1] < half):
+                return 0.0
+
+            # Dead-end penalty: subtract 0.5 if the target cell or its
+            # 4-neighbor is a known dead-end
+            dead_end_penalty = 0.0
+            if dead_end_keys:
+                if nk in dead_end_keys:
+                    dead_end_penalty = 0.5
+                else:
+                    for dk_off in [(1,0), (-1,0), (0,1), (0,-1)]:
+                        if (nk[0] + dk_off[0], nk[1] + dk_off[1]) in dead_end_keys:
+                            dead_end_penalty = 0.5
+                            break
+
+            n1 = max(0.0, (self.novelty_at(nk[0] * self.cell_size, nk[1] * self.cell_size)
+                    if nk in self._cells else 1.0) - dead_end_penalty)
+            # lookahead one cell further
+            nk2 = (nk[0] + off[0], nk[1] + off[1])
+            if -half <= nk2[0] < half and -half <= nk2[1] < half:
+                n2 = max(0.0, (self.novelty_at(nk2[0] * self.cell_size, nk2[1] * self.cell_size)
+                        if nk2 in self._cells else 1.0) - dead_end_penalty)
+            else:
+                n2 = 1.0
+            return (n1 + n2) * 0.5
+
+        fwd_n = cell_novelty(forward_off)
+        left_n = cell_novelty(left_off)
+        right_n = cell_novelty(right_off)
+        back_n = cell_novelty(backward_off)
+
+        # Dead-end penalty (applied later externally, but we note the best)
+        # Bias: if right > left and right > forward, turn right
+        #        if left > right and left > forward, turn left
+        bias = 0.0
+        if right_n > fwd_n and right_n > left_n:
+            bias = min(1.0, (right_n - fwd_n) * 2.0)
+        elif left_n > fwd_n and left_n > right_n:
+            bias = max(-1.0, -(left_n - fwd_n) * 2.0)
+        elif fwd_n < 0.3 and back_n > 0.5:
+            # Forward is stale but behind is fresh → turn around
+            bias = -1.0 if left_n > right_n else 1.0
+
+        return round(bias, 4)
+
+    @property
+    def coverage_percentage(self) -> float:
+        """Percentage of grid cells visited out of the total grid (0–100)."""
+        total = self.grid_cells * self.grid_cells
+        return (len(self._cells) / total) * 100.0
+
+    @property
+    def coverage_pct(self) -> float:
+        """Alias for coverage_percentage, used by dashboard."""
+        return self.coverage_percentage
+
+    @property
+    def coverage_rate(self) -> float:
+        """Exploration speed: coverage percentage change per 1000 ticks."""
+        if len(self._coverage_history) < 10:
+            return 0.0
+        first_tick, first_pct = self._coverage_history[0]
+        last_tick, last_pct = self._coverage_history[-1]
+        delta_ticks = last_tick - first_tick
+        if delta_ticks < 100:
+            return 0.0
+        pct_per_tick = (last_pct - first_pct) / delta_ticks
+        return round(pct_per_tick * 1000, 4)  # per 1000 ticks
+
     def reset(self) -> None:
         self._cells.clear()
         self._recency.clear()
@@ -381,6 +497,8 @@ class SpatialMemoryMap:
         self._current_cell = None
         self._history.clear()
         self._revisit_count = 0
+        self._coverage_history.clear()
+        self._last_coverage_tick = 0
 
 
 # ---------------------------------------------------------------------------
@@ -393,11 +511,25 @@ class FailureMemory:
     Stores fallen locations as grid keys. When returning to a known
     failure cell, the novelty is suppressed and escape behavior is
     biased away from the fall direction.
+
+    Also tracks **dead-end directions** — directions (as heading bins)
+    that led to failure from a specific cell, so the agent avoids
+    repeating the same bad escape direction.
     """
 
     def __init__(self, cell_size: float = 200.0):
         self.cell_size = cell_size
         self._failures: set[tuple[int, int]] = set()
+        # dead-end directions: {(cell_x, cell_z): set_of_heading_bins}
+        # heading bins: N=0, NE=1, E=2, SE=3, S=4, SW=5, W=6, NW=7
+        self._dead_ends: dict[tuple[int, int], set[int]] = {}
+
+    @staticmethod
+    def _heading_bin(heading: float) -> int:
+        """Quantize heading (radians) into 8 bins (0-7, N=0, clockwise)."""
+        # Normalise to [0, 2π), then quantize
+        h = heading % (2 * math.pi)
+        return int(round(h / (2 * math.pi) * 8)) % 8
 
     def record_failure(self, x: float, z: float) -> None:
         """Mark the grid cell containing (x, z) as a failure location."""
@@ -405,11 +537,56 @@ class FailureMemory:
                int(math.floor(z / self.cell_size)))
         self._failures.add(key)
 
+    def record_dead_end(self, x: float, z: float, heading: float) -> None:
+        """Record that heading led to a dead end from cell at (x,z)."""
+        key = (int(math.floor(x / self.cell_size)),
+               int(math.floor(z / self.cell_size)))
+        if key not in self._dead_ends:
+            self._dead_ends[key] = set()
+        self._dead_ends[key].add(self._heading_bin(heading))
+
     def is_failure_cell(self, x: float, z: float) -> bool:
         """Check if (x, z) is in a previously failed cell."""
         key = (int(math.floor(x / self.cell_size)),
                int(math.floor(z / self.cell_size)))
         return key in self._failures
+
+    def is_dead_end(self, x: float, z: float, heading: float) -> bool:
+        """Check if heading is a known dead-end direction from (x,z)."""
+        key = (int(math.floor(x / self.cell_size)),
+               int(math.floor(z / self.cell_size)))
+        if key not in self._dead_ends:
+            return False
+        return self._heading_bin(heading) in self._dead_ends[key]
+
+    def worst_heading(self, x: float, z: float) -> int | None:
+        """Return the heading bin that most recently caused a dead end
+        from the given cell, or None if no dead ends known."""
+        key = (int(math.floor(x / self.cell_size)),
+               int(math.floor(z / self.cell_size)))
+        if key not in self._dead_ends or not self._dead_ends[key]:
+            return None
+        return max(self._dead_ends[key])  # Return worst (arbitrary pick)
+
+    def best_free_heading(self, x: float, z: float,
+                          current_heading: float) -> float:
+        """Return a heading (radians) that avoids known dead-end bins.
+        Prefers the 3 bins closest to *current_heading* that are not
+        dead ends. Falls back to current_heading unchanged."""
+        key = (int(math.floor(x / self.cell_size)),
+               int(math.floor(z / self.cell_size)))
+        blocked = self._dead_ends.get(key, set())
+        if not blocked:
+            return current_heading
+
+        current_bin = self._heading_bin(current_heading)
+        # Check bins in order: current, +1, -1, +2, -2, +3, -3, +4
+        candidates = [(current_bin + i) % 8 for i in [0, 1, -1, 2, -2, 3, -3, 4]]
+        for cb in candidates:
+            if cb not in blocked:
+                # Return heading at centre of this bin (in radians)
+                return cb * (2 * math.pi / 8)
+        return current_heading
 
     def avoid_direction(self, x: float, z: float, heading: float) -> float:
         """If heading points toward a failure cell, suggest a turn away.
@@ -424,14 +601,28 @@ class FailureMemory:
         hz = cz + int(round(_math.cos(heading)))
         if (hx, hz) in self._failures:
             return 0.5  # bias turn right
+        # Also check dead-end direction from current cell
+        if self.is_dead_end(x, z, heading):
+            return 0.5
         return 0.0
 
     @property
     def failure_count(self) -> int:
         return len(self._failures)
 
+    @property
+    def dead_end_count(self) -> int:
+        """Total number of (cell, heading_bin) dead-end records."""
+        return sum(len(v) for v in self._dead_ends.values())
+
+    @property
+    def dead_end_cells(self) -> set[tuple[int, int]]:
+        """Set of grid cell keys that have any dead-end heading recorded."""
+        return set(self._dead_ends.keys())
+
     def reset(self) -> None:
         self._failures.clear()
+        self._dead_ends.clear()
 
 
 class MemoryController:
@@ -484,10 +675,11 @@ class MemoryController:
         # Record position for fall detection
         self._last_pos = (x, pos_y, z)
 
-        # If fallen, record the last safe position as failure
+        # If fallen, record the last safe position as failure + dead-end direction
         if self._fallen and self._fall_pos == (0.0, 0.0, 0.0):
             self._fall_pos = self._last_pos
             self.failures.record_failure(x, z)
+            self.failures.record_dead_end(x, z, heading)
 
         # Flow-aware escape threshold: looming lowers threshold,
         # cliff (multi-frame confirmed) forces immediate escape
@@ -530,6 +722,31 @@ class MemoryController:
 
     @property
     def fallen(self) -> bool: return self._fallen
+
+    @property
+    def coverage_percentage(self) -> float:
+        """Percentage of the total grid cells visited (0–100)."""
+        return self.spatial.coverage_percentage
+
+    @property
+    def coverage_pct(self) -> float:
+        """Alias for coverage_percentage for dashboard."""
+        return self.spatial.coverage_pct
+
+    @property
+    def coverage_rate(self) -> float:
+        """Exploration speed: percentage change per 1000 ticks."""
+        return self.spatial.coverage_rate
+
+    @property
+    def dead_end_count(self) -> int:
+        """Number of recorded (cell, heading) dead-end pairs."""
+        return self.failures.dead_end_count
+
+    @property
+    def dead_end_cells(self) -> set[tuple[int, int]]:
+        """Set of grid cells that are known dead ends."""
+        return self.failures.dead_end_cells
 
     @property
     def cliff_detected(self) -> bool:

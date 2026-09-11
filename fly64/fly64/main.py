@@ -459,12 +459,19 @@ async def run(args) -> None:
                         if escape_toggle_timer < model.dt:
                             avoid = memory_ctrl.failures.avoid_direction(pose_ev[0], pose_ev[2], pose_ev[3])
                             asym = model.flow_asymmetry
+                            # Novelty-biased escape: prefer high-novelty directions
+                            novelty_bias = memory_ctrl.spatial.novelty_direction(
+                                pose_ev[0], pose_ev[2], pose_ev[3],
+                                dead_end_keys=memory_ctrl.dead_end_cells)
                             if avoid > 0:
                                 escape_x = 60
                             elif asym > 0.12:
                                 escape_x = 60
                             elif asym < -0.12:
                                 escape_x = -60
+                            elif abs(novelty_bias) > 0.2:
+                                # Novelty bias takes priority (>0.2 threshold)
+                                escape_x = int(novelty_bias * 70)
                             else:
                                 escape_x = model.rng.integers(40, 70)
                                 if model.rng.random() < 0.5:
@@ -572,6 +579,11 @@ async def run(args) -> None:
                     "loop_score": round(memory_ctrl.spatial.loop_score, 3),
                     "exploration_mode": memory_ctrl.spatial.exploration_mode,
                     "visited_cells": memory_ctrl.spatial.visited_cells,
+                    "coverage_pct": round(memory_ctrl.coverage_pct, 1),
+                    "coverage_rate": round(memory_ctrl.coverage_rate, 4),
+                    "exploration_speed": round(memory_ctrl.coverage_rate * 60, 2),
+                    "dead_end_count": memory_ctrl.dead_end_count,
+                    "dead_end_cells": [[k[0], k[1]] for k in memory_ctrl.dead_end_cells][:50],
                     "cell_x": int(pose[0]),
                     "cell_z": int(pose[2]),
                     "xs": [round(float(v), 1) for v in xs[:2500]],
@@ -631,9 +643,11 @@ async def run(args) -> None:
             mem_path.parent.mkdir(parents=True, exist_ok=True)
             mem_path.write_text(json.dumps({
                 "visited_cells": memory_ctrl.spatial.visited_cells,
+                "coverage_pct": round(memory_ctrl.coverage_pct, 1),
                 "stuck_score": memory_ctrl.stuck_score,
                 "stuck_duration": memory_ctrl.stuck_duration,
                 "total_ticks": memory_ctrl.spatial.total_ticks,
+                "dead_end_count": memory_ctrl.dead_end_count,
             }))
         except Exception:
             pass
