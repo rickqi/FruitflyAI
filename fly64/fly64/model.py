@@ -72,6 +72,15 @@ class FlyModel:
         self.flow_looming = 0.0     # center expansion index (-1..1)
         self.flow_cliff = 1.0       # lower-field green ratio (1=grass, 0=void)
 
+        # ---- Multi-channel retina signals (6-channel encoding) ----
+        self.on_energy = 0.0        # ON channel: positive luminance transients
+        self.off_energy = 0.0       # OFF channel: negative luminance transients
+        self.sustained_energy = 0.0 # Sustained: slow contrast change
+        self.edge_0 = 0.0           # Horizontal edge energy
+        self.edge_45 = 0.0          # Diagonal (45°) edge energy
+        self.edge_90 = 0.0          # Vertical edge energy
+        self.edge_135 = 0.0         # Anti-diagonal (135°) edge energy
+
         # ---- Cliff detection (multi-frame confirmation) ----
         self._cliff_history = deque(maxlen=10)  # last 10 lower_field_green values
         self.CLIFF_THRESHOLD = 0.25
@@ -142,6 +151,15 @@ class FlyModel:
         self.flow_asymmetry = float(flow["left_right_asymmetry"])
         self.flow_looming = float(flow["center_expansion"])
         self.flow_cliff = float(flow["lower_field_green"])
+
+        # --- Multi-channel retina signals (extracted from compute_flow) ---
+        self.on_energy = float(flow.get("on_raw", 0.0))
+        self.off_energy = float(flow.get("off_raw", 0.0))
+        self.sustained_energy = float(flow.get("sustained_raw", 0.0))
+        self.edge_0 = float(flow.get("edge_0", 0.0))
+        self.edge_45 = float(flow.get("edge_45", 0.0))
+        self.edge_90 = float(flow.get("edge_90", 0.0))
+        self.edge_135 = float(flow.get("edge_135", 0.0))
 
         # --- Multi-frame cliff history ---
         self._cliff_history.append(self.flow_cliff)
@@ -250,6 +268,41 @@ class FlyModel:
                 turn_dir = 1.0 if self.rng.random() < 0.5 else -1.0
                 raw_x += turn_dir * 40.0
 
+            # ---- Multi-channel retina modulation ----
+            # 4a. High ON + low OFF = object appearing ahead → increase jump probability
+            #     (handled via jump_rate boost below, not raw_x/raw_y here)
+            # 4b. High OFF = something passing → possible obstacle on that side → bias turn
+            if self.off_energy > 0.03 and self.on_energy < 0.01:
+                # Strong OFF without ON suggests lateral motion (object passing)
+                # Bias turn toward the side with less asymmetry
+                bias = self.off_energy * 30.0
+                if self.flow_asymmetry > 0:
+                    raw_x += bias  # already turning right, reinforce
+                elif self.flow_asymmetry < 0:
+                    raw_x -= bias  # already turning left, reinforce
+                else:
+                    # No asymmetry — random direction
+                    raw_x += bias * (1.0 if self.rng.random() < 0.5 else -1.0)
+
+            # 4c. High sustained = approaching a stationary object → reduce forward speed
+            if self.sustained_energy > 0.03:
+                sustain_brake = 1.0 - min(self.sustained_energy * 1.5, 0.6)
+                raw_y *= sustain_brake
+
+            # 4d. Dominant edge orientation → bias turn direction
+            edges = [self.edge_0, self.edge_45, self.edge_90, self.edge_135]
+            max_edge = max(edges)
+            if max_edge > 0.05:
+                dominant_idx = edges.index(max_edge)
+                if dominant_idx == 0:   # horizontal edges → turn less (open space)
+                    raw_x *= 0.85
+                elif dominant_idx == 2: # vertical edges → corridor, turn less
+                    raw_x *= 0.70
+                elif dominant_idx == 1: # diagonal (45°) → bias turn away
+                    raw_x += 8.0
+                elif dominant_idx == 3: # anti-diagonal (135°) → bias turn opposite
+                    raw_x -= 8.0
+
         raw_y = np.clip(raw_y, 0, 70)
         raw_x = np.clip(raw_x, -70, 70)
 
@@ -258,6 +311,9 @@ class FlyModel:
         jump = jump_rate > 0.04 and now - self.last_jump >= 0.8
         # Increase jump likelihood during looming (only with active synapses)
         if self.visual_connected and self.w.nnz > 0 and self.flow_looming > 0.4 and jump_rate > 0.02 and now - self.last_jump >= 0.6:
+            jump = True
+        # High ON + low OFF = object appearing ahead → boost jump probability
+        if self.visual_connected and self.w.nnz > 0 and self.on_energy > 0.04 and self.off_energy < 0.01 and jump_rate > 0.02 and now - self.last_jump >= 0.6:
             jump = True
         if jump:
             self.last_jump = now

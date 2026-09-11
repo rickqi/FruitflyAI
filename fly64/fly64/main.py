@@ -599,6 +599,14 @@ async def run(args) -> None:
                     "cliff_confirmed": model.cliff_confirmed,
                     "cliff_rate": round(model.cliff_rate, 4),
                     "tick": model.step_count,
+                    # Multi-channel retina summary values
+                    "on": round(model.on_energy, 4),
+                    "off": round(model.off_energy, 4),
+                    "sustained": round(model.sustained_energy, 4),
+                    "edge_0": round(model.edge_0, 4),
+                    "edge_45": round(model.edge_45, 4),
+                    "edge_90": round(model.edge_90, 4),
+                    "edge_135": round(model.edge_135, 4),
                 }, separators=(",", ":")).encode()
                 DashboardHTTP.events_json = json.dumps({
                     "events": escape_buffer.get_recent(100),
@@ -616,6 +624,14 @@ async def run(args) -> None:
                     "cliff_confidence": round(memory_ctrl.cliff_confidence, 3),
                     "cliff_confirmed": model.cliff_confirmed,
                     "cliff_rate": round(model.cliff_rate, 4),
+                    # Multi-channel retina
+                    "on": round(model.on_energy, 4),
+                    "off": round(model.off_energy, 4),
+                    "sustained": round(model.sustained_energy, 4),
+                    "edge_0": round(model.edge_0, 4),
+                    "edge_45": round(model.edge_45, 4),
+                    "edge_90": round(model.edge_90, 4),
+                    "edge_135": round(model.edge_135, 4),
                 })
                 DashboardHTTP.history_json = json.dumps(
                     list(DashboardHTTP.signal_history),
