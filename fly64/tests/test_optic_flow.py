@@ -300,21 +300,25 @@ def test_memory_flow_looming_lowers_threshold():
 
 
 def test_memory_cliff_emergency():
-    """flow_cliff < 0.3 with visible temporal_energy triggers immediate escape."""
+    """Multi-frame confirmed cliff triggers immediate escape."""
     mc = MemoryController()
-    # Not stuck, no exploration mode - but cliff emergency should override
-    result = mc.update(
-        temporal_energy=0.01,
-        frame_seq=0,
-        forward_rate=20.0,
-        x=100.0,
-        z=200.0,
-        flow_looming=0.0,
-        flow_cliff=0.2,  # below threshold
-    )
-    _, _, _, escape, _ = result
-    assert escape, (
-        "Cliff emergency should trigger escape even without stuck detection"
+    # Fill the confirmation window with low green values to trigger cliff_detected
+    for _ in range(5):  # fill 5-frame default window
+        mc.update(
+            temporal_energy=0.01,
+            frame_seq=0,
+            forward_rate=20.0,
+            x=100.0,
+            z=200.0,
+            flow_looming=0.0,
+            flow_cliff=0.2,  # below entering_threshold
+        )
+    # Cliff should now be confirmed
+    assert mc.cliff_detected
+    assert mc.cliff_confidence > 0
+    # Escape should be triggered by confirmed cliff
+    assert mc.escape_behavior, (
+        "Confirmed cliff emergency should trigger escape even without stuck detection"
     )
 
 
@@ -385,21 +389,33 @@ def test_flow_computation_performance():
 def test_flow_json_structure():
     """Verify main.py flow_json dict structure matches what /flow.json serves."""
     import json
-    # Simulate the dict construction from main.py line 425-430
+    # Simulate the dict construction from main.py
     flow_json = json.dumps({
         "asymmetry": round(-0.4849, 4),
         "looming": round(0.1234, 4),
         "cliff": round(0.5678, 4),
+        "cliff_detected": False,
+        "cliff_confidence": round(0.0, 3),
+        "cliff_confirmed": False,
+        "cliff_rate": round(0.0, 4),
         "tick": 42,
     }, separators=(",", ":"))
     parsed = json.loads(flow_json)
     assert "asymmetry" in parsed
     assert "looming" in parsed
     assert "cliff" in parsed
+    assert "cliff_detected" in parsed
+    assert "cliff_confidence" in parsed
+    assert "cliff_confirmed" in parsed
+    assert "cliff_rate" in parsed
     assert "tick" in parsed
     assert isinstance(parsed["asymmetry"], float)
     assert isinstance(parsed["looming"], float)
     assert isinstance(parsed["cliff"], float)
+    assert isinstance(parsed["cliff_detected"], bool)
+    assert isinstance(parsed["cliff_confidence"], float)
+    assert isinstance(parsed["cliff_confirmed"], bool)
+    assert isinstance(parsed["cliff_rate"], float)
     assert isinstance(parsed["tick"], int)
 
 

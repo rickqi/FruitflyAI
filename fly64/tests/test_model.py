@@ -39,3 +39,28 @@ def test_controls_are_bounded_and_jump_debounced():
     if control.jump:
         second, _ = model.step(frame(255, 255), now=1.1)
         assert not second.jump
+
+
+def test_model_cliff_properties():
+    """Model exposes cliff_history, cliff_confirmed, cliff_rate properties."""
+    model = FlyModel(demo=True)
+    # Initial state
+    assert model.cliff_history == []
+    assert not model.cliff_confirmed
+    assert model.cliff_rate == 0.0
+
+    # After stepping with green terrain, flow_cliff is set
+    green = np.full((256, 384, 3), (60, 180, 60), dtype=np.uint8)
+    for i in range(5):
+        model.step(green, now=i * model.dt)
+    assert len(model.cliff_history) == 5
+    assert isinstance(model.cliff_confirmed, bool)
+    assert isinstance(model.cliff_rate, float)
+    # After enough steps the queue fills to maxlen
+    for i in range(10):
+        model.step(green, now=(5 + i) * model.dt)
+    assert len(model.cliff_history) == 10
+
+    # cliff_rate is non-negative when green stays steady
+    assert model.cliff_rate >= -0.001  # effectively zero (steady state)
+    assert isinstance(model.flow_cliff, float)  # backward compatible

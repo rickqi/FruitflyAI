@@ -1,14 +1,108 @@
-"""Tests for fly64.memory — StuckDetector, SpatialMemoryMap, MemoryController."""
+"""Tests for fly64.memory — CliffDetector, StuckDetector, SpatialMemoryMap, MemoryController."""
 
 import math
 
 import numpy as np
 
 from fly64.memory import (
+    CliffDetector,
     MemoryController,
     SpatialMemoryMap,
     StuckDetector,
 )
+
+
+# ======================================================================
+# CliffDetector — multi-frame cliff confirmation with hysteresis
+# ======================================================================
+
+def test_cliff_initial():
+    """Fresh detector returns cliff_detected=False."""
+    cd = CliffDetector()
+    result = cd.update(1.0)
+    assert not result["cliff_detected"]
+    assert result["raw_lower_field_green"] == 1.0
+
+
+def test_cliff_confirmation_window_not_full():
+    """Before the window fills, cliff_detected is always False."""
+    cd = CliffDetector(confirmation_window=5, min_confirmed=3)
+    for _ in range(4):  # only 4 of 5 frames
+        result = cd.update(0.1)
+        assert not result["cliff_detected"]
+
+
+def test_cliff_confirms_after_sufficient_low_frames():
+    """When >= min_confirmed frames in the window are below threshold, cliff_detected becomes True."""
+    cd = CliffDetector(entering_threshold=0.35, confirmation_window=5, min_confirmed=3)
+    # 3 out of 5 low values
+    for v in [0.1, 0.1, 0.1, 0.8, 0.8]:
+        result = cd.update(v)
+    assert result["cliff_detected"]
+    assert result["cliff_confidence"] >= 0.6  # 3/5
+
+
+def test_cliff_not_confirmed_with_insufficient_low():
+    """When too few frames are below threshold, cliff_detected stays False."""
+    cd = CliffDetector(entering_threshold=0.35, confirmation_window=5, min_confirmed=3)
+    for v in [0.1, 0.1, 0.8, 0.8, 0.8]:
+        result = cd.update(v)
+    assert not result["cliff_detected"]
+    assert result["cliff_confidence"] == 0.4  # 2/5
+
+
+def test_cliff_hysteresis():
+    """Once detected, exiting threshold must be crossed to clear."""
+    cd = CliffDetector(entering_threshold=0.35, exiting_threshold=0.45,
+                       confirmation_window=3, min_confirmed=2)
+    # Enter cliff (2/3 frames below 0.35)
+    cd.update(0.1)
+    cd.update(0.1)
+    result = cd.update(0.1)
+    assert result["cliff_detected"]
+
+    # Still detected: 2/3 frames below 0.45 (the exiting threshold)
+    result = cd.update(0.4)
+    assert result["cliff_detected"]  # 0.4 < 0.45, stays in cliff
+
+    # Clear: all 3 frames at 0.5 (above exiting threshold 0.45)
+    result = cd.update(0.5)
+    assert result["cliff_detected"]  # still need 3 frames
+    result = cd.update(0.5)
+    assert result["cliff_detected"]  # still need 3 frames
+    result = cd.update(0.5)
+    assert not result["cliff_detected"]  # 0/3 below threshold → cleared
+
+
+def test_cliff_reset():
+    """reset() clears the detector."""
+    cd = CliffDetector(confirmation_window=3, min_confirmed=2)
+    for v in [0.1, 0.1, 0.1]:
+        cd.update(v)
+    assert cd.cliff_detected
+    cd.reset()
+    assert not cd.cliff_detected
+    assert cd.cliff_confidence == 0.0
+    assert cd.raw == 1.0
+
+
+def test_cliff_invalid_params():
+    """Constructor rejects invalid configurations."""
+    import pytest
+    with pytest.raises(ValueError):
+        CliffDetector(min_confirmed=10, confirmation_window=5)
+    with pytest.raises(ValueError):
+        CliffDetector(entering_threshold=0.5, exiting_threshold=0.3)
+
+
+def test_cliff_properties():
+    """Properties match the last update result."""
+    cd = CliffDetector()
+    assert cd.raw == 1.0
+    cd.update(0.5)
+    assert cd.raw == 0.5
+    assert cd.cliff_confidence == 0.0  # window not full
+    assert not cd.cliff_detected
 
 
 # ======================================================================
@@ -18,9 +112,10 @@ from fly64.memory import (
 def test_stuck_initial():
     """Fresh detector returns score=0, duration=0."""
     sd = StuckDetector()
-    score, dur = sd.update(0.5, 0, 20.0)
+    score, dur, fallen = sd.update(0.5, 0, 20.0)
     assert score == 0.0
     assert dur == 0.0
+    assert not fallen
     assert sd.stuck_score == 0.0
 
 
@@ -28,27 +123,30 @@ def test_stuck_temporal_energy_collapse():
     """Low temporal_energy for >2 s → stuck."""
     sd = StuckDetector(temporal_stuck_s=2.0)
     for _ in range(250):      # 250 * 0.020 = 5 s
-        score, dur = sd.update(0.01, 0, 20.0)
+        score, dur, fallen = sd.update(0.01, 0, 20.0)
     assert score >= 0.5
     assert dur >= 2.0
+    assert not fallen
 
 
 def test_stuck_frame_freeze():
     """Unchanging frame_seq for >5 s → stuck."""
     sd = StuckDetector(frame_stuck_s=5.0)
     for _ in range(520):      # 520 * 0.020 = 10.4 s → dur ≈ 5.4 s
-        score, dur = sd.update(0.5, 42, 20.0)
+        score, dur, fallen = sd.update(0.5, 42, 20.0)
     assert score >= 0.5
     assert dur > 5.0
+    assert not fallen
 
 
 def test_stuck_forward_rate_low():
     """Low forward_rate (< threshold) for >3 s → stuck."""
     sd = StuckDetector(rate_threshold=5.0, rate_stuck_s=3.0)
     for _ in range(400):      # 400 * 0.020 = 8 s
-        score, dur = sd.update(0.5, 0, 1.0)
+        score, dur, fallen = sd.update(0.5, 0, 1.0)
     assert score >= 0.5
     assert dur >= 3.0
+    assert not fallen
 
 
 def test_stuck_recovers():
@@ -177,13 +275,14 @@ def test_memory_reset():
 # ======================================================================
 
 def test_controller_update():
-    """update() returns (stuck_score, stuck_duration, novelty, escape_bool)."""
+    """update() returns (stuck_score, stuck_duration, novelty, escape_bool, fallen)."""
     mc = MemoryController()
-    score, dur, nv, escape = mc.update(0.5, 0, 20.0, 100.0, 200.0)
+    score, dur, nv, escape, fallen = mc.update(0.5, 0, 20.0, 100.0, 200.0)
     assert 0.0 <= score <= 1.0
     assert dur == 0.0
     assert 0 < nv <= 1.0
     assert not escape
+    assert not fallen
 
 
 def test_controller_escape_triggers():
@@ -214,3 +313,19 @@ def test_controller_reset():
     mc.reset()
     assert mc.stuck_score == 0.0
     assert mc.spatial.visited_cells == 0
+
+
+def test_controller_cliff_detection():
+    """Cliff detector is integrated into MemoryController and queryable."""
+    mc = MemoryController(cliff=CliffDetector(
+        entering_threshold=0.35, confirmation_window=3, min_confirmed=2))
+    # Initial state
+    assert not mc.cliff_detected
+    assert mc.cliff_raw == 1.0
+
+    # Fill window with low green values (cliff)
+    for v in [0.1, 0.1, 0.1]:
+        mc.update(0.5, 0, 20.0, 100.0, 200.0, flow_cliff=v)
+    assert mc.cliff_detected
+    assert mc.cliff_confidence >= 0.66
+    assert mc.cliff_raw == 0.1
