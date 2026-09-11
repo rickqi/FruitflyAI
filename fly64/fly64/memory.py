@@ -1,8 +1,7 @@
-"""Spatial memory and stuck detection for Fly64 autonomous navigation.
+"""Spatial memory, stuck detection, and cliff awareness for Fly64.
 
 Phase 1: Stuck detection + spatial memory map + novelty-driven escape.
-Spec: StuckDetector (~15 lines), SpatialMemoryMap (~120 lines),
-      MemoryController combining both into escape_behavior.
+Phase 3: CliffDetector — multi-frame confirmation of lower_field_green dips.
 """
 
 from __future__ import annotations
@@ -11,6 +10,105 @@ import math
 from collections import deque
 
 import numpy as np
+
+
+# ---------------------------------------------------------------------------
+# CliffDetector — multi-frame cliff confirmation with hysteresis
+# ---------------------------------------------------------------------------
+
+class CliffDetector:
+    """Detect cliff edges by tracking lower_field_green over multiple frames.
+
+    Uses a confirmation window with hysteresis thresholds to reject single-frame
+    noise and provide clean state transitions.
+
+    Configurable parameters:
+      entering_threshold  — raw green below this value starts the confirmation
+      exiting_threshold   — raw green above this value cancels confirmation
+                            (must be >= entering_threshold to provide hysteresis)
+      confirmation_window — number of consecutive frames to examine (default 5)
+      min_confirmed       — how many frames in the window must be below threshold
+                            for cliff_detected to become True (default 3)
+
+    Outputs:
+      cliff_detected (bool)   — confirmed after multi-frame check
+      cliff_confidence (0-1)  — fraction of window frames below threshold
+      raw_lower_field_green   — latest raw measurement (passthrough)
+    """
+
+    def __init__(self,
+                 entering_threshold: float = 0.35,
+                 exiting_threshold: float = 0.40,
+                 confirmation_window: int = 5,
+                 min_confirmed: int = 3):
+        if min_confirmed > confirmation_window:
+            raise ValueError("min_confirmed must not exceed confirmation_window")
+        if exiting_threshold < entering_threshold:
+            raise ValueError("exiting_threshold must be >= entering_threshold")
+        self.entering_threshold = entering_threshold
+        self.exiting_threshold = exiting_threshold
+        self.confirmation_window = confirmation_window
+        self.min_confirmed = min_confirmed
+
+        self._history: deque[float] = deque(maxlen=confirmation_window)
+        self._cliff_detected: bool = False
+        self._raw: float = 1.0
+
+    def update(self, lower_field_green: float) -> dict:
+        """Feed one frame's lower_field_green; return cliff detection state.
+
+        Returns dict with keys:
+          cliff_detected (bool),
+          cliff_confidence (float, 0-1),
+          raw_lower_field_green (float).
+        """
+        self._raw = lower_field_green
+        self._history.append(lower_field_green)
+
+        # Count how many frames in window are below the active threshold
+        active_threshold = (self.entering_threshold
+                            if not self._cliff_detected
+                            else self.exiting_threshold)
+        below = sum(1 for v in self._history if v < active_threshold)
+        confidence = below / self.confirmation_window if len(self._history) == self.confirmation_window else 0.0
+
+        # State transition logic
+        if not self._cliff_detected:
+            if len(self._history) == self.confirmation_window and below >= self.min_confirmed:
+                self._cliff_detected = True
+        else:
+            if len(self._history) == self.confirmation_window and below == 0:
+                self._cliff_detected = False
+
+        return {
+            "cliff_detected": self._cliff_detected,
+            "cliff_confidence": round(confidence, 3),
+            "raw_lower_field_green": round(lower_field_green, 4),
+        }
+
+    @property
+    def cliff_detected(self) -> bool:
+        return self._cliff_detected
+
+    @property
+    def cliff_confidence(self) -> float:
+        """Fraction of frames in window below active threshold."""
+        if not self._history:
+            return 0.0
+        active_threshold = (self.entering_threshold
+                            if not self._cliff_detected
+                            else self.exiting_threshold)
+        below = sum(1 for v in self._history if v < active_threshold)
+        return below / self.confirmation_window
+
+    @property
+    def raw(self) -> float:
+        return self._raw
+
+    def reset(self) -> None:
+        self._history.clear()
+        self._cliff_detected = False
+        self._raw = 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -337,22 +435,25 @@ class FailureMemory:
 
 
 class MemoryController:
-    """Aggregate stuck detection, spatial memory, and novelty into an
+    """Aggregate stuck detection, spatial memory, cliff detection, and novelty into an
     ``escape_behavior`` flag.
 
     The controller combines:
     - StuckDetector (temporal, frame, rate, Y-axis signals)
     - SpatialMemoryMap (novelty, loop_score, exploration_mode)
     - FailureMemory (fallen locations for avoidance)
+    - CliffDetector (multi-frame cliff confirmation with hysteresis)
     """
 
     def __init__(self,
                  stuck: StuckDetector | None = None,
                  spatial: SpatialMemoryMap | None = None,
-                 failures: FailureMemory | None = None):
+                 failures: FailureMemory | None = None,
+                 cliff: CliffDetector | None = None):
         self.stuck = stuck or StuckDetector()
         self.spatial = spatial or SpatialMemoryMap()
         self.failures = failures or FailureMemory()
+        self.cliff = cliff or CliffDetector()
         self.escape_behavior: bool = False
         self._stuck_score: float = 0.0
         self._stuck_duration: float = 0.0
@@ -360,6 +461,9 @@ class MemoryController:
         self._fallen: bool = False
         self._last_pos = (0.0, 0.0, 0.0)
         self._fall_pos = (0.0, 0.0, 0.0)
+        self._cliff_state = {"cliff_detected": False,
+                             "cliff_confidence": 0.0,
+                             "raw_lower_field_green": 1.0}
 
     def update(self, temporal_energy: float, frame_seq: int,
                forward_rate: float, x: float, z: float,
@@ -374,6 +478,9 @@ class MemoryController:
         )
         self._novelty = self.spatial.update(x, z)
 
+        # Update cliff detector with multi-frame confirmation
+        self._cliff_state = self.cliff.update(flow_cliff)
+
         # Record position for fall detection
         self._last_pos = (x, pos_y, z)
 
@@ -383,9 +490,10 @@ class MemoryController:
             self.failures.record_failure(x, z)
 
         # Flow-aware escape threshold: looming lowers threshold,
-        # cliff forces immediate escape
+        # cliff (multi-frame confirmed) forces immediate escape
         flow_danger = max(0.0, flow_looming - 0.3) * 2.0  # 0..1+ from looming
-        cliff_emergency = flow_cliff < 0.3 and temporal_energy > 0.005
+        cliff_emergency = (self._cliff_state["cliff_detected"]
+                           and temporal_energy > 0.005)
         adjusted_threshold = 0.8 - flow_danger * 0.4
         self.escape_behavior = (
             (self._stuck_score >= adjusted_threshold
@@ -400,12 +508,16 @@ class MemoryController:
         self.stuck.reset()
         self.spatial.reset()
         self.failures.reset()
+        self.cliff.reset()
         self.escape_behavior = False
         self._stuck_score = 0.0
         self._stuck_duration = 0.0
         self._novelty = 1.0
         self._fallen = False
         self._fall_pos = (0.0, 0.0, 0.0)
+        self._cliff_state = {"cliff_detected": False,
+                             "cliff_confidence": 0.0,
+                             "raw_lower_field_green": 1.0}
 
     @property
     def stuck_score(self) -> float: return self._stuck_score
@@ -418,3 +530,18 @@ class MemoryController:
 
     @property
     def fallen(self) -> bool: return self._fallen
+
+    @property
+    def cliff_detected(self) -> bool:
+        """Multi-frame confirmed cliff state."""
+        return self._cliff_state["cliff_detected"]
+
+    @property
+    def cliff_confidence(self) -> float:
+        """Ratio of frames in confirmation window below threshold."""
+        return self._cliff_state["cliff_confidence"]
+
+    @property
+    def cliff_raw(self) -> float:
+        """Latest raw lower_field_green reading."""
+        return self._cliff_state["raw_lower_field_green"]

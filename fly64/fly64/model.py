@@ -72,6 +72,12 @@ class FlyModel:
         self.flow_looming = 0.0     # center expansion index (-1..1)
         self.flow_cliff = 1.0       # lower-field green ratio (1=grass, 0=void)
 
+        # ---- Cliff detection (multi-frame confirmation) ----
+        self._cliff_history = deque(maxlen=10)  # last 10 lower_field_green values
+        self.CLIFF_THRESHOLD = 0.25
+        self.CLIFF_RAPID_DROP = 0.15
+        self.CLIFF_CONFIRM_FRAMES = 7
+
     def _load_demo(self):
         self.n = 4096
         row = self.rng.integers(0, self.n, 65536, dtype=np.int32)
@@ -136,7 +142,32 @@ class FlyModel:
         self.flow_asymmetry = float(flow["left_right_asymmetry"])
         self.flow_looming = float(flow["center_expansion"])
         self.flow_cliff = float(flow["lower_field_green"])
+
+        # --- Multi-frame cliff history ---
+        self._cliff_history.append(self.flow_cliff)
         return drive
+
+    @property
+    def cliff_history(self) -> list:
+        """Last 10 lower_field_green values (oldest first)."""
+        return list(self._cliff_history)
+
+    @property
+    def cliff_confirmed(self) -> bool:
+        """True when CLIFF_CONFIRM_FRAMES out of last 10 frames are below CLIFF_THRESHOLD."""
+        if len(self._cliff_history) < self.CLIFF_CONFIRM_FRAMES:
+            return False
+        below = sum(1 for v in self._cliff_history if v < self.CLIFF_THRESHOLD)
+        return below >= self.CLIFF_CONFIRM_FRAMES
+
+    @property
+    def cliff_rate(self) -> float:
+        """Rate of change of lower_field_green over the last 5 frames (per frame).
+        Negative means green is dropping (approaching edge)."""
+        if len(self._cliff_history) < 5:
+            return 0.0
+        recent = list(self._cliff_history)[-5:]
+        return (recent[-1] - recent[0]) / max(len(recent) - 1, 1)
 
     def step(self, rgb: np.ndarray, now: float | None = None,
              novelty: float = 0.5) -> tuple[Control, np.ndarray]:

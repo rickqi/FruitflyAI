@@ -324,6 +324,9 @@ async def run(args) -> None:
     current_escape_event = None
     previous_escape: bool = False
     event_last_pos = (0.0, 0.0)
+    previous_cliff_confirmed: bool = False
+    cliff_recovery_timer: float = 0.0
+    cliff_turn_bias: float = 0.0
 
     async def ws_handler(socket):
         clients.add(socket)
@@ -371,8 +374,57 @@ async def run(args) -> None:
             control, spikes = model.step(frame, model.step_count * model.dt,
                                          novelty=memory_ctrl.novelty)
 
-            # ---- Pre-emptive collision avoidance (fires BEFORE escape) ----
-            if not memory_ctrl.escape_behavior:
+            pose_ev = bridge.frame_metadata.get("pose", [0, 0, 0, 0])
+
+            # ---- Pre-emptive cliff avoidance (fires BEFORE escape, highest priority) ----
+            cliff_triggered = False
+            if model.step_count > 10:
+                # 1. High-confidence cliff: cliff_confirmed AND rapid green drop
+                if model.cliff_confirmed and model.cliff_rate < -0.03:
+                    turn_dir = -60 if model.rng.random() < 0.5 else 60
+                    control.x = turn_dir
+                    control.y = -10  # brief reverse in SM64
+                    escape_toggle_timer = 0.5  # shorten next turn cycle
+                    cliff_triggered = True
+                    cliff_turn_bias = float(turn_dir)
+                    cliff_recovery_timer = 0.0
+                # 2. Low-confidence cliff: raw cliff low but no rapid drop
+                elif model.flow_cliff < 0.25:
+                    control.x = int(control.x * 1.5)
+                    control.y = max(0, control.y - 20)
+                    cliff_triggered = True
+                    cliff_turn_bias = control.x * 0.3
+                    cliff_recovery_timer = 0.0
+                # 3. Cliff recovery: was True, now False
+                elif previous_cliff_confirmed and not model.cliff_confirmed:
+                    cliff_recovery_timer += model.dt
+                    fade = min(1.0, cliff_recovery_timer / 0.5)
+                    if abs(cliff_turn_bias) > 1:
+                        cliff_turn_bias *= (1.0 - fade * 0.8)
+                        control.x = int(cliff_turn_bias)
+                    if control.y < 8:
+                        control.y = 8
+                else:
+                    if cliff_recovery_timer > 0:
+                        cliff_recovery_timer = min(cliff_recovery_timer + model.dt, 0.5)
+                        if cliff_recovery_timer >= 0.5:
+                            cliff_turn_bias = 0.0
+                            cliff_recovery_timer = 0.0
+
+            # If cliff triggered, suppress escape behavior for this tick
+            if cliff_triggered:
+                if not previous_escape and not current_escape_event:
+                    current_escape_event = escape_buffer.start_event(
+                        round(tick_start - started, 2), "cliff",
+                        pose_ev[0], pose_ev[2])
+                    event_counters["total_escapes"] += 1
+                    event_counters["total_flow_avoid"] += 1
+                memory_ctrl.escape_behavior = False
+
+            previous_cliff_confirmed = model.cliff_confirmed
+
+            # ---- Pre-emptive collision avoidance (fires when NOT escaping) ----
+            if not memory_ctrl.escape_behavior and not cliff_triggered:
                 # 1. Strong asymmetry > 0.3: bias turn AWAY from obstacle
                 if model.flow_asymmetry > 0.3:
                     control.x = min(control.x if control.x < 0 else -max(abs(control.x), 8) - 10, -8)
@@ -381,11 +433,6 @@ async def run(args) -> None:
                 # 2. Looming > 0.4: reduce forward speed
                 if model.flow_looming > 0.4:
                     control.y = int(control.y * 0.3)
-                # 3. Cliff < 0.3: force turn away from edge
-                if model.flow_cliff < 0.3 and model.step_count > 10:
-                    turn_dir = -50 if model.rng.random() < 0.5 else 50
-                    control.x = turn_dir
-                    control.y = min(control.y, 10)
 
             # Escape control: override when stuck & looping
             pose_ev = bridge.frame_metadata.get("pose", [0, 0, 0, 0])
@@ -427,7 +474,7 @@ async def run(args) -> None:
                     event_counters["total_falls"] += 1
                 elif memory_ctrl.stuck_score > 0.8:
                     reason = "stuck"
-                elif model.flow_cliff < 0.3:
+                elif memory_ctrl.cliff_detected:
                     reason = "cliff"
                 elif model.flow_asymmetry > 0.3:
                     reason = "flow"
@@ -523,6 +570,10 @@ async def run(args) -> None:
                     "asymmetry": round(model.flow_asymmetry, 4),
                     "looming": round(model.flow_looming, 4),
                     "cliff": round(model.flow_cliff, 4),
+                    "cliff_detected": memory_ctrl.cliff_detected,
+                    "cliff_confidence": round(memory_ctrl.cliff_confidence, 3),
+                    "cliff_confirmed": model.cliff_confirmed,
+                    "cliff_rate": round(model.cliff_rate, 4),
                     "tick": model.step_count,
                 }, separators=(",", ":")).encode()
                 DashboardHTTP.events_json = json.dumps({
@@ -537,6 +588,10 @@ async def run(args) -> None:
                     "asymmetry": round(model.flow_asymmetry, 4),
                     "looming": round(model.flow_looming, 4),
                     "cliff": round(model.flow_cliff, 4),
+                    "cliff_detected": memory_ctrl.cliff_detected,
+                    "cliff_confidence": round(memory_ctrl.cliff_confidence, 3),
+                    "cliff_confirmed": model.cliff_confirmed,
+                    "cliff_rate": round(model.cliff_rate, 4),
                 })
                 DashboardHTTP.history_json = json.dumps(
                     list(DashboardHTTP.signal_history),

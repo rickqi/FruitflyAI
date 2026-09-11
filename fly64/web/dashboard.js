@@ -279,6 +279,23 @@ function renderHistoryCharts() {
         ctx.fillText(series.label, right - 30, top + 4 + flowSeries.indexOf(series) * 10);
       }
     }
+
+    // Overlay cliff_confirmed markers (red vertical bars)
+    if (pts.length > 0) {
+      for (const p of pts) {
+        if (p.cliff_confirmed) {
+          const xx = xpos(p.t);
+          ctx.strokeStyle = '#ff3c3c';
+          ctx.lineWidth = 1;
+          ctx.globalAlpha = 0.5;
+          ctx.beginPath();
+          ctx.moveTo(xx, top);
+          ctx.lineTo(xx, bottom);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
+      }
+    }
   }
 }
 

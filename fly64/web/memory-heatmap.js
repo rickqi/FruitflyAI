@@ -15,6 +15,7 @@ export function initMemoryHeatmap() {
   let lastTrajectory = [];
   let lastEvents = [];
   let lastCounters = {};
+  let lastFlow = null;
 
   // Tooltip setup
   const tooltip = document.createElement('div');
@@ -31,10 +32,11 @@ export function initMemoryHeatmap() {
 
   async function fetchAll() {
     try {
-      const [memResp, trajResp, evResp] = await Promise.all([
+      const [memResp, trajResp, evResp, flowResp] = await Promise.all([
         fetch('/memory.json'),
         fetch('/trajectory.json'),
         fetch('/events.json'),
+        fetch('/flow.json'),
       ]);
       if (memResp.ok) lastData = await memResp.json();
       if (trajResp.ok) lastTrajectory = await trajResp.json();
@@ -43,6 +45,7 @@ export function initMemoryHeatmap() {
         lastEvents = evData.events || [];
         lastCounters = evData.counters || {};
       }
+      if (flowResp.ok) lastFlow = await flowResp.json();
       render();
     } catch (e) {
       // silent — dashboard may start before memory/trajectory/events
@@ -196,6 +199,16 @@ export function initMemoryHeatmap() {
     }
 
     updateInfo(d);
+
+    // Flash canvas border when cliff is confirmed
+    if (lastFlow && lastFlow.cliff_confirmed) {
+      canvas.style.transition = 'box-shadow 0.1s';
+      canvas.style.boxShadow = 'inset 0 0 12px 2px #ff3c3c';
+      setTimeout(() => {
+        canvas.style.transition = 'box-shadow 0.5s';
+        canvas.style.boxShadow = 'none';
+      }, 300);
+    }
   }
 
   // Hover tooltip on canvas
@@ -244,6 +257,23 @@ export function initMemoryHeatmap() {
     if (c.total_escapes !== undefined) {
       counterHtml = `<br><span class="muted">${c.total_escapes} escapes · ${c.total_falls} falls · ${c.total_flow_avoid} avoids</span>`;
     }
+
+    // Cliff status from flow data
+    let cliffHtml = '';
+    if (lastFlow) {
+      const rf = lastFlow;
+      if (rf.cliff_confirmed) {
+        cliffHtml = ' <span style="color:#ff3c3c;font-weight:bold">🚨 CLIFF! Turn away</span>';
+      } else if (rf.cliff < 0.3 && rf.cliff_rate < -0.01) {
+        cliffHtml = ' <span style="color:#ffc832">⚠ Approaching edge</span>';
+      } else {
+        cliffHtml = ' <span style="color:#4cdf7c">✅ Safe</span>';
+      }
+      if (rf.cliff_rate !== undefined) {
+        cliffHtml += ` <span class="muted">rate ${rf.cliff_rate.toFixed(3)}</span>`;
+      }
+    }
+
     info.innerHTML = `
       <strong>Stuck</strong> ${d.stuck_score} · ${d.stuck_duration}s
       &nbsp; <strong>Loop</strong> ${d.loop_score}
@@ -251,6 +281,7 @@ export function initMemoryHeatmap() {
       ${escHtml}
       · <span class="muted">${d.visited_cells} cells</span>
       ${counterHtml}
+      <br><strong>Cliff</strong> ${cliffHtml}
     `;
   }
 
