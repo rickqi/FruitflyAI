@@ -1,31 +1,91 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Fly64 Trajectory Replay</title>
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Fly64 3D Trajectory Replay</title>
 <style>
-body{font:14px -apple-system,sans-serif;background:#0b1015;color:#f0f4f8;margin:20px}
-canvas{background:#162029;border:1px solid #354250;border-radius:8px;display:block;margin:10px 0;width:100%;height:400px}
-.controls{display:flex;gap:12px;align-items:center;margin:10px 0;flex-wrap:wrap}
-button{background:#354250;color:#f0f4f8;border:none;padding:6px 16px;border-radius:4px;cursor:pointer}
-button:hover{background:#4a5a6a}
-input[type=range]{flex:1;min-width:200px}
-#stats{display:flex;gap:20px;flex-wrap:wrap;margin-top:10px}
-.stat{background:#162029;padding:8px 14px;border-radius:6px;border:1px solid #354250}
-.stat label{color:#6cdaed;display:block;font-size:11px}
-.stat span{font-size:16px;font-weight:600}
-.error{color:#ff6b6b;background:#2a1515;padding:10px 6px;border-radius:6px;margin:10px 0}
+body{margin:0;overflow:hidden;font:14px -apple-system,sans-serif;background:#0b1015;color:#f0f4f8}
+#info{position:absolute;top:12px;left:12px;z-index:10;background:rgba(11,16,21,.85);padding:10px 16px;border-radius:8px;border:1px solid #354250;pointer-events:none}
+#info h2{margin:0;font-size:16px;color:#6cdaed}
+#info span{font-size:12px;color:#b0bdcc}
+.controls{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);z-index:10;display:flex;gap:10px;align-items:center;background:rgba(11,16,21,.9);padding:10px 18px;border-radius:10px;border:1px solid #354250;flex-wrap:wrap;justify-content:center}
+.controls button{background:#354250;color:#f0f4f8;border:none;padding:6px 16px;border-radius:4px;cursor:pointer;font-size:13px}
+.controls button:hover{background:#4a5a6a}
+.controls label{font-size:12px;color:#b0bdcc}
+.controls select{background:#1a2430;color:#f0f4f8;border:1px solid #354250;border-radius:3px;padding:3px 6px}
+input[type=range]{width:200px;background:#1a2430;height:4px;border-radius:2px;-webkit-appearance:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:#6cdaed;cursor:pointer}
+#stats{position:absolute;top:12px;right:12px;z-index:10;background:rgba(11,16,21,.85);padding:10px 14px;border-radius:8px;border:1px solid #354250;font-size:12px;line-height:1.6;min-width:140px}
+#stats .l{color:#6cdaed}#stats .v{color:#f0f4f8}
+#frameInfo{color:#ffca72;font-weight:600}
+#errorMsg{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:20;background:#2a1515;color:#ff6b6b;padding:20px;border-radius:8px;border:1px solid #ff6b6b;display:none}
 </style></head><body>
-<h2>🪰 Fly64 Trajectory Replay</h2>
+<div id="info"><h2>🪰 Fly64 3D Trajectory</h2><span id="frameInfo">0 / 0</span></div>
+<div id="stats"></div>
+<div id="errorMsg"></div>
 <div class="controls">
 <button id="playBtn">▶ Play</button>
 <button id="resetBtn">⟲ Reset</button>
-<label>Speed: <select id="speed"><option value="1">1x</option><option value="2">2x</option><option value="5">5x</option><option value="10">10x</option></select></label>
-<span id="frameInfo">0 / 0</span>
-</div>
+<label>Speed: <select id="speed">
+<option value="1">1x</option><option value="2">2x</option><option value="5">5x</option><option value="10">10x</option></select></label>
 <input type="range" id="slider" min="0" max="0" value="0">
-<canvas id="canvas" width="800" height="400"></canvas>
-<div id="stats"></div>
-<div id="errMsg" class="error" style="display:none"></div>
-<script>
-const $=id=>document.getElementById(id),cv=$('canvas'),cx=cv.getContext('2d');
+</div>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+
+const $=id=>document.getElementById(id);
 let pts=[],playing=0,pos=0,spd=1,anim=null;
+
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x0b1015);
+const camera=new THREE.PerspectiveCamera(60,window.innerWidth/window.innerHeight,1,200000);
+camera.position.set(0,8000,12000);
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(window.innerWidth,window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+document.body.prepend(renderer.domElement);
+const labelRenderer=new CSS2DRenderer();
+labelRenderer.setSize(window.innerWidth,window.innerHeight);
+labelRenderer.domElement.style.position='absolute';labelRenderer.domElement.style.top='0';labelRenderer.domElement.style.pointerEvents='none';
+document.body.prepend(labelRenderer.domElement);
+const controls=new OrbitControls(camera,renderer.domElement);
+controls.enableDamping=true;controls.dampingFactor=.05;controls.maxPolarAngle=Math.PI/2;
+
+// Grid
+const gridHelper=new THREE.GridHelper(30000,30,0x354250,0x1a2430);
+scene.add(gridHelper);
+scene.add(new THREE.AxesHelper(5000));
+
+// Path line
+const pathMat=new THREE.LineBasicMaterial({color:0x6cdaed,linewidth:2,transparent:true,opacity:.7});
+const pathGeo=new THREE.BufferGeometry();
+const pathLine=new THREE.Line(pathGeo,pathMat);
+scene.add(pathLine);
+
+// Current position marker
+const sphereMat=new THREE.MeshBasicMaterial({color:0xffca72});
+const sphere=new THREE.Mesh(new THREE.SphereGeometry(80,12,12),sphereMat);
+scene.add(sphere);
+
+// Heading arrow
+const arrowLen=400;
+const arrowDir=new THREE.ArrowHelper(new THREE.Vector3(1,0,0),new THREE.Vector3(0,0,0),arrowLen,0xffca72,.3,.15);
+scene.add(arrowDir);
+
+// Start marker
+const startDiv=document.createElement('div');startDiv.textContent='🏁 Start';startDiv.style.color='#4caf50';startDiv.style.fontSize='14px';startDiv.style.fontWeight='bold';
+const startLabel=new CSS2DObject(startDiv);
+scene.add(startLabel);
+
+// End marker  
+const endDiv=document.createElement('div');endDiv.textContent='🏁 End';endDiv.style.color='#ff6b6b';endDiv.style.fontSize='14px';endDiv.style.fontWeight='bold';
+const endLabel=new CSS2DObject(endDiv);
+scene.add(endLabel);
+
+// Trajectory dots
+const dotMat=new THREE.PointsMaterial({color:0x6cdaed,size:30,transparent:true,opacity:.3,sizeAttenuation:true});
+const dotGeo=new THREE.BufferGeometry();
+const dots=new THREE.Points(dotGeo,dotMat);
+scene.add(dots);
 
 async function load(){
   try{
@@ -34,57 +94,68 @@ async function load(){
     pts=await r.json();
     if(!pts.length)throw Error('No data');
     $('slider').max=pts.length-1;
-    draw();
-  }catch(e){$('errMsg').textContent='Error: '+e.message;$('errMsg').style.display='block';$('frameInfo').textContent='No data';}
+    buildPath();update();
+  }catch(e){$('errorMsg').textContent='Error: '+e.message;$('errorMsg').style.display='block';$('frameInfo').textContent='No data';}
 }
 
-function draw(){
-  cx.clearRect(0,0,cv.width,cv.height);
+function buildPath(){
+  if(pts.length<2)return;
+  const verts=[];
+  for(const p of pts)verts.push(p.x,p.y,p.z);
+  pathGeo.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));
+  pathLine.geometry=pathGeo;
+  // Dots
+  const dotVerts=[];
+  for(let i=0;i<pts.length;i+=Math.max(1,Math.floor(pts.length/2000)))dotVerts.push(pts[i].x,pts[i].y,pts[i].z);
+  dotGeo.setAttribute('position',new THREE.Float32BufferAttribute(dotVerts,3));
+  dots.geometry=dotGeo;
+  // Labels
+  startLabel.position.set(pts[0].x,pts[0].y+400,pts[0].z);
+  endLabel.position.set(pts[pts.length-1].x,pts[pts.length-1].y+400,pts[pts.length-1].z);
+}
+
+function update(){
   if(!pts.length)return;
-  const xs=pts.map(p=>p.x),ys=pts.map(p=>p.z);
-  const x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys);
-  const rx=Math.max(x1-x0,1),ry=Math.max(y1-y0,1),pd=40;
-  const sc=Math.min((cv.width-2*pd)/rx,(cv.height-2*pd)/ry);
-  const mp=(x,y)=>({x:pd+(x-x0)*sc,y:cv.height-pd-(y-y0)*sc});
-  // Path
-  cx.beginPath();cx.strokeStyle='#6cdaed';cx.lineWidth=2;
-  for(let i=0;i<=pos&&i<pts.length;i++){const p=mp(pts[i].x,pts[i].z);i===0?cx.moveTo(p.x,p.y):cx.lineTo(p.x,p.y);}
-  cx.stroke();
-  // Start
-  const st=mp(pts[0].x,pts[0].z);
-  cx.fillStyle='#4caf50';cx.beginPath();cx.arc(st.x,st.y,4,0,7);cx.fill();
-  cx.fillStyle='#4caf50';cx.font='12px sans-serif';cx.fillText('Start',st.x+8,st.y+4);
-  // Current position+heading
-  if(pos<pts.length){
-    const cur=mp(pts[pos].x,pts[pos].z);
-    cx.beginPath();cx.arc(cur.x,cur.y,5,0,7);cx.fillStyle='#ffca72';cx.fill();
-    const hd=pts[pos].heading;
-    cx.beginPath();cx.moveTo(cur.x,cur.y);cx.lineTo(cur.x+15*Math.sin(hd),cur.y-15*Math.cos(hd));
-    cx.strokeStyle='#ffca72';cx.lineWidth=2;cx.stroke();
-  }
-  // Info
   const p=pts[pos]||pts[0];
-  $('frameInfo').textContent=pos+'/'+(pts.length-1);
+  sphere.position.set(p.x,p.y,p.z);
+  const hd=p.heading;
+  arrowDir.position.copy(sphere.position);
+  arrowDir.setDirection(new THREE.Vector3(Math.sin(hd),0,Math.cos(hd)).normalize());
+  $('frameInfo').textContent=pos+' / '+(pts.length-1);
   $('slider').value=pos;
+  let totalDist=0;
+  if(pos>0){for(let i=1;i<=pos;i++)totalDist+=Math.hypot(pts[i].x-pts[i-1].x,pts[i].y-pts[i-1].y,pts[i].z-pts[i-1].z);}
   $('stats').innerHTML=
-    '<div class=stat><label>Time</label><span>'+p.t+'s</span></div>'+
-    '<div class=stat><label>X/Y/Z</label><span>'+(p.x|0)+', '+(p.y|0)+', '+(p.z|0)+'</span></div>'+
-    '<div class=stat><label>Heading</label><span>'+(p.heading*180/Math.PI|0)+'°</span></div>'+
-    '<div class=stat><label>Control</label><span>x='+p.ctrl_x+' y='+p.ctrl_y+'</span></div>'+
-    '<div class=stat><label>Frame</label><span>'+(p.game_frame||'—')+'</span></div>';
+    '<div><span class=l>⏱ Time</span> <span class=v>'+p.t+'s</span></div>'+
+    '<div><span class=l>📍 Pos</span> <span class=v>'+[p.x|0,p.y|0,p.z|0].join(', ')+'</span></div>'+
+    '<div><span class=l>🧭 Heading</span> <span class=v>'+(p.heading*180/Math.PI|0)+'°</span></div>'+
+    '<div><span class=l>🎮 Ctrl</span> <span class=v>x='+p.ctrl_x+' y='+p.ctrl_y+'</span></div>'+
+    '<div><span class=l>📏 Distance</span> <span class=v>'+(totalDist|0)+'u</span></div>'+
+    '<div><span class=l>🔄 Frame</span> <span class=v>'+(p.game_frame||'—')+'</span></div>';
+  // Camera auto-follow (orbit mode - just look at current position)
+  controls.target.copy(sphere.position);
 }
 
-$('slider').oninput=function(){pos=+this.value;draw();};
+$('slider').oninput=function(){pos=+this.value;update();};
 $('playBtn').onclick=function(){
   if(playing){playing=0;cancelAnimationFrame(anim);this.textContent='▶ Play';return;}
   if(pos>=pts.length-1)pos=0;
   playing=1;this.textContent='⏸ Pause';spd=+$('speed').value;
   function step(){
     if(!playing||pos>=pts.length-1){playing=0;$('playBtn').textContent='▶ Play';return;}
-    pos=Math.min(pos+spd,pts.length-1);draw();anim=requestAnimationFrame(step);
+    pos=Math.min(pos+spd,pts.length-1);update();anim=requestAnimationFrame(step);
   }
   anim=requestAnimationFrame(step);
 };
-$('resetBtn').onclick=function(){playing=0;cancelAnimationFrame(anim);$('playBtn').textContent='▶ Play';pos=0;draw();};
+$('resetBtn').onclick=function(){playing=0;cancelAnimationFrame(anim);$('playBtn').textContent='▶ Play';pos=0;update();};
+
+function animate(){
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene,camera);
+  labelRenderer.render(scene,camera);
+}
+animate();
+window.addEventListener('resize',()=>{camera.aspect=window.innerWidth/window.innerHeight;camera.updateProjectionMatrix();renderer.setSize(window.innerWidth,window.innerHeight);labelRenderer.setSize(window.innerWidth,window.innerHeight);});
 load();
 </script></body></html>
