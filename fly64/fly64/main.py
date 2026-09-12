@@ -515,9 +515,12 @@ async def run(args) -> None:
                     else:
                         escape_toggle_timer = 0.0; control.jump = True
                 else:
+                    # ---- Open-area stuck override ----
+                    # When wall≈0 && asymmetry≈0 && stuck>120s, force straight forward
+                    _open_stuck = (model.wall_score < 0.1 and
+                                   abs(model.flow_asymmetry) < 0.05 and
+                                   memory_ctrl.stuck_duration > 120)
                     # ---- Revisit-penalty escape modulation ----
-                    # When revisit_penalty > 0.3 (heavily familiar scene), increase
-                    # turn aggression to push the agent out of the known area.
                     _revisit_boost = 1.0 + max(0.0, memory_ctrl.revisit_penalty - 0.3) * 1.0
                     if escape_toggle_timer < 0.8:
                         if escape_toggle_timer < model.dt:
@@ -542,11 +545,16 @@ async def run(args) -> None:
                                 escape_x = model.rng.integers(int(40 * _revisit_boost), int(70 * _revisit_boost))
                                 if model.rng.random() < 0.5:
                                     escape_x = -escape_x
-                        control.x = int(np.clip(escape_x, -80, 80))
+                        control.x = int(np.clip(escape_x // (4 if _open_stuck else 1), -80, 80))
                         control.y = 0
                     elif escape_toggle_timer < 1.6:
-                        control.x = int(-escape_x // 2)
-                        control.y = int(70 * _revisit_boost)
+                        # Open-area stuck: no obstacles, just stuck → go straight
+                        if _open_stuck:
+                            control.x = 0
+                            control.y = 80
+                        else:
+                            control.x = int(-escape_x // 2)
+                            control.y = int(70 * _revisit_boost)
                     else:
                         escape_toggle_timer = 0.0; control.jump = True
             else:
