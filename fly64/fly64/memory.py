@@ -1057,7 +1057,7 @@ class ReflexController:
     REFLEX_TYPES = (STUCK_RAMP, OSCILLATING, WALL_STUCK, MICRO_LOOP)
 
     def __init__(self, confidence_threshold: float = 0.6,
-                 cooldown_duration: float = 10.0,
+                 cooldown_duration: float = 5.0,
                  stuck_ramp_duration: float = 1.5,
                  oscillating_duration: float = 2.0,
                  wall_stuck_reverse_duration: float = 0.3,

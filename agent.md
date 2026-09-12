@@ -285,6 +285,27 @@ D:\codes\flygym\
 
 ---
 
+### 变更 15: EvolutionSkill v2.0 — 自进化运动诊断技能
+
+**提交**: `520584d` → `378e943`（v2.0.1）
+
+**原因：** 马里奥运动问题需要系统化的闭环诊断→修复→验证流程。手动分析效率低，修复效果无法量化追踪。
+
+**变更内容：**
+- `skills/evolution_skill.py` — 729 行核心模块，5 相闭环管道（Monitor→Diagnose→Fix→Verify→Document）
+- `skills/evolution_agent.py` — v1 兼容入口
+- `skills/default_patterns.json` — 4 个检测模式（circle_loop/ramp_trap/reflex_cooldown/low_coverage），JSON Schema (draft-07) 验证
+- `skills/README.md` — 自文档化 README，自动更新修复历史 + 有效性指标
+- `skills/skills.md` — 标准技能文档（用法、架构、API、触发词）
+- `skills/__init__.py` — 导出 13 个符号
+
+**v2.0.1 更新**（`378e943`）：
+- `circle_loop` asymmetry 阈值 0.05→0.06（根据实际测量 0.0553 调整）
+- `reflex_cooldown` 冷却时间 10s→5s（内存.py ReflexController）
+- 自适应冷却公式：`cooldown = max(2.0, 10.0 - stuck_duration * 0.05)`
+
+**涉及文件：** 6 文件（skills/），+1063 行
+
 ## 早期变更
 
 ### 基础设施
