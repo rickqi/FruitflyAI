@@ -417,6 +417,11 @@ async def run(args) -> None:
                             cliff_turn_bias = 0.0
                             cliff_recovery_timer = 0.0
 
+            # Ground angle gate: if terrain says cliff but ground_angle says flat,
+            # override cliff_triggered — the classifier is wrong
+            if cliff_triggered and model.ground_angle > 0.3:
+                cliff_triggered = False
+
             # If cliff triggered, suppress escape behavior for this tick
             if cliff_triggered:
                 if not previous_escape and not current_escape_event:
