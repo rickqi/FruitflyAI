@@ -8,7 +8,7 @@
       "description": "Mario circles in place on flat ground, cliff avoidance blocking forward movement.",
       "conditions": {
         "wall_score": {"max": 0.1},
-        "asymmetry_magnitude": {"max": 0.05},
+        "asymmetry_magnitude": {"max": 0.06},
         "stuck_duration": {"min": 120},
         "ground_angle": {"min": 0.3}
       },
@@ -19,7 +19,7 @@
       "severity": "high",
       "tags": ["navigation", "terrain", "cliff"],
       "rollback_strategy": "revert_line",
-      "threshold_justification": "wall_score<0.1=flat terrain, asymmetry<0.05=symmetrical movement, stuck>120s=abnormal duration, ground_angle>0.3=not a cliff edge"
+      "threshold_justification": "wall_score<0.1=flat terrain, asymmetry<0.06=symmetrical movement (tuned from 0.05 based on real measured values), stuck>120s=abnormal duration, ground_angle>0.3=not a cliff edge"
     },
     {
       "id": "ramp_trap",
@@ -41,21 +41,21 @@
     },
     {
       "id": "reflex_cooldown_gap",
-      "name": "Reflex cooldown — 冷却期内无效 escape",
-      "version": "1.0.0",
-      "description": "Reflex correctly detects anomaly but cooldown prevents re-trigger.",
+      "name": "Reflex cooldown — 冷却期内无效 escape (adaptive cooldown)",
+      "version": "2.0.0",
+      "description": "Reflex correctly detects anomaly but fixed cooldown prevents re-trigger during prolonged stuck. Cooldown should adapt to how long the agent has been stuck.",
       "conditions": {
         "anomaly_state_not_idle": true,
         "reflex_active": false,
         "stuck_duration": {"min": 60}
       },
-      "diagnosis": "Reflex correctly detects anomaly but cooldown prevents re-trigger; normal escape ineffective.",
-      "fix_template": "# Fix: Reduce reflex cooldown during persistent anomaly\n# File: fly64/fly64/memory.py\n# Change: cooldown_duration = 10.0 -> cooldown_duration = 5.0\n# Or: Make cooldown adaptive based on stuck_duration progression\n",
+      "diagnosis": "Fixed reflex cooldown (10s) prevents re-trigger during prolonged stuck; cooldown should be adaptive — scale inversely with stuck_duration so that longer stuck periods allow more frequent reflex attempts.",
+      "fix_template": "# Fix: Make reflex cooldown adaptive based on stuck_duration\n# File: fly64/fly64/memory.py\n# In ReflexController.__init__: keep base_cooldown_duration=10.0\n# In _start_reflex: replace fixed cooldown with adaptive formula:\n#   cooldown = max(2.0, self.base_cooldown_duration - stuck_duration * 0.05)\n# This ensures: at 60s stuck → cooldown=7.0s, at 120s → cooldown=4.0s, at 160s+ → cooldown=2.0s (minimum)\n# The stuck_duration value is passed in from the anomaly_state context.\n",
       "fix_files": ["fly64/fly64/memory.py"],
       "severity": "medium",
-      "tags": ["reflex", "cooldown", "escape"],
+      "tags": ["reflex", "cooldown", "escape", "adaptive"],
       "rollback_strategy": "revert_value",
-      "threshold_justification": "anomaly_state_not_idle=anomaly active, reflex_active=False=cooldown period, stuck>60s=1min without effective escape"
+      "threshold_justification": "anomaly_state_not_idle=anomaly active, reflex_active=False=cooldown period, stuck>60s=1min without effective escape; adaptive cooldown formula derived from stuck_duration to allow more frequent reflex firings as stuck persists"
     },
     {
       "id": "low_coverage_stagnation",
