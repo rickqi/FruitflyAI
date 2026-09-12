@@ -494,6 +494,24 @@ async function updateHealthStrip() {
       ap.textContent = state === 'idle' ? '—' : state;
       ap.dataset.state = state === 'idle' ? '' : state;
     }
+    // Option A: memory-note health bar + stats
+    const nf = $('noteHealthFill');
+    if (nf) {
+      const h = d.health_score !== undefined ? Math.round(d.health_score * 100) : 0;
+      nf.style.width = h + '%';
+      nf.style.background = h > 60 ? '#2a8a3a' : h > 30 ? '#b8860b' : '#8b2020';
+    }
+    const nl = $('noteHealthLabel');
+    if (nl) {
+      const h = d.health_score !== undefined ? Math.round(d.health_score * 100) : 0;
+      nl.textContent = 'Health ' + h + '%';
+    }
+    const ns = $('noteStats');
+    if (ns) {
+      const v = d.revisit_penalty !== undefined ? d.revisit_penalty : 0;
+      const state = d.anomaly_state || 'idle';
+      ns.innerHTML = '<span class="note-stat">↖ Repel ' + (v * 100).toFixed(0) + '</span><span class="note-stat">' + (state === 'idle' ? '⚪ OK' : '🔴 ' + state) + '</span>';
+    }
   } catch (_) {}
 }
 
