@@ -160,7 +160,7 @@ class FlyModel:
         PROJECTION_SEED = 42
         _proj_rng = np.random.default_rng(PROJECTION_SEED)
         self.projection = _proj_rng.normal(
-            0.0, 0.1, (128, 1536)
+            0.0, 0.1, (128, len(self.visual))
         ).astype(np.float32)
         self.scene_sig = np.zeros(128, dtype=np.float32)
         self.scene_sig_valid = False
