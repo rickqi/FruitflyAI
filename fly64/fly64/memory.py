@@ -383,7 +383,8 @@ class SpatialMemoryMap:
 
     def novelty_direction(self, x: float, z: float, heading: float,
                           dead_end_keys: set[tuple[int, int]] | None = None,
-                          scene_change_rate: float = 0.0) -> float:
+                          scene_change_rate: float = 0.0,
+                          forced_bold_explore: bool = False) -> float:
         """Evaluate novelty in 4 directions relative to *heading* and return a
         turn bias.
 
@@ -399,6 +400,10 @@ class SpatialMemoryMap:
         If *scene_change_rate* >= 0.3 (rapid scene changes = new area), the
         dead-end penalty is halved to 0.25, allowing more exploration in
         unfamiliar surroundings where old dead-end information may not apply.
+
+        If *forced_bold_explore* is True (nested loop breakout), the dead-end
+        penalty is reduced to 0.0 so old dead-end labels do not suppress the
+        forced breakout maneuver.
         """
         base_key = self._key(x, z)
         cx, cz = base_key
@@ -423,7 +428,14 @@ class SpatialMemoryMap:
 
         # When scene_change_rate >= 0.3 (new area), halve the dead-end penalty
         # so old dead-end info doesn't suppress exploration in a fresh scene.
-        _penalty_modifier = 0.5 if scene_change_rate >= 0.3 else 1.0
+        # When forced_bold_explore is active (nested loop breakout), eliminate
+        # the dead-end penalty entirely so old labels cannot block the breakout.
+        if forced_bold_explore:
+            _penalty_modifier = 0.0
+        elif scene_change_rate >= 0.3:
+            _penalty_modifier = 0.5
+        else:
+            _penalty_modifier = 1.0
 
         def cell_novelty(off):
             """Average novelty over the cell at offset and its onward neighbor,
@@ -664,15 +676,20 @@ class MemoryController:
         self._cliff_state = {"cliff_detected": False,
                              "cliff_confidence": 0.0,
                              "raw_lower_field_green": 1.0}
+        # Forced bold explore breakout — nested loop escape
+        self._scene_low_duration: float = 0.0  # seconds with scene_change_rate < 0.05
+        self._forced_bold_explore: bool = False
+        self._bold_explore_dt: float = 0.020  # tick interval, same as model.dt
 
     def update(self, temporal_energy: float, frame_seq: int,
                forward_rate: float, x: float, z: float,
                pos_y: float = 0.0, heading: float = 0.0,
                flow_asymmetry: float = 0.0,
                flow_looming: float = 0.0,
-               flow_cliff: float = 1.0) -> tuple:
+               flow_cliff: float = 1.0,
+               scene_change_rate: float = 0.0) -> tuple:
         """Feed one tick; returns ``(stuck_score, stuck_duration, novelty,
-        escape_behavior, fallen)``."""
+        escape_behavior, fallen, forced_bold_explore)``."""
         self._stuck_score, self._stuck_duration, self._fallen = self.stuck.update(
             temporal_energy, frame_seq, forward_rate, pos_y
         )
@@ -690,6 +707,15 @@ class MemoryController:
             self.failures.record_failure(x, z)
             self.failures.record_dead_end(x, z, heading)
 
+        # ---- Forced bold explore detection ----
+        # When scene_change_rate < 0.05 (visually stagnant) AND visited_cells < 20
+        # (confined to a tiny area) for >10 seconds → nested loop breakout needed
+        if scene_change_rate < 0.05 and self.spatial.visited_cells < 20:
+            self._scene_low_duration += self._bold_explore_dt
+        else:
+            self._scene_low_duration = 0.0
+        self._forced_bold_explore = self._scene_low_duration >= 10.0
+
         # Flow-aware escape threshold: looming lowers threshold,
         # cliff (multi-frame confirmed) forces immediate escape
         flow_danger = max(0.0, flow_looming - 0.3) * 2.0  # 0..1+ from looming
@@ -701,9 +727,11 @@ class MemoryController:
              and self.spatial.exploration_mode)
             or self._fallen
             or cliff_emergency
+            or self._forced_bold_explore
         )
         return (self._stuck_score, self._stuck_duration,
-                self._novelty, self.escape_behavior, self._fallen)
+                self._novelty, self.escape_behavior, self._fallen,
+                self._forced_bold_explore)
 
     def reset(self) -> None:
         self.stuck.reset()
@@ -719,6 +747,8 @@ class MemoryController:
         self._cliff_state = {"cliff_detected": False,
                              "cliff_confidence": 0.0,
                              "raw_lower_field_green": 1.0}
+        self._scene_low_duration = 0.0
+        self._forced_bold_explore = False
 
     @property
     def stuck_score(self) -> float: return self._stuck_score
@@ -771,3 +801,17 @@ class MemoryController:
     def cliff_raw(self) -> float:
         """Latest raw lower_field_green reading."""
         return self._cliff_state["raw_lower_field_green"]
+
+    @property
+    def forced_bold_explore(self) -> bool:
+        """True when scene_change_rate < 0.05 for >10 s AND visited_cells < 20.
+
+        Indicates the agent is in a nested loop cycle — visually stagnant in
+        a tiny area — requiring a forceful breakout maneuver.
+        """
+        return self._forced_bold_explore
+
+    @property
+    def scene_low_duration(self) -> float:
+        """Seconds that scene_change_rate has been continuously below 0.05."""
+        return self._scene_low_duration

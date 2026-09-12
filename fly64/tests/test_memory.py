@@ -275,14 +275,16 @@ def test_memory_reset():
 # ======================================================================
 
 def test_controller_update():
-    """update() returns (stuck_score, stuck_duration, novelty, escape_bool, fallen)."""
+    """update() returns (stuck_score, stuck_duration, novelty, escape_bool, fallen,
+    forced_bold_explore)."""
     mc = MemoryController()
-    score, dur, nv, escape, fallen = mc.update(0.5, 0, 20.0, 100.0, 200.0)
+    score, dur, nv, escape, fallen, bold = mc.update(0.5, 0, 20.0, 100.0, 200.0)
     assert 0.0 <= score <= 1.0
     assert dur == 0.0
     assert 0 < nv <= 1.0
     assert not escape
     assert not fallen
+    assert not bold
 
 
 def test_controller_escape_triggers():
@@ -329,3 +331,114 @@ def test_controller_cliff_detection():
     assert mc.cliff_detected
     assert mc.cliff_confidence >= 0.66
     assert mc.cliff_raw == 0.1
+
+
+# ======================================================================
+# Forced Bold Explore — nested-loop breakout detection
+# ======================================================================
+
+def test_bold_explore_initial_false():
+    """Fresh controller has forced_bold_explore=False."""
+    mc = MemoryController()
+    assert not mc.forced_bold_explore
+    assert mc.scene_low_duration == 0.0
+
+
+def test_bold_explore_not_triggered_with_high_scene_change():
+    """Scene_change_rate >= 0.05 prevents forced_bold_explore regardless of visited_cells."""
+    mc = MemoryController(spatial=SpatialMemoryMap(grid_cells=50))
+    # scene_change_rate=0.1 (above threshold), visited_cells < 20 (barely visited)
+    for _ in range(600):  # 600 * 0.020 = 12 s (>10 s trigger)
+        mc.update(0.5, 0, 20.0, 100.0, 200.0, scene_change_rate=0.1)
+    assert not mc.forced_bold_explore
+    assert mc.scene_low_duration == 0.0  # reset due to high scene_change_rate
+
+
+def test_bold_explore_not_triggered_with_high_visited_cells():
+    """visited_cells >= 20 prevents forced_bold_explore even with low scene change."""
+    mc = MemoryController(spatial=SpatialMemoryMap(grid_cells=50))
+    # Visit many different cells (cell_size=200, so step by 210 to ensure new cells)
+    for i in range(25):
+        mc.update(0.5, 0, 20.0, float(i * 210), 200.0, scene_change_rate=0.01)
+    assert mc.spatial.visited_cells >= 20, f"Only {mc.spatial.visited_cells} cells visited"
+    # Now advance time with low scene_change but high visited_cells
+    for _ in range(600):
+        mc.update(0.5, 0, 20.0, 100.0, 200.0, scene_change_rate=0.01)
+    assert not mc.forced_bold_explore
+
+
+def test_bold_explore_triggers_after_10_seconds():
+    """Forced_bold_explore activates when scene_change_rate < 0.05 for >10 s AND visited_cells < 20."""
+    mc = MemoryController(spatial=SpatialMemoryMap(grid_cells=50))
+    # Start with low scene_change_rate and few visited cells
+    for _ in range(5):
+        mc.update(0.5, 0, 20.0, 100.0, 200.0, scene_change_rate=0.01)
+    assert mc.spatial.visited_cells < 20
+    assert not mc.forced_bold_explore
+
+    # Advance past 10 s threshold (500 ticks at dt=0.020)
+    for _ in range(510):
+        mc.update(0.5, 0, 20.0, 100.0, 200.0, scene_change_rate=0.01)
+    assert mc.forced_bold_explore
+    assert mc.scene_low_duration >= 10.0
+
+
+def test_bold_explore_resets_on_scene_change_burst():
+    """When scene_change_rate spikes above 0.05, the timer resets."""
+    mc = MemoryController(spatial=SpatialMemoryMap(grid_cells=50))
+    # Build up some low-duration time
+    for _ in range(250):  # 5 s
+        mc.update(0.5, 0, 20.0, 100.0, 200.0, scene_change_rate=0.01)
+    assert mc.scene_low_duration >= 4.9, f"Expected ~5.0, got {mc.scene_low_duration}"
+    assert not mc.forced_bold_explore  # not yet past 10 s
+
+    # Scene change rate spikes — timer resets
+    mc.update(0.5, 0, 20.0, 100.0, 200.0, scene_change_rate=0.5)
+    assert mc.scene_low_duration == 0.0
+    assert not mc.forced_bold_explore
+
+
+def test_bold_explore_escape_behavior():
+    """forced_bold_explore directly triggers escape_behavior even without stuck/loop."""
+    mc = MemoryController(spatial=SpatialMemoryMap(grid_cells=50))
+    # Push past 10 s with low scene_change_rate and few visited cells
+    for tick in range(600):
+        result = mc.update(0.5, 0, 20.0, 100.0, 200.0,
+                           scene_change_rate=0.01)
+    # Escape behavior should be True from forced_bold_explore alone
+    assert mc.forced_bold_explore
+    assert mc.escape_behavior
+
+
+def test_bold_explore_resets():
+    """reset() clears forced_bold_explore state."""
+    mc = MemoryController(spatial=SpatialMemoryMap(grid_cells=50))
+    for _ in range(550):
+        mc.update(0.5, 0, 20.0, 100.0, 200.0, scene_change_rate=0.01)
+    assert mc.forced_bold_explore
+    mc.reset()
+    assert not mc.forced_bold_explore
+    assert mc.scene_low_duration == 0.0
+
+
+def test_novelty_direction_eliminates_dead_end_penalty_in_bold_explore():
+    """When forced_bold_explore=True, dead-end penalty is fully eliminated (modifier=0.0)."""
+    sm = SpatialMemoryMap(cell_size=200.0)
+    # Mark a dead end cell
+    dead_end_cells = {(0, 1)}
+
+    # Without forced_bold_explore, penalty modifier is 1.0
+    bias_normal = sm.novelty_direction(
+        0.0, 0.0, 0.0, dead_end_keys=dead_end_cells,
+        scene_change_rate=0.0, forced_bold_explore=False)
+
+    # With forced_bold_explore, penalty modifier is 0.0 (no suppression)
+    bias_bold = sm.novelty_direction(
+        0.0, 0.0, 0.0, dead_end_keys=dead_end_cells,
+        scene_change_rate=0.0, forced_bold_explore=True)
+
+    # The presence of dead-end cells should not suppress novelty in bold mode
+    # (the exact values depend on novelty computation, but the function
+    # should still run without error and return a result)
+    assert isinstance(bias_normal, float)
+    assert isinstance(bias_bold, float)

@@ -460,6 +460,28 @@ async def run(args) -> None:
                             escape_x = -60
                         else:
                             escape_x = model.rng.integers(40, 70) * (-1 if model.rng.random() < 0.5 else 1)
+                elif memory_ctrl.forced_bold_explore:
+                    # ---- forced_bold_explore breakout ----
+                    # Force large turn (x=±69) + extended forward burst (y=70 for 2s)
+                    # to break out of nested loop cycles where the agent is visually
+                    # stagnant in a tiny area (scene_change_rate<0.05 for >10s,
+                    # visited_cells<20). Dead-end penalty is already reduced in
+                    # novelty_direction() via the forced_bold_explore flag.
+                    if escape_toggle_timer < 0.5:
+                        # Phase 1: Sharp turn to maximum angle, no forward
+                        if escape_toggle_timer < model.dt:
+                            # Choose max turn, alternating sign from previous bold cycle
+                            if escape_x == 0:
+                                escape_x = 69
+                            escape_x = 69
+                            if model.rng.random() < 0.5:
+                                escape_x = -escape_x
+                        control.x = escape_x; control.y = 0
+                    elif escape_toggle_timer < 2.5:
+                        # Phase 2: Extended forward burst (2s) with slight counter-steer
+                        control.x = -escape_x // 3; control.y = 70
+                    else:
+                        escape_toggle_timer = 0.0; control.jump = True
                 else:
                     if escape_toggle_timer < 0.8:
                         if escape_toggle_timer < model.dt:
@@ -469,7 +491,8 @@ async def run(args) -> None:
                             novelty_bias = memory_ctrl.spatial.novelty_direction(
                                 pose_ev[0], pose_ev[2], pose_ev[3],
                                 dead_end_keys=memory_ctrl.dead_end_cells,
-                                scene_change_rate=model.scene_change_rate)
+                                scene_change_rate=model.scene_change_rate,
+                                forced_bold_explore=memory_ctrl.forced_bold_explore)
                             if avoid > 0:
                                 escape_x = 60
                             elif asym > 0.12:
@@ -576,6 +599,7 @@ async def run(args) -> None:
                     flow_asymmetry=model.flow_asymmetry,
                     flow_looming=model.flow_looming,
                     flow_cliff=model.flow_cliff,
+                    scene_change_rate=model.scene_change_rate,
                 )
                 xs, zs, heats = memory_ctrl.spatial.get_heatmap()
                 DashboardHTTP.memory_json = json.dumps({
@@ -597,6 +621,8 @@ async def run(args) -> None:
                     "zs": [round(float(v), 1) for v in zs[:2500]],
                     "heats": [round(float(v), 3) for v in heats[:2500]],
                     "scene_change_rate": round(model.scene_change_rate, 3),
+                    "forced_bold_explore": memory_ctrl.forced_bold_explore,
+                    "scene_low_duration": round(memory_ctrl.scene_low_duration, 2),
                 }, separators=(",", ":")).encode()
                 DashboardHTTP.flow_json = json.dumps({
                     "asymmetry": round(model.flow_asymmetry, 4),
