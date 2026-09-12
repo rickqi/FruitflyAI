@@ -601,6 +601,8 @@ async def run(args) -> None:
                     "cliff_confidence": round(memory_ctrl.cliff_confidence, 3),
                     "cliff_confirmed": model.cliff_confirmed,
                     "cliff_rate": round(model.cliff_rate, 4),
+                    # Tau (time-to-contact) estimation
+                    "tau": round(model.tau, 4) if model.tau != float("inf") else None,
                     "tick": model.step_count,
                     # Multi-channel retina summary values
                     "on": round(model.on_energy, 4),
@@ -629,6 +631,8 @@ async def run(args) -> None:
                     "cliff_confidence": round(memory_ctrl.cliff_confidence, 3),
                     "cliff_confirmed": model.cliff_confirmed,
                     "cliff_rate": round(model.cliff_rate, 4),
+                    # Tau (time-to-contact)
+                    "tau": round(model.tau, 4) if model.tau != float("inf") else None,
                     # Multi-channel retina
                     "on": round(model.on_energy, 4),
                     "off": round(model.off_energy, 4),

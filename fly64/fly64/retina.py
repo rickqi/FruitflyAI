@@ -368,7 +368,38 @@ class SphericalRetina:
         # ---- Edge orientation means ----
         edges = self.edge_orientation(atlas)
 
-        return {
+        # ---- Tau (time-to-contact) estimation from radial divergence ----
+        # During approach, the optic flow field expands radially outward:
+        # peripheral cells brighten (ON) while central cells darken (OFF).
+        # The radial gradient of (ON - OFF) is proportional to divergence.
+        # Time-to-contact τ = 1 / max(divergence, ε) [seconds].
+        on_m = on_off["on_channel"]
+        off_m = on_off["off_channel"]
+        motion = on_m - off_m                              # (N,) net luminance transient
+
+        r = np.sqrt(self.azimuth_deg**2 + self.elevation_deg**2)  # eccentricity [deg]
+        r_max = r.max()
+        if r_max > _EPS:
+            n_bins = 10
+            edges_r = np.linspace(0, r_max, n_bins + 1)
+            centres = (edges_r[:-1] + edges_r[1:]) / 2
+            # Mean net motion in each radial band
+            bin_means = np.zeros(n_bins)
+            for i in range(n_bins):
+                m = (r >= edges_r[i]) & (r < edges_r[i + 1])
+                bin_means[i] = motion[m].mean() if m.any() else 0.0
+            # Radial gradient via linear fit
+            slope = np.polyfit(centres, bin_means, 1)[0] if np.ptp(centres) > _EPS else 0.0
+        else:
+            slope = 0.0
+
+        # Scale luminance-gradient slope to divergence (s⁻¹).
+        # Calibration: slope 0.01/deg → ~0.2 s⁻¹ at model timestep 0.020 s.
+        div_scale = 20.0
+        divergence = max(slope * div_scale, 0.0)          # expansion-only
+        tau = 1.0 / max(divergence, _EPS) if divergence > _EPS else float("inf")
+
+        return {"tau": tau,
             "sectors": sectors,
             "left_right_asymmetry": left_right_asymmetry,
             "center_expansion": center_expansion,

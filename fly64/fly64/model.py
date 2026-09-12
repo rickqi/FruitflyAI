@@ -96,6 +96,12 @@ class FlyModel:
         self.CLIFF_RAPID_DROP = 0.15
         self.CLIFF_CONFIRM_FRAMES = 7
 
+        # ---- Tau (time-to-contact) for collision avoidance ----
+        self.tau = float("inf")  # seconds until contact; inf = no collision risk
+        self.TAU_SHARP_TURN = 0.5   # τ below this → emergency sharp turn
+        self.TAU_DECELERATE = 1.0   # τ below this → reduce speed
+        self.TAU_NEAR = 2.0         # τ below this → cautious modulation
+
     def _load_demo(self):
         self.n = 4096
         row = self.rng.integers(0, self.n, 65536, dtype=np.int32)
@@ -157,6 +163,7 @@ class FlyModel:
         self.temporal_energy = float(temporal.mean())
         # --- Optic flow signals ---
         flow = self.retina.compute_flow(rgb)
+        self.tau = float(flow.get("tau", float("inf")))
         self.flow_asymmetry = float(flow["left_right_asymmetry"])  # RAW (backward compat)
         self.flow_looming = float(flow["center_expansion"])
         self.flow_cliff = float(flow["lower_field_green"])
@@ -350,6 +357,27 @@ class FlyModel:
                     raw_x += 8.0
                 elif dominant_idx == 3: # anti-diagonal (135°) → bias turn opposite
                     raw_x -= 8.0
+
+            # ---- Tau-based collision avoidance ----
+            tau = self.tau
+            if tau < self.TAU_SHARP_TURN:
+                # Imminent collision: emergency sharp turn away from motion
+                turn_dir = 1.0 if self.rng.random() < 0.5 else -1.0
+                raw_x = turn_dir * 60.0
+                raw_y *= 0.2
+            elif tau < self.TAU_DECELERATE:
+                # Approaching: reduce forward speed, bias turn
+                urgency = 1.0 - tau / self.TAU_DECELERATE
+                raw_y *= max(1.0 - urgency * 0.7, 0.1)
+                turn_bias = urgency * 30.0
+                if self.flow_asymmetry > 0:
+                    raw_x -= turn_bias  # turn left (away from rightward flow)
+                else:
+                    raw_x += turn_bias  # turn right (away from leftward flow)
+            elif tau < self.TAU_NEAR:
+                # Nearby: slight caution
+                raw_y *= max(0.5, tau / self.TAU_NEAR)
+                raw_x += self.rng.uniform(-5.0, 5.0)  # exploratory turn noise
 
         raw_y = np.clip(raw_y, 0, 70)
         raw_x = np.clip(raw_x, -70, 70)
