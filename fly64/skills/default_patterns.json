@@ -1,0 +1,78 @@
+{
+  "$schema_version": "2.0",
+  "patterns": [
+    {
+      "id": "circle_loop",
+      "name": "Circle loop — 无障碍转圈",
+      "version": "1.0.0",
+      "description": "Mario circles in place on flat ground, cliff avoidance blocking forward movement.",
+      "conditions": {
+        "wall_score": {"max": 0.1},
+        "asymmetry_magnitude": {"max": 0.05},
+        "stuck_duration": {"min": 120},
+        "ground_angle": {"min": 0.3}
+      },
+      "contradiction": "terrain=cliff but ground_angle>0.3 (not a cliff)",
+      "diagnosis": "Terrain classifier false-positive 'cliff'; cliff avoidance overrides straight-forward escape.",
+      "fix_template": "# Fix: Add ground_angle gate before cliff avoidance\n# File: fly64/fly64/main.py\n# Find: {cliff_trigger_line}\n# Replace: {cliff_trigger_replace}\n",
+      "fix_files": ["fly64/fly64/main.py"],
+      "severity": "high",
+      "tags": ["navigation", "terrain", "cliff"],
+      "rollback_strategy": "revert_line",
+      "threshold_justification": "wall_score<0.1=flat terrain, asymmetry<0.05=symmetrical movement, stuck>120s=abnormal duration, ground_angle>0.3=not a cliff edge"
+    },
+    {
+      "id": "ramp_trap",
+      "name": "Ramp trap — 斜坡上无法脱困",
+      "version": "1.0.0",
+      "description": "Mario stuck on a ramp, suppression blocks turning.",
+      "conditions": {
+        "ramp_score": {"min": 0.5},
+        "stuck_duration": {"min": 180},
+        "position_unchanged_60s": true
+      },
+      "diagnosis": "Ramp suppression blocks turning; Mario stays on slope.",
+      "fix_template": "# Fix: Add ramp escape override when stuck >180s on slope\n# File: fly64/fly64/main.py\n# Add after slope detection:\nif ramp_score > 0.5 and stuck_duration > 180:\n    control.x = rng.integers(60, 80) * (-1 if rng.random() < 0.5 else 1)\n    control.y = 40\n",
+      "fix_files": ["fly64/fly64/main.py"],
+      "severity": "high",
+      "tags": ["navigation", "terrain", "ramp"],
+      "rollback_strategy": "revert_added_block",
+      "threshold_justification": "ramp_score>0.5=strong slope signal, stuck>180s=3min threshold, position_unchanged=no progress despite effort"
+    },
+    {
+      "id": "reflex_cooldown_gap",
+      "name": "Reflex cooldown — 冷却期内无效 escape",
+      "version": "1.0.0",
+      "description": "Reflex correctly detects anomaly but cooldown prevents re-trigger.",
+      "conditions": {
+        "anomaly_state_not_idle": true,
+        "reflex_active": false,
+        "stuck_duration": {"min": 60}
+      },
+      "diagnosis": "Reflex correctly detects anomaly but cooldown prevents re-trigger; normal escape ineffective.",
+      "fix_template": "# Fix: Reduce reflex cooldown during persistent anomaly\n# File: fly64/fly64/memory.py\n# Change: cooldown_duration = 10.0 -> cooldown_duration = 5.0\n# Or: Make cooldown adaptive based on stuck_duration progression\n",
+      "fix_files": ["fly64/fly64/memory.py"],
+      "severity": "medium",
+      "tags": ["reflex", "cooldown", "escape"],
+      "rollback_strategy": "revert_value",
+      "threshold_justification": "anomaly_state_not_idle=anomaly active, reflex_active=False=cooldown period, stuck>60s=1min without effective escape"
+    },
+    {
+      "id": "low_coverage_stagnation",
+      "name": "Coverage stagnation — 覆盖率长期不增长",
+      "version": "1.0.0",
+      "description": "Mario trapped in small area; exploration strategy insufficient.",
+      "conditions": {
+        "coverage_stagnant_120s": true,
+        "visited_cells": {"max": 50}
+      },
+      "diagnosis": "Mario trapped in small area; exploration strategy insufficient.",
+      "fix_template": "# Fix: Trigger forced_bold_explore immediately when coverage stagnant\n# File: fly64/fly64/main.py\n# Add before normal escape:\nif coverage_stagnant_120s and visited_cells < 50:\n    forced_bold_explore = True\n",
+      "fix_files": ["fly64/fly64/main.py"],
+      "severity": "medium",
+      "tags": ["exploration", "coverage", "stagnation"],
+      "rollback_strategy": "revert_added_block",
+      "threshold_justification": "coverage_stagnant_120s=no new cells in 2min, visited_cells<50=very small explored area"
+    }
+  ]
+}
