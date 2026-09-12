@@ -337,11 +337,18 @@ class SpatialMemoryMap:
         return self._novelty(key)
 
     def _novelty(self, key: tuple[int, int]) -> float:
-        """novelty = 1 / (visit_count + 1) × recency × (1 - revisit_penalty)"""
+        """novelty = 1 / (visit_count + 1) × recency × (1 - revisit_penalty - repulsion)
+        
+        When scene revisit_count > 10, the repulsion penalty from nearby
+        high-revisit cells is also applied, further suppressing novelty.
+        """
         v = int(self._cells[key])
         r = self._recency.get(key, 0.0)
         base = (1.0 / (v + 1)) * r
-        return base * (1.0 - self.revisit_penalty)
+        penalty = self.revisit_penalty
+        if self._scene_db.revisit_count > 10:
+            penalty = min(1.0, penalty + self._get_repulsion(key))
+        return base * (1.0 - penalty)
 
     @property
     def revisit_penalty(self) -> float:
@@ -354,6 +361,34 @@ class SpatialMemoryMap:
         if rc <= 3:
             return 0.0
         return min((rc - 3) * 0.1, 0.5)
+
+    def _get_repulsion(self, key: tuple[int, int]) -> float:
+        """Return repulsion in [0, 0.8] for cells near high-revisit areas.
+        
+        When ``revisit_count > 10``, cells whose ``visit_count > 10`` are
+        considered *high-revisit*.  This method returns a repulsion value for
+        *key* proportional to the nearby high-revisit cells within a 2-cell
+        radius, decaying with distance.  Repulsion is 0 when ``revisit_count
+        <= 10``.
+        """
+        max_repulsion = 0.8
+        revisit_threshold = 10
+        decay_radius = 2
+
+        if self._scene_db.revisit_count <= revisit_threshold:
+            return 0.0
+
+        cx, cz = key
+        total_rep = 0.0
+        for dx in range(-decay_radius, decay_radius + 1):
+            for dz in range(-decay_radius, decay_radius + 1):
+                nk = (cx + dx, cz + dz)
+                if nk in self._cells and int(self._cells[nk]) > revisit_threshold:
+                    dist = math.sqrt(dx * dx + dz * dz)
+                    weight = 1.0 if dist == 0 else 1.0 / (dist * 1.5)
+                    visit_excess = min(1.0, (int(self._cells[nk]) - revisit_threshold) / 20.0)
+                    total_rep = max(total_rep, weight * visit_excess * max_repulsion)
+        return round(total_rep, 4)
 
     @property
     def scene_db(self) -> SceneDatabase:
@@ -761,29 +796,527 @@ class SceneDatabase:
 
 
 # ---------------------------------------------------------------------------
+# MotionStateDetector — 5-state motion anomaly detection with majority vote
+# ---------------------------------------------------------------------------
+
+class MotionStateDetector:
+    """Detect motion anomaly states with majority-vote over a sliding window.
+
+    States detected:
+      ``idle``        — no anomaly (default)
+      ``stuck_ramp``  — ramp_score > 0.5 AND stuck_duration > 15 s AND heading_rate < 0.05
+      ``oscillating`` — control.x alternates between ≤ -60 and ≥ +60 within 30 frames
+      ``wall_stuck``  — wall_score > 0.4 AND escape_behavior AND stuck_duration > 10 s
+      ``micro_loop``  — visited_cells < 5 AND loop_score > 0.5 AND stuck_duration > 30 s
+      ``fallen``      — pos_y < -100 OR pos_y > 1000
+
+    Each state is evaluated every tick. The **active state** is the one with the
+    majority of votes over the last *window* frames (default 30).  Confidence is
+    the fraction of frames in the window that voted for that state.  Duration is
+    how long the active state has been continuously held.
+
+    ``state_history`` keeps the last *history_size* state transitions (name →
+    new name with start tick and confidence).
+    """
+
+    IDLE = "idle"
+    STUCK_RAMP = "stuck_ramp"
+    OSCILLATING = "oscillating"
+    WALL_STUCK = "wall_stuck"
+    MICRO_LOOP = "micro_loop"
+    FALLEN = "fallen"
+    STATES = (IDLE, STUCK_RAMP, OSCILLATING, WALL_STUCK, MICRO_LOOP, FALLEN)
+
+    def __init__(self, window: int = 30, history_size: int = 100):
+        if window < 1:
+            raise ValueError("window must be >= 1")
+        self.window = window
+        self.history_size = history_size
+
+        # Ring of per-frame state votes — one state name per frame
+        self._vote_buffer: deque[str] = deque(maxlen=window)
+
+        # State history — list of transition records
+        self._transitions: deque[dict] = deque(maxlen=history_size)
+
+        # Active (majority) state and its continuity
+        self._active_state: str = self.IDLE
+        self._state_start_tick: int = 0
+        self._total_ticks: int = 0
+        self._latest_confidence: float = 0.0
+        self._latest_duration: float = 0.0
+
+        # Oscillation detection: history of control.x for sign-change counts
+        self._ctrl_x_buf: deque[int] = deque(maxlen=window)
+
+    # ---- per-frame detection helpers ----------------------------------------
+
+    def _detect_stuck_ramp(self, ramp_score: float, stuck_duration: float,
+                           heading_rate: float) -> bool:
+        return ramp_score > 0.5 and stuck_duration > 15.0 and heading_rate < 0.05
+
+    def _detect_oscillating(self) -> bool:
+        """Detect oscillation in control.x: ≥3 alternations between ≤-60 and ≥+60."""
+        if len(self._ctrl_x_buf) < 6:
+            return False
+        buf = list(self._ctrl_x_buf)
+        alternations = 0
+        prev_was_neg = None
+        for v in buf:
+            if v <= -60:
+                if prev_was_neg is False:   # was pos, now neg
+                    alternations += 1
+                prev_was_neg = True
+            elif v >= 60:
+                if prev_was_neg is True:    # was neg, now pos
+                    alternations += 1
+                prev_was_neg = False
+        return alternations >= 3
+
+    def _detect_wall_stuck(self, wall_score: float, escape_behavior: bool,
+                           stuck_duration: float) -> bool:
+        return wall_score > 0.4 and escape_behavior and stuck_duration > 10.0
+
+    def _detect_micro_loop(self, visited_cells: int, loop_score: float,
+                           stuck_duration: float) -> bool:
+        return visited_cells < 5 and loop_score > 0.5 and stuck_duration > 30.0
+
+    @staticmethod
+    def _detect_fallen(pos_y: float) -> bool:
+        return pos_y < -100.0 or pos_y > 1000.0
+
+    def _vote(self, *, ramp_score: float = 0.0,
+              stuck_duration: float = 0.0,
+              heading_rate: float = 0.0,
+              wall_score: float = 0.0,
+              escape_behavior: bool = False,
+              visited_cells: int = 0,
+              loop_score: float = 0.0,
+              pos_y: float = 0.0) -> str:
+        """Return the per-frame state name, prioritised by severity."""
+        if self._detect_fallen(pos_y):
+            return self.FALLEN
+        if self._detect_micro_loop(visited_cells, loop_score, stuck_duration):
+            return self.MICRO_LOOP
+        if self._detect_oscillating():
+            return self.OSCILLATING
+        if self._detect_wall_stuck(wall_score, escape_behavior, stuck_duration):
+            return self.WALL_STUCK
+        if self._detect_stuck_ramp(ramp_score, stuck_duration, heading_rate):
+            return self.STUCK_RAMP
+        return self.IDLE
+
+    # ---- public API ---------------------------------------------------------
+
+    def update(
+        self,
+        *,
+        ramp_score: float = 0.0,
+        stuck_duration: float = 0.0,
+        heading_rate: float = 0.0,
+        wall_score: float = 0.0,
+        escape_behavior: bool = False,
+        visited_cells: int = 0,
+        loop_score: float = 0.0,
+        pos_y: float = 0.0,
+        control_x: int = 0,
+    ) -> dict:
+        """Feed one tick; returns ``get_state()``."""
+        self._total_ticks += 1
+        self._ctrl_x_buf.append(control_x)
+
+        # Per-frame vote
+        vote = self._vote(
+            ramp_score=ramp_score,
+            stuck_duration=stuck_duration,
+            heading_rate=heading_rate,
+            wall_score=wall_score,
+            escape_behavior=escape_behavior,
+            visited_cells=visited_cells,
+            loop_score=loop_score,
+            pos_y=pos_y,
+        )
+        self._vote_buffer.append(vote)
+
+        # Majority-vote over the window
+        if len(self._vote_buffer) < self.window:
+            majority_state = vote  # use latest until window fills
+            confidence = 1.0
+        else:
+            counts: dict[str, int] = {}
+            for s in self._vote_buffer:
+                counts[s] = counts.get(s, 0) + 1
+            max_count = max(counts.values())
+            # Pick the most-frequent state; tie-break by severity order
+            best = max(
+                (s for s, c in counts.items() if c == max_count),
+                key=lambda s: self.STATES.index(s),
+            )
+            majority_state = best
+            confidence = round(max_count / self.window, 3)
+
+        # Track active state continuity
+        if majority_state != self._active_state:
+            # Record transition
+            self._transitions.append({
+                "from": self._active_state,
+                "to": majority_state,
+                "tick": self._total_ticks,
+                "confidence": confidence,
+            })
+            self._active_state = majority_state
+            self._state_start_tick = self._total_ticks
+
+        duration_in_state = round(
+            (self._total_ticks - self._state_start_tick) * 0.020, 2
+        )  # 50 Hz tick interval
+
+        self._latest_confidence = confidence
+        self._latest_duration = duration_in_state
+
+        return {
+            "state": majority_state,
+            "confidence": confidence,
+            "duration_in_state": duration_in_state,
+            "active": majority_state != self.IDLE,
+        }
+
+    def get_state(self) -> dict:
+        """Full state dict for dashboard serialization (same as last update)."""
+        return {
+            "state": self._active_state,
+            "confidence": self._latest_confidence,
+            "duration_in_state": self._latest_duration,
+            "active": self._active_state != self.IDLE,
+        }
+
+    @property
+    def active_state(self) -> str:
+        """Current majority-vote state name."""
+        return self._active_state
+
+    @property
+    def active(self) -> bool:
+        """True when any anomaly is active (not idle)."""
+        return self._active_state != self.IDLE
+
+    @property
+    def state_history(self) -> list[dict]:
+        """Last *history_size* state transitions."""
+        return list(self._transitions)
+
+    def reset(self) -> None:
+        self._vote_buffer.clear()
+        self._transitions.clear()
+        self._ctrl_x_buf.clear()
+        self._active_state = self.IDLE
+        self._state_start_tick = self._total_ticks
+
+
+# ---------------------------------------------------------------------------
+# ReflexController — Drosophila-inspired reflex escape circuits
+# ---------------------------------------------------------------------------
+
+class ReflexController:
+    """Drosophila-inspired reflex escape circuits triggered by anomaly states.
+
+    Four reflexes, each with configurable phase timing and cooldown:
+
+    ``stuck_ramp``
+        Random turn (±60) + full forward burst (y=70) for *stuck_ramp_duration* s.
+        Overrides ramp suppression.
+
+    ``oscillating``
+        Lock direction: hold x=±69 (single direction, no alternation) for
+        *oscillating_duration* s. Breaks the back-and-forth cycle.
+
+    ``wall_stuck``
+        Reverse (y=-20) for *wall_stuck_reverse_duration* s, then turn opposite
+        direction for *wall_stuck_turn_duration* s.
+
+    ``micro_loop``
+        Immediately triggers ``_triggered_micro_loop`` flag so main.py can set
+        forced_bold_explore = True without the normal 10 s wait.
+
+    A reflex fires when the anomaly state matches and confidence >= threshold.
+    Each reflex has a cooldown preventing re-firing within *cooldown_duration* s
+    of its last activation.  Reflexes run BEFORE normal escape but AFTER cliff
+    avoidance.
+    """
+
+    STUCK_RAMP = "stuck_ramp"
+    OSCILLATING = "oscillating"
+    WALL_STUCK = "wall_stuck"
+    MICRO_LOOP = "micro_loop"
+    REFLEX_TYPES = (STUCK_RAMP, OSCILLATING, WALL_STUCK, MICRO_LOOP)
+
+    def __init__(self, confidence_threshold: float = 0.6,
+                 cooldown_duration: float = 10.0,
+                 stuck_ramp_duration: float = 1.5,
+                 oscillating_duration: float = 2.0,
+                 wall_stuck_reverse_duration: float = 0.3,
+                 wall_stuck_turn_duration: float = 0.8,
+                 micro_loop_duration: float = 2.0):
+        self.confidence_threshold = confidence_threshold
+        self.cooldown_duration = cooldown_duration
+        self.stuck_ramp_duration = stuck_ramp_duration
+        self.oscillating_duration = oscillating_duration
+        self.wall_stuck_reverse_duration = wall_stuck_reverse_duration
+        self.wall_stuck_turn_duration = wall_stuck_turn_duration
+        self.micro_loop_duration = micro_loop_duration
+
+        # Active reflex state
+        self._active_reflex: str = ""
+        self._reflex_phase: str = ""       # "turn" / "forward" / "reverse" / "burst"
+        self._phase_timer: float = 0.0
+        self._turn_direction: int = 0      # selected turn for this reflex activation
+
+        # Cooldown timers: seconds until each reflex can fire again
+        self._cooldowns: dict[str, float] = {rt: 0.0 for rt in self.REFLEX_TYPES}
+
+        # Aggressive mode: when health < 0.3, cooldown is halved
+        self._aggressive_cooldown_factor: float = 1.0
+
+        # Micro-loop trigger flag (consumed by main.py)
+        self._triggered_micro_loop: bool = False
+
+    # ---- helpers -----------------------------------------------------------
+
+    # ---- public API --------------------------------------------------------
+
+    def update(self, dt: float, anomaly_state: dict,
+               rng_choice) -> str:
+        """Tick the reflex controller.
+
+        Parameters
+        ----------
+        dt : float
+            Simulation tick interval (0.020 s).
+        anomaly_state : dict
+            Current anomaly state from MotionStateDetector.get_state().
+        rng_choice : callable
+            A function ``(low, high) -> int`` for random turn selection (e.g.
+            ``model.rng.integers``).
+
+        Returns
+        -------
+        active_reflex : str
+            Name of currently active reflex, or empty string if none.
+        """
+        # Decrement cooldowns
+        for rt in self.REFLEX_TYPES:
+            if self._cooldowns[rt] > 0:
+                self._cooldowns[rt] = max(0.0, self._cooldowns[rt] - dt)
+
+        self._triggered_micro_loop = False
+
+        # If a reflex is already active, advance its phase timer
+        if self._active_reflex:
+            self._phase_timer += dt
+            self._advance_phase()
+            return self._active_reflex
+
+        # Check if a new reflex should fire
+        state_name = anomaly_state.get("state", "")
+        confidence = anomaly_state.get("confidence", 0.0)
+
+        if state_name in self.REFLEX_TYPES and confidence >= self.confidence_threshold:
+            if self._cooldowns[state_name] <= 0.0:
+                return self._start_reflex(state_name, rng_choice)
+
+        return ""
+
+    def _start_reflex(self, reflex_type: str, rng_choice) -> str:
+        """Begin a new reflex activation.
+
+        Returns the reflex type string.
+        """
+        self._active_reflex = reflex_type
+        self._phase_timer = 0.0
+        self._cooldowns[reflex_type] = self.cooldown_duration * self._aggressive_cooldown_factor
+
+        if reflex_type == self.STUCK_RAMP:
+            self._reflex_phase = "forward"
+            self._turn_direction = (60 if rng_choice(0, 2) == 0 else -60)
+
+        elif reflex_type == self.OSCILLATING:
+            self._reflex_phase = "hold"
+            self._turn_direction = 69 if rng_choice(0, 2) == 0 else -69
+
+        elif reflex_type == self.WALL_STUCK:
+            self._reflex_phase = "reverse"
+            self._turn_direction = 60 if rng_choice(0, 2) == 0 else -60
+
+        elif reflex_type == self.MICRO_LOOP:
+            self._reflex_phase = "turn"
+            self._turn_direction = 69 if rng_choice(0, 2) == 0 else -69
+
+        return reflex_type
+
+    def _advance_phase(self) -> None:
+        """Advance the active reflex through its phase sequence."""
+        rt = self._active_reflex
+        timer = self._phase_timer
+
+        if rt == self.STUCK_RAMP:
+            # Single phase: forward burst for stuck_ramp_duration
+            if timer >= self.stuck_ramp_duration:
+                self._active_reflex = ""
+                self._phase_timer = 0.0
+
+        elif rt == self.OSCILLATING:
+            # Single phase: hold turn for oscillating_duration
+            if timer >= self.oscillating_duration:
+                self._active_reflex = ""
+                self._phase_timer = 0.0
+
+        elif rt == self.WALL_STUCK:
+            # Phase 1: reverse, Phase 2: opposite turn
+            if self._reflex_phase == "reverse" and timer >= self.wall_stuck_reverse_duration:
+                self._reflex_phase = "turn"
+                self._turn_direction = -self._turn_direction  # opposite turn
+                self._phase_timer = 0.0
+            elif self._reflex_phase == "turn" and timer >= self.wall_stuck_turn_duration:
+                self._active_reflex = ""
+                self._phase_timer = 0.0
+
+        elif rt == self.MICRO_LOOP:
+            # Phase 1: turn (0.5s), Phase 2: forward burst (remaining)
+            if self._reflex_phase == "turn" and timer >= 0.5:
+                self._reflex_phase = "burst"
+                self._phase_timer = 0.0
+            elif self._reflex_phase == "burst" and timer >= self.micro_loop_duration - 0.5:
+                self._active_reflex = ""
+                self._phase_timer = 0.0
+
+        self._triggered_micro_loop = (rt == self.MICRO_LOOP and self._active_reflex != "")
+
+    def get_action(self) -> dict:
+        """Return the current reflex control override, or empty dict if idle.
+
+        Returns
+        -------
+        dict with keys:
+            ``active`` (bool)
+            ``reflex`` (str) — reflex type name
+            ``phase`` (str) — current phase name
+            ``control_x`` (int) — stick x override
+            ``control_y`` (int) — stick y override
+            ``jump`` (bool) — jump request
+        """
+        if not self._active_reflex:
+            return {"active": False, "reflex": ""}
+
+        rt = self._active_reflex
+        phase = self._reflex_phase
+        cx, cy, jump = 0, 0, False
+
+        if rt == self.STUCK_RAMP:
+            if phase == "forward":
+                cx = self._turn_direction
+                cy = 70
+
+        elif rt == self.OSCILLATING:
+            if phase == "hold":
+                cx = self._turn_direction
+                cy = 70
+
+        elif rt == self.WALL_STUCK:
+            if phase == "reverse":
+                cx = 0
+                cy = -20
+            elif phase == "turn":
+                cx = self._turn_direction
+                cy = 50
+
+        elif rt == self.MICRO_LOOP:
+            if phase == "turn":
+                cx = self._turn_direction
+                cy = 0
+            elif phase == "burst":
+                cx = -self._turn_direction // 3
+                cy = 70
+
+        # Clip to SM64 control range
+        cx = max(-80, min(80, cx))
+        cy = max(-80, min(80, cy))
+
+        return {
+            "active": True,
+            "reflex": rt,
+            "phase": phase,
+            "control_x": cx,
+            "control_y": cy,
+            "jump": jump,
+        }
+
+    @property
+    def active_reflex(self) -> str:
+        return self._active_reflex
+
+    @property
+    def active(self) -> bool:
+        return bool(self._active_reflex)
+
+    @property
+    def triggered_micro_loop(self) -> bool:
+        """True for one tick when micro_loop reflex fires (consumed by main.py)."""
+        return self._triggered_micro_loop
+
+    @property
+    def cooldowns(self) -> dict[str, float]:
+        """Seconds remaining before each reflex can fire again."""
+        return dict(self._cooldowns)
+
+    def reset(self) -> None:
+        self._active_reflex = ""
+        self._reflex_phase = ""
+        self._phase_timer = 0.0
+        self._turn_direction = 0
+        for rt in self.REFLEX_TYPES:
+            self._cooldowns[rt] = 0.0
+        self._triggered_micro_loop = False
+        self._aggressive_cooldown_factor = 1.0
+
+    def set_aggressive_mode(self, active: bool) -> None:
+        """Halve cooldowns when aggressive mode is active (health < 0.3).
+
+        When *active* is True, new reflex activations get half the normal
+        cooldown duration, allowing more frequent reflex firings.
+        """
+        self._aggressive_cooldown_factor = 0.5 if active else 1.0
+
+
+# ---------------------------------------------------------------------------
 # MemoryController — combined navigation memory
 # ---------------------------------------------------------------------------
 
 class MemoryController:
-    """Aggregate stuck detection, spatial memory, cliff detection, and novelty into an
-    ``escape_behavior`` flag.
+    """Aggregate stuck detection, spatial memory, cliff detection, novelty, and
+    motion anomaly detection into an ``escape_behavior`` flag.
 
     The controller combines:
     - StuckDetector (temporal, frame, rate, Y-axis signals)
     - SpatialMemoryMap (novelty, loop_score, exploration_mode)
     - FailureMemory (fallen locations for avoidance)
     - CliffDetector (multi-frame cliff confirmation with hysteresis)
+    - MotionAnomalyDetector (4 anomaly types: ramp_stuck, oscillating,
+      wall_facing, small_loop)
     """
 
     def __init__(self,
                  stuck: StuckDetector | None = None,
                  spatial: SpatialMemoryMap | None = None,
                  failures: FailureMemory | None = None,
-                 cliff: CliffDetector | None = None):
+                 cliff: CliffDetector | None = None,
+                 anomaly: MotionStateDetector | None = None,
+                 reflex: ReflexController | None = None):
         self.stuck = stuck or StuckDetector()
         self.spatial = spatial or SpatialMemoryMap()
         self.failures = failures or FailureMemory()
         self.cliff = cliff or CliffDetector()
+        self.anomaly = anomaly or MotionStateDetector()
+        self.reflex = reflex or ReflexController()
         self.escape_behavior: bool = False
         self._stuck_score: float = 0.0
         self._stuck_duration: float = 0.0
@@ -804,6 +1337,13 @@ class MemoryController:
         self._scene_id: str = ""
         self._scene_tick: int = 0
 
+        # Cached anomaly state
+        self._latest_anomaly_conf: float = 0.0
+        self._latest_anomaly_dur: float = 0.0
+
+        # Health-scoring state
+        self._stored_scene_change_rate: float = 0.0
+
     def update(self, temporal_energy: float, frame_seq: int,
                forward_rate: float, x: float, z: float,
                pos_y: float = 0.0, heading: float = 0.0,
@@ -812,7 +1352,11 @@ class MemoryController:
                flow_cliff: float = 1.0,
                scene_change_rate: float = 0.0,
                ground_angle: float = 0.7,
-               scene_sig: np.ndarray | None = None) -> tuple:
+               scene_sig: np.ndarray | None = None,
+               wall_score: float = 0.0,
+               ramp_score: float = 0.0,
+               heading_rate: float = 0.0,
+               control_x: int = 0) -> tuple:
         """Feed one tick; returns ``(stuck_score, stuck_duration, novelty,
         escape_behavior, fallen, forced_bold_explore)``."""
         self._stuck_score, self._stuck_duration, self._fallen = self.stuck.update(
@@ -822,6 +1366,24 @@ class MemoryController:
 
         # Update cliff detector with multi-frame confirmation
         self._cliff_state = self.cliff.update(flow_cliff)
+
+        # Store scene_change_rate for health scoring
+        self._stored_scene_change_rate = scene_change_rate
+
+        # Update motion anomaly detector
+        anomaly_result = self.anomaly.update(
+            ramp_score=ramp_score,
+            stuck_duration=self._stuck_duration,
+            heading_rate=heading_rate,
+            wall_score=wall_score,
+            escape_behavior=self.escape_behavior,
+            visited_cells=self.spatial.visited_cells,
+            loop_score=self.spatial.loop_score,
+            pos_y=pos_y,
+            control_x=control_x,
+        )
+        self._latest_anomaly_conf = anomaly_result["confidence"]
+        self._latest_anomaly_dur = anomaly_result["duration_in_state"]
 
         # ---- Scene signature matching (landmark memory) ----
         if scene_sig is not None and scene_sig.size == 128:
@@ -861,12 +1423,20 @@ class MemoryController:
                            and temporal_energy > 0.005
                            and is_actual_cliff)
         adjusted_threshold = 0.8 - flow_danger * 0.4
+        # Motion anomaly lowers the threshold: when any anomaly is active,
+        # escape triggers at a lower stuck threshold (0.5 instead of 0.8)
+        # to enable faster reflex-like response.
+        anomaly_override = self.anomaly.active
+        if anomaly_override:
+            adjusted_threshold = min(adjusted_threshold, 0.5)
+
         self.escape_behavior = (
             (self._stuck_score >= adjusted_threshold
              and self.spatial.exploration_mode)
             or self._fallen
             or cliff_emergency
             or self._forced_bold_explore
+            or anomaly_override  # anomaly directly triggers escape
         )
         return (self._stuck_score, self._stuck_duration,
                 self._novelty, self.escape_behavior, self._fallen,
@@ -877,6 +1447,8 @@ class MemoryController:
         self.spatial.reset()
         self.failures.reset()
         self.cliff.reset()
+        self.anomaly.reset()
+        self.reflex.reset()
         self.escape_behavior = False
         self._stuck_score = 0.0
         self._stuck_duration = 0.0
@@ -898,6 +1470,21 @@ class MemoryController:
 
     @property
     def stuck_duration(self) -> float: return self._stuck_duration
+
+    @property
+    def health_score(self) -> float:
+        """Health score in [0, 1] based on revisit penalty, stuck duration, and scene change rate.
+
+        ``health_score = 1.0 - revisit_penalty*0.4 - min(stuck_duration/300, 0.3) + scene_change_rate*0.2``
+
+        Values near 1.0 = healthy exploration, near 0.0 = critically stuck/overtraveled.
+        """
+        revisit_cost = self.revisit_penalty * 0.4
+        stuck_cost = min(self._stuck_duration / 300.0, 0.3)
+        scene_boost = self._stored_scene_change_rate * 0.2
+        return round(max(0.0, min(1.0,
+            1.0 - revisit_cost - stuck_cost + scene_boost
+        )), 4)
 
     @property
     def novelty(self) -> float: return self._novelty
@@ -985,6 +1572,65 @@ class MemoryController:
     def scene_match(self) -> float:
         """Highest cosine similarity match score for the current scene (0-1)."""
         return self.spatial.scene_db.best_score
+
+    # ---- Motion anomaly detector properties ----
+
+    @property
+    def anomaly_active(self) -> bool:
+        """True when an anomaly state is active (not idle)."""
+        return self.anomaly.active
+
+    @property
+    def anomaly_state_name(self) -> str:
+        """Current anomaly state name (idle/stuck_ramp/oscillating/wall_stuck/micro_loop/fallen)."""
+        return self.anomaly.active_state
+
+    @property
+    def anomaly_confidence(self) -> float:
+        """Majority-vote confidence [0, 1] for the current state."""
+        return self._latest_anomaly_conf if hasattr(self, '_latest_anomaly_conf') else 0.0
+
+    @property
+    def anomaly_duration(self) -> float:
+        """Seconds the current anomaly state has been continuously active."""
+        return self._latest_anomaly_dur if hasattr(self, '_latest_anomaly_dur') else 0.0
+
+    @property
+    def anomaly_state_history(self) -> list[dict]:
+        """Last 100 anomaly state transitions."""
+        return self.anomaly.state_history
+
+    @property
+    def anomaly_state(self) -> dict:
+        """Full anomaly state dict for dashboard serialization."""
+        return self.anomaly.get_state()
+
+    # ---- Reflex controller properties ----
+
+    @property
+    def reflex_active(self) -> bool:
+        """True when a reflex escape circuit is currently active."""
+        return self.reflex.active
+
+    @property
+    def reflex_type(self) -> str:
+        """Currently active reflex type name."""
+        return self.reflex.active_reflex
+
+    @property
+    def reflex_action(self) -> dict:
+        """Current reflex control override action dict."""
+        return self.reflex.get_action()
+
+    @property
+    def reflex_triggered_micro_loop(self) -> bool:
+        """True for one tick when micro_loop reflex fires."""
+        return self.reflex.triggered_micro_loop
+
+    @property
+    def reflex_cooldowns(self) -> dict[str, float]:
+        """Seconds remaining before each reflex can fire again."""
+        return self.reflex.cooldowns
 
     def reset_scene_db(self) -> None:
         """Clear the scene signature database."""

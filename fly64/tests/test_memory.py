@@ -7,6 +7,8 @@ import numpy as np
 from fly64.memory import (
     CliffDetector,
     MemoryController,
+    MotionStateDetector,
+    ReflexController,
     SpatialMemoryMap,
     StuckDetector,
 )
@@ -442,3 +444,523 @@ def test_novelty_direction_eliminates_dead_end_penalty_in_bold_explore():
     # should still run without error and return a result)
     assert isinstance(bias_normal, float)
     assert isinstance(bias_bold, float)
+
+
+# ======================================================================
+# MotionStateDetector — 5-state anomaly detection with majority vote
+# ======================================================================
+
+
+def test_anomaly_initial():
+    """Fresh detector has idle state, no anomaly."""
+    ad = MotionStateDetector(window=5)
+    state = ad.get_state()
+    assert state["state"] == MotionStateDetector.IDLE
+    assert not state["active"]
+    assert state["confidence"] >= 0.0
+    assert state["duration_in_state"] >= 0.0
+
+
+def test_anomaly_properties():
+    """Property accessors match get_state()."""
+    ad = MotionStateDetector(window=5)
+    assert not ad.active
+    assert ad.active_state == MotionStateDetector.IDLE
+
+
+def test_anomaly_state_history_empty():
+    """Fresh detector has empty state_history."""
+    ad = MotionStateDetector(window=5)
+    assert ad.state_history == []
+
+
+def test_anomaly_state_history_records_transitions():
+    """State transitions are recorded in history."""
+    ad = MotionStateDetector(window=30, history_size=100)
+    # Fill window with stuck_ramp votes
+    for _ in range(40):
+        ad.update(ramp_score=0.8, stuck_duration=20.0, heading_rate=0.01)
+    history = ad.state_history
+    assert len(history) >= 1
+    assert history[0]["from"] == MotionStateDetector.IDLE
+    assert history[0]["to"] == MotionStateDetector.STUCK_RAMP
+
+
+def test_anomaly_stuck_ramp():
+    """stuck_ramp: ramp_score>0.5 AND stuck_duration>15s AND heading_rate<0.05."""
+    ad = MotionStateDetector(window=5)
+    for _ in range(10):
+        ad.update(ramp_score=0.8, stuck_duration=20.0, heading_rate=0.01)
+    assert ad.active
+    assert ad.active_state == MotionStateDetector.STUCK_RAMP
+
+
+def test_anomaly_stuck_ramp_no_ramp():
+    """No stuck_ramp when ramp_score is low."""
+    ad = MotionStateDetector(window=5)
+    for _ in range(10):
+        ad.update(ramp_score=0.1, stuck_duration=20.0, heading_rate=0.01)
+    assert not ad.active or ad.active_state != MotionStateDetector.STUCK_RAMP
+
+
+def test_anomaly_oscillating():
+    """Oscillation: control.x alternates between ≤-60 and ≥+60 within 30 frames."""
+    ad = MotionStateDetector(window=10)
+    for i in range(15):
+        cx = -64 if i % 2 == 0 else 64
+        ad.update(control_x=cx)
+    assert ad.active
+    assert ad.active_state == MotionStateDetector.OSCILLATING
+
+
+def test_anomaly_oscillating_no_alternation():
+    """No oscillation when control.x stays in one direction."""
+    ad = MotionStateDetector(window=10)
+    for i in range(15):
+        ad.update(control_x=64)
+    assert not ad.active or ad.active_state != MotionStateDetector.OSCILLATING
+
+
+def test_anomaly_wall_stuck():
+    """wall_stuck: wall_score>0.4 AND escape_behavior AND stuck_duration>10s."""
+    ad = MotionStateDetector(window=5)
+    for _ in range(10):
+        ad.update(wall_score=0.8, escape_behavior=True, stuck_duration=15.0)
+    assert ad.active
+    assert ad.active_state == MotionStateDetector.WALL_STUCK
+
+
+def test_anomaly_wall_stuck_not_escaping():
+    """No wall_stuck when escape is not active."""
+    ad = MotionStateDetector(window=5)
+    for _ in range(10):
+        ad.update(wall_score=0.8, escape_behavior=False, stuck_duration=15.0)
+    assert not ad.active or ad.active_state != MotionStateDetector.WALL_STUCK
+
+
+def test_anomaly_micro_loop():
+    """micro_loop: visited_cells<5 AND loop_score>0.5 AND stuck_duration>30s."""
+    ad = MotionStateDetector(window=5)
+    for _ in range(10):
+        ad.update(visited_cells=2, loop_score=0.8, stuck_duration=40.0)
+    assert ad.active
+    assert ad.active_state == MotionStateDetector.MICRO_LOOP
+
+
+def test_anomaly_micro_loop_not_when_exploring():
+    """No micro_loop when visited_cells >= 5."""
+    ad = MotionStateDetector(window=5)
+    for _ in range(10):
+        ad.update(visited_cells=10, loop_score=0.8, stuck_duration=40.0)
+    assert not ad.active or ad.active_state != MotionStateDetector.MICRO_LOOP
+
+
+def test_anomaly_fallen():
+    """fallen detected when pos_y < -100."""
+    ad = MotionStateDetector(window=5)
+    for _ in range(10):
+        ad.update(pos_y=-200.0)
+    assert ad.active
+    assert ad.active_state == MotionStateDetector.FALLEN
+
+
+def test_anomaly_fallen_high():
+    """fallen detected when pos_y > 1000."""
+    ad = MotionStateDetector(window=5)
+    for _ in range(10):
+        ad.update(pos_y=1500.0)
+    assert ad.active
+    assert ad.active_state == MotionStateDetector.FALLEN
+
+
+def test_anomaly_priority():
+    """Priority: fallen > micro_loop > oscillating > wall_stuck > stuck_ramp > idle."""
+    ad = MotionStateDetector(window=5)
+    for _ in range(10):
+        ad.update(ramp_score=0.8, stuck_duration=20.0, heading_rate=0.01, pos_y=-200.0)
+    assert ad.active_state == MotionStateDetector.FALLEN
+
+
+def test_anomaly_majority_vote():
+    """Majority-vote: most-frequent state in window wins."""
+    ad = MotionStateDetector(window=10)
+    for _ in range(10):
+        ad.update()  # all idle
+    assert ad.active_state == MotionStateDetector.IDLE
+    # 7 stuck_ramp + 3 idle
+    for _ in range(7):
+        ad.update(ramp_score=0.8, stuck_duration=20.0, heading_rate=0.01)
+    for _ in range(3):
+        ad.update()
+    assert ad.active
+    assert ad.active_state == MotionStateDetector.STUCK_RAMP
+
+
+def test_anomaly_reset():
+    """reset() clears all anomaly state."""
+    ad = MotionStateDetector(window=5)
+    for _ in range(10):
+        ad.update(ramp_score=0.8, stuck_duration=20.0, heading_rate=0.01)
+    assert ad.active
+    ad.reset()
+    assert not ad.active
+    assert ad.active_state == MotionStateDetector.IDLE
+    assert ad.state_history == []
+
+
+# ======================================================================
+# MemoryController — anomaly integration
+# ======================================================================
+
+
+def test_controller_anomaly_fresh():
+    """Fresh MemoryController has no anomalies."""
+    mc = MemoryController()
+    assert not mc.anomaly_active
+    assert mc.anomaly_state_name == MotionStateDetector.IDLE
+
+
+def test_controller_anomaly_update_stuck_ramp():
+    """MemoryController.update passes ramp_score and triggers stuck_ramp state."""
+    mc = MemoryController(
+        stuck=StuckDetector(temporal_stuck_s=1.0, rate_threshold=5.0, rate_stuck_s=1.0),
+    )
+    # Visit several different cells first to avoid micro_loop dominance
+    for i in range(20):
+        mc.update(0.5, i, 20.0, float(i * 300), 200.0)
+    # Now get stuck on a ramp (need stuck_duration > 15 s = 750 ticks at 20ms,
+    # plus ~100 ticks for temporal stuck to trigger first)
+    for _ in range(900):
+        mc.update(0.01, 20, 1.0, 100.0, 200.0, ramp_score=0.8)
+    assert mc.stuck_score > 0.5
+    assert mc.stuck_duration > 15.0
+    assert mc.anomaly_active
+    assert mc.anomaly_state_name == MotionStateDetector.STUCK_RAMP
+
+
+def test_controller_anomaly_state_method():
+    """anomaly_state returns the full dict."""
+    mc = MemoryController()
+    _ = mc.update(0.5, 0, 20.0, 100.0, 200.0)
+    state = mc.anomaly_state
+    assert isinstance(state, dict)
+    assert "state" in state
+    assert "confidence" in state
+    assert "duration_in_state" in state
+    assert "active" in state
+
+
+def test_controller_anomaly_reset():
+    """Controller reset() clears anomaly state."""
+    mc = MemoryController(
+        stuck=StuckDetector(temporal_stuck_s=1.0),
+    )
+    for i in range(20):
+        mc.update(0.5, i, 20.0, float(i * 300), 200.0)
+    for _ in range(900):
+        mc.update(0.01, 20, 1.0, 100.0, 200.0, ramp_score=0.8)
+    assert mc.anomaly_active
+    mc.reset()
+    assert not mc.anomaly_active
+
+
+# ======================================================================
+# ReflexController — Drosophila-inspired reflex escape circuits
+# ======================================================================
+
+
+def _always_pick_first(lo, hi):
+    """Deterministic rng_choice that always picks the lowest value."""
+    return lo
+
+
+def test_reflex_initial():
+    """Fresh ReflexController is idle."""
+    rc = ReflexController()
+    assert not rc.active
+    assert rc.active_reflex == ""
+    action = rc.get_action()
+    assert not action["active"]
+    assert action["reflex"] == ""
+
+
+def test_reflex_stuck_ramp_triggers():
+    """stuck_ramp reflex fires when anomaly_state matches with sufficient confidence."""
+    rc = ReflexController(confidence_threshold=0.6, stuck_ramp_duration=1.5)
+    anomaly_state = {"state": "stuck_ramp", "confidence": 0.8}
+    result = rc.update(0.020, anomaly_state, _always_pick_first)
+    assert result == ReflexController.STUCK_RAMP
+    assert rc.active
+    action = rc.get_action()
+    assert action["active"]
+    assert action["reflex"] == ReflexController.STUCK_RAMP
+    assert action["control_y"] == 70  # forward burst
+    assert abs(action["control_x"]) == 60  # turn ±60
+
+
+def test_reflex_stuck_ramp_forward_burst_duration():
+    """stuck_ramp forward burst lasts for stuck_ramp_duration."""
+    rc = ReflexController(confidence_threshold=0.6, stuck_ramp_duration=1.5)
+    anomaly_state = {"state": "stuck_ramp", "confidence": 0.8}
+    rc.update(0.020, anomaly_state, _always_pick_first)
+    # Tick through the reflex
+    for _ in range(74):  # 74 * 0.020 = 1.48 s (just under 1.5)
+        rc.update(0.020, anomaly_state, _always_pick_first)
+    assert rc.active  # still active
+    # One more tick = 1.5 s
+    rc.update(0.020, anomaly_state, _always_pick_first)
+    assert not rc.active  # should have ended
+
+
+def test_reflex_oscillating_triggers():
+    """oscillating reflex holds direction for 2s without alternation."""
+    rc = ReflexController(confidence_threshold=0.6, oscillating_duration=2.0)
+    anomaly_state = {"state": "oscillating", "confidence": 0.8}
+    result = rc.update(0.020, anomaly_state, _always_pick_first)
+    assert result == ReflexController.OSCILLATING
+    action = rc.get_action()
+    assert action["reflex"] == ReflexController.OSCILLATING
+    assert abs(action["control_x"]) == 69  # locked turn
+    assert action["control_y"] == 70
+    # Verify direction stays same across multiple ticks (no alternation)
+    for _ in range(10):
+        rc.update(0.020, anomaly_state, _always_pick_first)
+        a = rc.get_action()
+        assert a["control_x"] == action["control_x"]  # same direction, no alternation
+
+
+def test_reflex_wall_stuck_triggers():
+    """wall_stuck reflex does reverse then opposite turn."""
+    rc = ReflexController(confidence_threshold=0.6,
+                          wall_stuck_reverse_duration=0.3,
+                          wall_stuck_turn_duration=0.8)
+    anomaly_state = {"state": "wall_stuck", "confidence": 0.8}
+    result = rc.update(0.020, anomaly_state, _always_pick_first)
+    assert result == ReflexController.WALL_STUCK
+    # Phase 1: reverse
+    action = rc.get_action()
+    assert action["phase"] == "reverse"
+    assert action["control_y"] == -20  # reverse
+    # Tick past reverse phase (0.3 s = 15 ticks)
+    for _ in range(16):
+        rc.update(0.020, anomaly_state, _always_pick_first)
+    # Phase 2: opposite turn
+    action = rc.get_action()
+    assert action["phase"] == "turn"
+    assert action["control_y"] == 50
+
+
+def test_reflex_micro_loop_triggers():
+    """micro_loop reflex produces turn + burst sequence."""
+    rc = ReflexController(confidence_threshold=0.6, micro_loop_duration=2.0)
+    anomaly_state = {"state": "micro_loop", "confidence": 0.8}
+    result = rc.update(0.020, anomaly_state, _always_pick_first)
+    assert result == ReflexController.MICRO_LOOP
+    assert rc.active
+    # Phase 1: turn
+    action = rc.get_action()
+    assert action["phase"] == "turn"
+    assert abs(action["control_x"]) == 69
+    assert action["control_y"] == 0
+    # Tick past turn phase (0.5 s = 25 ticks)
+    for _ in range(26):
+        rc.update(0.020, anomaly_state, _always_pick_first)
+    # Phase 2: burst
+    action = rc.get_action()
+    assert action["phase"] == "burst"
+    assert action["control_y"] == 70
+
+
+def test_reflex_low_confidence_no_trigger():
+    """Reflex does NOT fire when confidence is below threshold."""
+    rc = ReflexController(confidence_threshold=0.6)
+    anomaly_state = {"state": "stuck_ramp", "confidence": 0.4}
+    result = rc.update(0.020, anomaly_state, _always_pick_first)
+    assert result == ""
+    assert not rc.active
+
+
+def test_reflex_cooldown():
+    """Same reflex cannot fire again within cooldown period."""
+    rc = ReflexController(confidence_threshold=0.6, cooldown_duration=10.0,
+                          stuck_ramp_duration=0.1)
+    anomaly_state = {"state": "stuck_ramp", "confidence": 0.8}
+    # Fire stuck_ramp
+    rc.update(0.020, anomaly_state, _always_pick_first)
+    # Let it complete
+    for _ in range(10):
+        rc.update(0.020, anomaly_state, _always_pick_first)
+    assert not rc.active
+    # Try to fire again immediately — should be blocked by cooldown
+    result = rc.update(0.020, anomaly_state, _always_pick_first)
+    assert result == "", f"Expected cooldown to block, got {result}"
+
+
+def test_reflex_different_reflex_no_cooldown_conflict():
+    """Different reflex types have independent cooldowns."""
+    rc = ReflexController(confidence_threshold=0.6, cooldown_duration=10.0,
+                          stuck_ramp_duration=0.1, oscillating_duration=0.1)
+    # Fire stuck_ramp, let it complete
+    rc.update(0.020, {"state": "stuck_ramp", "confidence": 0.8}, _always_pick_first)
+    for _ in range(10):
+        rc.update(0.020, {"state": "stuck_ramp", "confidence": 0.8}, _always_pick_first)
+    # oscillating should still be available
+    result = rc.update(0.020, {"state": "oscillating", "confidence": 0.8}, _always_pick_first)
+    assert result == ReflexController.OSCILLATING
+
+
+def test_reflex_active_during_reflex():
+    """While a reflex is active, update returns the reflex type (no re-trigger)."""
+    rc = ReflexController(confidence_threshold=0.6, stuck_ramp_duration=1.0)
+    anomaly_state = {"state": "stuck_ramp", "confidence": 0.8}
+    rc.update(0.020, anomaly_state, _always_pick_first)
+    # Tick while still active — should return stuck_ramp, not empty
+    for _ in range(10):
+        result = rc.update(0.020, anomaly_state, _always_pick_first)
+        assert result == ReflexController.STUCK_RAMP
+
+
+def test_reflex_reset():
+    """reset() clears all reflex state."""
+    rc = ReflexController(confidence_threshold=0.6)
+    rc.update(0.020, {"state": "stuck_ramp", "confidence": 0.8}, _always_pick_first)
+    assert rc.active
+    rc.reset()
+    assert not rc.active
+    assert rc.active_reflex == ""
+    for cd in rc.cooldowns.values():
+        assert cd == 0.0
+
+
+def test_controller_reflex_properties():
+    """MemoryController exposes reflex properties."""
+    mc = MemoryController()
+    assert not mc.reflex_active
+    assert mc.reflex_type == ""
+    action = mc.reflex_action
+    assert isinstance(action, dict)
+    assert not action["active"]
+
+
+def test_controller_reflex_cooldowns_property():
+    """reflex_cooldowns returns dict with all reflex types."""
+    mc = MemoryController()
+    cds = mc.reflex_cooldowns
+    for rt in ReflexController.REFLEX_TYPES:
+        assert rt in cds
+
+
+# ======================================================================
+# Health scoring and landmark repulsion
+# ======================================================================
+
+
+def test_health_score_default():
+    """Fresh MemoryController has health_score near 1.0."""
+    mc = MemoryController()
+    assert 0.0 <= mc.health_score <= 1.0
+    assert mc.health_score > 0.9
+
+
+def test_health_score_decreases_with_stuck():
+    """Health score decreases when stuck_duration accumulates."""
+    mc = MemoryController(
+        stuck=StuckDetector(temporal_stuck_s=1.0, rate_threshold=5.0, rate_stuck_s=1.0),
+    )
+    # Get stuck
+    for i in range(10):
+        mc.update(0.5, i, 20.0, float(i * 300), 200.0)
+    for _ in range(5000):  # 100 s at 0.020
+        mc.update(0.01, 0, 1.0, 100.0, 200.0, scene_change_rate=0.0)
+    # stuck_cost = min(100/300, 0.3) = 0.3, revisit_cost ≈ 0, scene_boost = 0
+    # health ≈ 0.7
+    assert mc.stuck_duration > 10.0
+    assert mc.health_score < 0.9
+    assert mc.health_score > 0.0
+
+
+def test_health_score_boosted_by_scene_change():
+    """Health score gets a boost from scene_change_rate."""
+    mc = MemoryController()
+    # update with scene_change_rate = 0.5
+    mc.update(0.5, 0, 20.0, 100.0, 200.0, scene_change_rate=0.5)
+    # scene_boost = 0.5 * 0.2 = 0.1
+    assert mc.health_score > 0.5, f"Expected >0.5, got {mc.health_score}"
+
+
+def test_repulsion_zero_when_few_revisits():
+    """_get_repulsion returns 0 when revisit_count <= 10."""
+    sm = SpatialMemoryMap()
+    local_rc = sm._scene_db.revisit_count
+    # Freshly created map has no revisits
+    assert sm._get_repulsion((0, 0)) == 0.0
+
+
+def test_repulsion_positive_with_many_revisits():
+    """_get_repulsion > 0 when high-revisit cells are nearby."""
+    sm = SpatialMemoryMap()
+    cell_key = (0, 0)
+    # Manually fill a cell with high visit count
+    sm._cells[cell_key] = np.uint16(12)  # > 10 threshold
+    # Set revisit count > 10 by adding matching signatures
+    sig = np.ones(128, dtype=np.float32) / np.sqrt(128)
+    for _ in range(12):
+        sm._scene_db.add(sig, 0)
+    sm._scene_db.match(sig)  # trigger recount
+    # Query a neighboring cell
+    rep = sm._get_repulsion((1, 0))
+    assert rep > 0.0, f"Expected positive repulsion, got {rep}"
+    assert rep <= 0.8
+
+
+def test_novelty_reduced_by_repulsion():
+    """_novelty is further reduced when repulsion is active."""
+    sm = SpatialMemoryMap(recency_decay=1.0)
+    # Fill the query cell
+    cell_key = (0, 0)
+    sm._cells[cell_key] = np.uint16(5)
+    sm._recency[cell_key] = 1.0
+    novelty_before = sm.novelty_at(0.0, 0.0)
+    # Now add high-revisit neighboring cell and bump revisit_count
+    sm._cells[(1, 0)] = np.uint16(15)  # high revisit > 10
+    sig = np.ones(128, dtype=np.float32) / np.sqrt(128)
+    for _ in range(12):
+        sm._scene_db.add(sig, 0)
+    sm._scene_db.match(sig)
+    novelty_after = sm.novelty_at(0.0, 0.0)
+    assert novelty_after <= novelty_before, (
+        f"Novelty increased: {novelty_before} -> {novelty_after}"
+    )
+
+
+def test_aggressive_mode_halves_cooldown():
+    """set_aggressive_mode(True) halves the effective cooldown."""
+    rc = ReflexController(confidence_threshold=0.6, cooldown_duration=10.0,
+                          stuck_ramp_duration=0.1)
+    rc.set_aggressive_mode(True)
+    anomaly_state = {"state": "stuck_ramp", "confidence": 0.8}
+    idle_state = {"state": "idle", "confidence": 0.0}
+    # Fire once
+    rc.update(0.020, anomaly_state, _always_pick_first)
+    # Let the reflex complete
+    for _ in range(10):
+        rc.update(0.020, anomaly_state, _always_pick_first)
+    cd_after_complete = rc.cooldowns["stuck_ramp"]
+    assert 4.7 < cd_after_complete < 4.9, f"Expected ~4.8, got {cd_after_complete}"
+    # Wait with IDLE state so the reflex doesn't auto-re-trigger when cooldown expires.
+    # Aggressive mode set cooldown to 5 s; at 0.02 per tick we need 250 ticks.
+    for _ in range(260):
+        rc.update(0.020, idle_state, _always_pick_first)
+    # Cooldown should now be 0
+    assert rc.cooldowns["stuck_ramp"] <= 0.001, (
+        f"Expected cd ≈ 0, got {rc.cooldowns['stuck_ramp']}"
+    )
+    # Now pass the anomaly state again — the reflex should fire
+    result = rc.update(0.020, anomaly_state, _always_pick_first)
+    assert result == ReflexController.STUCK_RAMP, (
+        f"Expected stuck_ramp to re-fire, got '{result}'"
+    )
+    # Verify the new cooldown is halved again (5 s)
+    assert abs(rc.cooldowns["stuck_ramp"] - 5.0) < 0.02, (
+        f"Expected new cooldown ~5.0, got {rc.cooldowns['stuck_ramp']}"
+    )

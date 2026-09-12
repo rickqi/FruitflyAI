@@ -327,6 +327,7 @@ async def run(args) -> None:
     previous_cliff_confirmed: bool = False
     cliff_recovery_timer: float = 0.0
     cliff_turn_bias: float = 0.0
+    previous_anomaly_state: str = ""
 
     async def ws_handler(socket):
         clients.add(socket)
@@ -428,7 +429,34 @@ async def run(args) -> None:
 
             previous_cliff_confirmed = model.cliff_confirmed
 
-            # ---- Pre-emptive collision avoidance (fires when NOT escaping) ----
+            # ---- Reflex escape circuits (after cliff, before normal escape) ----
+            reflex_override = False
+            reflex_active = memory_ctrl.reflex.update(
+                model.dt,
+                memory_ctrl.anomaly_state,
+                model.rng.integers,
+            )
+            if reflex_active:
+                action = memory_ctrl.reflex_action
+                if action["active"]:
+                    control.x = action["control_x"]
+                    control.y = action["control_y"]
+                    control.jump = action["jump"]
+                    reflex_override = True
+                    memory_ctrl.escape_behavior = True
+                    escape_toggle_timer = 0.0  # reset normal escape timer
+
+            # ---- Health-score aggressive mode (after reflex, before collision) ----
+            _health = memory_ctrl.health_score
+            if _health < 0.3:
+                # 1.5x turn multiplier + halved reflex cooldowns
+                if not reflex_override:
+                    control.x = int(np.clip(control.x * 1.5, -80, 80))
+                memory_ctrl.reflex.set_aggressive_mode(True)
+            else:
+                memory_ctrl.reflex.set_aggressive_mode(False)
+
+            # ---- Pre-emptive collision avoidance (fires when NOT escaping/reflex) ----
             if not memory_ctrl.escape_behavior and not cliff_triggered:
                 # 1. Strong asymmetry > 0.3: bias turn AWAY from obstacle
                 if model.flow_asymmetry > 0.3:
@@ -444,9 +472,9 @@ async def run(args) -> None:
                 memory_ctrl.escape_behavior = False
                 escape_toggle_timer = 0.0
 
-            # Escape control: override when stuck & looping
+            # Escape control: override when stuck & looping (skip when reflex active)
             pose_ev = bridge.frame_metadata.get("pose", [0, 0, 0, 0])
-            if memory_ctrl.escape_behavior:
+            if memory_ctrl.escape_behavior and not reflex_override:
                 escape_toggle_timer += model.dt
                 model.escape_mode = True
                 if memory_ctrl.fallen:
@@ -528,7 +556,9 @@ async def run(args) -> None:
             currently_escaping = memory_ctrl.escape_behavior
             if currently_escaping and not previous_escape:
                 # Escape just started — determine reason
-                if memory_ctrl.fallen:
+                if reflex_override:
+                    reason = f"reflex_{memory_ctrl.reflex_type}" if memory_ctrl.reflex_type else "reflex"
+                elif memory_ctrl.fallen:
                     reason = "fallen"
                     event_counters["total_falls"] += 1
                 elif memory_ctrl.stuck_score > 0.8:
@@ -612,6 +642,10 @@ async def run(args) -> None:
                     scene_change_rate=model.scene_change_rate,
                     ground_angle=model.ground_angle,
                     scene_sig=model.scene_sig,
+                    wall_score=model.wall_score,
+                    ramp_score=model.ramp_score,
+                    heading_rate=model.heading_rate,
+                    control_x=control.x,
                 )
                 xs, zs, heats = memory_ctrl.spatial.get_heatmap()
                 DashboardHTTP.memory_json = json.dumps({
@@ -640,6 +674,16 @@ async def run(args) -> None:
                     "revisit_count": memory_ctrl.revisit_count,
                     "revisit_penalty": round(memory_ctrl.revisit_penalty, 3),
                     "scene_match": round(memory_ctrl.scene_match, 4),
+                    # Anomaly state
+                    "anomaly_state": memory_ctrl.anomaly_state_name,
+                    "anomaly_confidence": round(memory_ctrl.anomaly_confidence, 3),
+                    "anomaly_duration": round(memory_ctrl.anomaly_duration, 3),
+                    # Reflex state
+                    "reflex_active": memory_ctrl.reflex_active,
+                    "reflex_type": memory_ctrl.reflex_type,
+                    "reflex_cooldowns": memory_ctrl.reflex_cooldowns,
+                    # Health scoring
+                    "health_score": round(memory_ctrl.health_score, 4),
                 }, separators=(",", ":")).encode()
                 DashboardHTTP.flow_json = json.dumps({
                     "asymmetry": round(model.flow_asymmetry, 4),
@@ -672,6 +716,16 @@ async def run(args) -> None:
                     "edge_135": round(model.edge_135, 4),
                     "scene_match": round(memory_ctrl.scene_match, 4),
                 }, separators=(",", ":")).encode()
+                # Log anomaly state transitions to events buffer
+                current_anomaly = memory_ctrl.anomaly_state_name
+                if current_anomaly and current_anomaly != previous_anomaly_state and current_anomaly != "idle":
+                    escape_buffer.start_event(
+                        round(tick_start - started, 2),
+                        f"anomaly_{current_anomaly}",
+                        pose_ev[0],
+                        pose_ev[2],
+                    )
+                previous_anomaly_state = current_anomaly if current_anomaly else previous_anomaly_state
                 DashboardHTTP.events_json = json.dumps({
                     "events": escape_buffer.get_recent(100),
                     "counters": event_counters,
@@ -710,6 +764,13 @@ async def run(args) -> None:
                     "edge_90": round(model.edge_90, 4),
                     "edge_135": round(model.edge_135, 4),
                     "scene_match": round(memory_ctrl.scene_match, 4),
+                    # Anomaly state
+                    "anomaly_state": memory_ctrl.anomaly_state_name,
+                    "anomaly_confidence": round(memory_ctrl.anomaly_confidence, 3),
+                    "anomaly_duration": round(memory_ctrl.anomaly_duration, 3),
+                    "reflex_active": memory_ctrl.reflex_active,
+                    "reflex_type": memory_ctrl.reflex_type,
+                    "health_score": round(memory_ctrl.health_score, 4),
                 })
                 DashboardHTTP.history_json = json.dumps(
                     list(DashboardHTTP.signal_history),
