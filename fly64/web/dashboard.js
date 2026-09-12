@@ -512,7 +512,48 @@ async function updateHealthStrip() {
       const state = d.anomaly_state || 'idle';
       ns.innerHTML = '<span class="note-stat">↖ Repel ' + (v * 100).toFixed(0) + '</span><span class="note-stat">' + (state === 'idle' ? '⚪ OK' : '🔴 ' + state) + '</span>';
     }
+    // Option B: health gauge
+    renderHealthGauge(d.health_score !== undefined ? d.health_score : 0);
   } catch (_) {}
+}
+
+// ── Health gauge (Option B) ──────────────────────────────────────────
+
+function renderHealthGauge(value) {
+  const canvas = $('healthGauge');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  ctx.scale(dpr, dpr);
+  const cx = w / 2, cy = h / 2, r = Math.min(cx, cy) - 8;
+  ctx.clearRect(0, 0, w, h);
+  // Background arc
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0.75 * Math.PI, 2.25 * Math.PI);
+  ctx.strokeStyle = '#1a2430';
+  ctx.lineWidth = 12;
+  ctx.stroke();
+  // Value arc
+  const val = Math.max(0, Math.min(1, value));
+  const endAngle = 0.75 * Math.PI + val * 1.5 * Math.PI;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0.75 * Math.PI, endAngle);
+  ctx.strokeStyle = val > 0.6 ? '#2a8a3a' : val > 0.3 ? '#b8860b' : '#8b2020';
+  ctx.lineWidth = 12;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+  // Percentage text
+  ctx.fillStyle = '#edf1f5';
+  ctx.font = 'bold ' + Math.round(r * 0.5) + 'px -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(Math.round(val * 100) + '%', cx, cy - 4);
+  ctx.fillStyle = '#aebac7';
+  ctx.font = Math.round(r * 0.22) + 'px -apple-system, sans-serif';
+  ctx.fillText('Health', cx, cy + Math.round(r * 0.35));
 }
 
 // Start health strip refresh
