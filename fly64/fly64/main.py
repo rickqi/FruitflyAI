@@ -677,6 +677,7 @@ async def run(args) -> None:
                 # Push signal history
                 DashboardHTTP.signal_history.append({
                     "t": round(tick_start - started, 2),
+                    "coverage_pct": round(memory_ctrl.coverage_pct, 1),
                     "stuck_score": round(memory_ctrl.stuck_score, 3),
                     "stuck_duration": round(memory_ctrl.stuck_duration, 3),
                     "asymmetry": round(model.flow_asymmetry, 4),

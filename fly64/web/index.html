@@ -34,5 +34,23 @@
 </div></div><div class="memory-note"><p class="muted">50×50 grid · 200 u/cell<br>White dot = current<br>Hover markers for details<br>■ Coverage % = visited / 2500</p></div></div>
 <div class="history-row"><div class="chart-wrap"><div class="chart-label-sm"><strong>Stuck Trend</strong><span>60s · score</span></div><canvas id="stuckChart" role="img" aria-label="Stuck score trend over 60 seconds"></canvas></div><div class="chart-wrap"><div class="chart-label-sm"><strong>Optic Flow</strong><span>60s · asymmetry / looming / cliff</span></div><canvas id="flowChart" role="img" aria-label="Optic flow signal trends over 60 seconds"></canvas></div></div>
 </section>
+<section aria-labelledby="interactive-title">
+<div class="section-head"><h2 id="interactive-title">Escape Events &amp; Coverage</h2><span id="escapeCount" class="muted">0 events</span><button id="exportData">Export JSON</button></div>
+<div class="interactive-row">
+<div class="escape-table-wrap">
+<div class="chart-label-sm"><strong>Escape Events</strong><span>scrollable · reason / duration / distance</span></div>
+<div class="escape-table-scroll" id="escapeTableScroll">
+<table id="escapeTable">
+<thead><tr><th>Time</th><th>Reason</th><th>Duration</th><th>Dist</th></tr></thead>
+<tbody id="escapeBody"></tbody>
+</table>
+</div>
+</div>
+<div class="chart-wrap">
+<div class="chart-label-sm"><strong>Coverage Trend</strong><span>60s · % visited / 2500</span></div>
+<canvas id="coverageChart" role="img" aria-label="Coverage percentage trend over 60 seconds"></canvas>
+</div>
+</div>
+</section>
 <footer><p id="performance">Waiting for performance counters…</p><p>Measured wiring; modeled dynamics & controls. Activity ≠ intent.</p></footer>
 </main><script type="module" src="/dashboard.js"></script></body></html>

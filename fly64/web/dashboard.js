@@ -304,3 +304,168 @@ if (typeof document !== 'undefined' && $('stuckChart')) {
   fetchHistory();
   setInterval(fetchHistory, 1000);
 }
+
+// ── Escape event table ─────────────────────────────────────────────
+
+let escapeData = [];
+
+async function fetchEscapeEvents() {
+  try {
+    const r = await fetch('/events.json');
+    if (r.ok) {
+      const data = await r.json();
+      escapeData = data.events || [];
+      renderEscapeTable(data);
+    }
+  } catch (_) {}
+}
+
+const escapeReasonLabels = { stuck: 'Stuck', fallen: 'Fall', flow: 'Flow', cliff: 'Cliff' };
+const escapeReasonClasses = { stuck: 'reason-stuck', fallen: 'reason-fallen', flow: 'reason-flow', cliff: 'reason-cliff' };
+
+function renderEscapeTable(data) {
+  const tbody = $('escapeBody');
+  if (!tbody) return;
+  const events = data.events || [];
+  const counters = data.counters || {};
+
+  // Update event count
+  const countEl = $('escapeCount');
+  if (countEl) {
+    const total = counters.total_escapes || 0;
+    const falls = counters.total_falls || 0;
+    countEl.textContent = `${total} escapes · ${falls} falls`;
+  }
+
+  // Build rows (most recent first, last 50)
+  let html = '';
+  const reversed = [...events].reverse().slice(0, 50);
+  for (const ev of reversed) {
+    const reasonClass = escapeReasonClasses[ev.reason] || '';
+    const reasonLabel = escapeReasonLabels[ev.reason] || ev.reason;
+    const dur = ev.duration !== undefined ? ev.duration.toFixed(1) + 's' : '—';
+    const dist = ev.distance_moved !== undefined ? ev.distance_moved.toFixed(0) + 'u' : '—';
+    const time = ev.timestamp !== undefined ? ev.timestamp.toFixed(1) + 's' : '—';
+    html += `<tr><td>${time}</td><td class="${reasonClass}">${reasonLabel}</td><td>${dur}</td><td>${dist}</td></tr>`;
+  }
+  if (!html) {
+    html = '<tr><td colspan="4" style="color:#536170;text-align:center;padding:8px">No escape events yet</td></tr>';
+  }
+  tbody.innerHTML = html;
+}
+
+// ── Coverage trend chart ───────────────────────────────────────────
+
+function renderCoverageChart() {
+  const canvas = $('coverageChart');
+  if (!canvas || !historyData.length) return;
+
+  const ctx = canvas.getContext('2d');
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  const d = window.devicePixelRatio || 1;
+  canvas.width = Math.round(w * d);
+  canvas.height = Math.round(h * d);
+  ctx.scale(d, d);
+
+  const top = 10, bottom = h - 2, left = 4, right = w - 4;
+  const range = bottom - top;
+
+  // Clear
+  ctx.fillStyle = '#10151c';
+  ctx.fillRect(0, 0, w, h);
+
+  // Get last 60s of data with coverage_pct
+  const now = historyData.length > 0 ? historyData[historyData.length - 1].t : 60;
+  const cutoff = now - 60;
+  const pts = historyData.filter(p => p.t >= cutoff && p.coverage_pct !== undefined);
+  if (pts.length < 2) return;
+
+  const minCov = Math.min(...pts.map(p => p.coverage_pct));
+  const maxCov = Math.max(...pts.map(p => p.coverage_pct));
+  const covRange = Math.max(maxCov - minCov, 1);
+
+  const xpos = (t) => left + (t - cutoff) / 60 * (right - left);
+  const ypos = (v) => bottom - (v - minCov) / covRange * range;
+
+  // Grid lines
+  ctx.strokeStyle = '#303a45';
+  ctx.lineWidth = 0.5;
+  for (let s = 0; s <= 60; s += 15) {
+    const xx = xpos(cutoff + s);
+    ctx.beginPath(); ctx.moveTo(xx, top); ctx.lineTo(xx, bottom); ctx.stroke();
+  }
+  ctx.fillStyle = '#b0bdcc';
+  ctx.font = '9px -apple-system, sans-serif';
+  ctx.fillText(minCov.toFixed(0) + '%', left, bottom + 9);
+  ctx.fillText(maxCov.toFixed(0) + '%', left, top + 9);
+
+  // Draw coverage line
+  ctx.strokeStyle = '#6cdaed';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  for (let i = 0; i < pts.length; i++) {
+    const xx = xpos(pts[i].t), yy = ypos(pts[i].coverage_pct);
+    if (i === 0) ctx.moveTo(xx, yy);
+    else ctx.lineTo(xx, yy);
+  }
+  ctx.stroke();
+
+  // Fill below line
+  ctx.lineTo(xpos(pts[pts.length - 1].t), bottom);
+  ctx.lineTo(xpos(pts[0].t), bottom);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(108, 218, 237, 0.1)';
+  ctx.fill();
+}
+
+// Start escape event cycle and extend history fetch to include coverage chart
+if (typeof document !== 'undefined') {
+  fetchEscapeEvents();
+  setInterval(fetchEscapeEvents, 2000);
+
+  // Patch renderHistoryCharts to also update coverage chart
+  const _origRender = renderHistoryCharts;
+  renderHistoryCharts = function() {
+    _origRender();
+    renderCoverageChart();
+  };
+}
+
+// ── JSON data export ───────────────────────────────────────────────
+
+async function exportTelemetryData() {
+  const sources = [
+    { key: 'memory', url: '/memory.json' },
+    { key: 'flow', url: '/flow.json' },
+    { key: 'events', url: '/events.json' },
+    { key: 'history', url: '/history.json' },
+    { key: 'bridge', url: '/bridge-status.json' },
+    { key: 'metadata', url: '/metadata.json' },
+  ];
+
+  const payload = { exported_at: new Date().toISOString() };
+  for (const src of sources) {
+    try {
+      const r = await fetch(src.url);
+      if (r.ok) payload[src.key] = await r.json();
+    } catch (_) {
+      payload[src.key] = null;
+    }
+  }
+
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `fly64-telemetry-${Date.now()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// Wire export button
+if (typeof document !== 'undefined') {
+  const exportBtn = $('exportData');
+  if (exportBtn) exportBtn.onclick = exportTelemetryData;
+}
