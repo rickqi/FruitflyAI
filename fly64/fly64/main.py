@@ -435,6 +435,11 @@ async def run(args) -> None:
                 if model.flow_looming > 0.4:
                     control.y = int(control.y * 0.3)
 
+            # ---- Scene-change suppression: new area, give it time before escaping ----
+            if model.scene_change and memory_ctrl.stuck_score < 0.5:
+                memory_ctrl.escape_behavior = False
+                escape_toggle_timer = 0.0
+
             # Escape control: override when stuck & looping
             pose_ev = bridge.frame_metadata.get("pose", [0, 0, 0, 0])
             if memory_ctrl.escape_behavior:
@@ -463,7 +468,8 @@ async def run(args) -> None:
                             # Novelty-biased escape: prefer high-novelty directions
                             novelty_bias = memory_ctrl.spatial.novelty_direction(
                                 pose_ev[0], pose_ev[2], pose_ev[3],
-                                dead_end_keys=memory_ctrl.dead_end_cells)
+                                dead_end_keys=memory_ctrl.dead_end_cells,
+                                scene_change_rate=model.scene_change_rate)
                             if avoid > 0:
                                 escape_x = 60
                             elif asym > 0.12:
@@ -590,6 +596,7 @@ async def run(args) -> None:
                     "xs": [round(float(v), 1) for v in xs[:2500]],
                     "zs": [round(float(v), 1) for v in zs[:2500]],
                     "heats": [round(float(v), 3) for v in heats[:2500]],
+                    "scene_change_rate": round(model.scene_change_rate, 3),
                 }, separators=(",", ":")).encode()
                 DashboardHTTP.flow_json = json.dumps({
                     "asymmetry": round(model.flow_asymmetry, 4),

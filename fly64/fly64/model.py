@@ -20,6 +20,106 @@ class Control:
     jump_rate: float
 
 
+class SceneMemory:
+    """Visual short-term memory: ring buffer of mean brightness with scene change detection.
+
+    Maintains a 30-frame (~600 ms at 50 Hz) circular buffer of per-frame mean
+    retina brightness (a scalar per frame).  Computes the mean and standard
+    deviation of the buffer, and flags a scene change when the current frame
+    deviates from the buffer mean by more than 3σ (three standard deviations).
+
+    Attributes
+    ----------
+    scene_buffer : deque[float], maxlen=30
+        Ring buffer of per-frame mean brightness values.
+    scene_mean : float
+        Mean of the buffer values.
+    scene_var : float
+        Variance of the buffer values.
+    scene_change : bool
+        True when ``|current_drive_mean − scene_mean| > 3σ``.
+    scene_change_rate : float
+        Fraction of the last 10 frames that were flagged as scene changes (0–1).
+    """
+
+    def __init__(self, buffer_size: int = 30, sigma_threshold: float = 3.0):
+        self.buffer_size = buffer_size
+        self.sigma_threshold = sigma_threshold
+
+        # Ring buffer of per-frame mean brightness
+        self.scene_buffer: deque[float] = deque(maxlen=buffer_size)
+
+        self.scene_mean = 0.0       # mean of buffer
+        self.scene_var = 0.0        # variance of buffer
+        self.scene_change = False   # |current − mean| > 3σ
+
+        # Rolling window for scene_change_rate
+        self._change_history: deque[bool] = deque(maxlen=10)
+
+    def update(self, drive_mean: float) -> dict:
+        """Feed one frame's mean retina brightness; return scene-detection state.
+
+        Parameters
+        ----------
+        drive_mean : float
+            Mean brightness of the retina drive for the current frame.
+
+        Returns
+        -------
+        dict with keys:
+            scene_mean        — mean of buffer values
+            scene_var         — variance of buffer values
+            scene_change      — True when |drive_mean − scene_mean| > 3σ
+            scene_change_rate — fraction of last 10 frames that were changes (0–1)
+            buffer_fill       — number of frames currently in the buffer
+        """
+        self.scene_buffer.append(drive_mean)
+
+        if len(self.scene_buffer) >= 2:
+            arr = np.array(self.scene_buffer, dtype=np.float64)
+            self.scene_mean = float(np.mean(arr))
+            self.scene_var = float(np.var(arr))
+            sigma = np.sqrt(self.scene_var) if self.scene_var > 0 else 0.0
+            self.scene_change = bool(
+                abs(drive_mean - self.scene_mean) > self.sigma_threshold * sigma
+            )
+        else:
+            self.scene_mean = drive_mean
+            self.scene_var = 0.0
+            self.scene_change = False
+
+        self._change_history.append(self.scene_change)
+
+        return {
+            "scene_mean": round(self.scene_mean, 6),
+            "scene_var": round(self.scene_var, 6),
+            "scene_change": self.scene_change,
+            "scene_change_rate": round(float(np.mean(self._change_history)), 3),
+            "buffer_fill": len(self.scene_buffer),
+        }
+
+    @property
+    def scene_change_rate(self) -> float:
+        """Fraction of the last 10 frames that were scene changes (0–1)."""
+        h = self._change_history
+        return float(np.mean(h)) if h else 0.0
+
+    @property
+    def buffer_as_array(self) -> np.ndarray | None:
+        """Return buffer values as (N,) array or None if empty."""
+        if not self.scene_buffer:
+            return None
+        return np.array(self.scene_buffer, dtype=np.float64)
+
+    def reset(self) -> None:
+        """Clear the buffer and reset all statistics."""
+        self.scene_buffer.clear()
+        self._change_history.clear()
+        self.scene_mean = 0.0
+        self.scene_var = 0.0
+        self.scene_change = False
+
+
 class FlyModel:
     """Connectome-derived LIF approximation with explicit engineered I/O maps."""
 
@@ -28,6 +128,10 @@ class FlyModel:
     threshold = 1.0
     reset = 0.0
     SELF_MOTION_K = 0.08  # maps heading_rate (rad/s) → flow_asymmetry correction
+    scene_mean = 0.0       # class-level default for hasattr checks
+    scene_var = 0.0
+    scene_change = False
+    scene_change_rate = 0.0
 
     def __init__(self, cache: Path | None = None, demo: bool = False, seed: int = 64):
         self.rng = np.random.default_rng(seed)
@@ -68,6 +172,13 @@ class FlyModel:
         # Novelty-driven modulation and escape
         self.escape_mode = False
         self.escape_current = 0.15  # extra depolarisation during escape
+        # Visual short-term memory (scene change detection)
+        self.scene_memory = SceneMemory(buffer_size=30)
+        self.scene_mean = 0.0
+        self.scene_var = 0.0
+        self.scene_change = False
+        self.scene_change_rate = 0.0
+
         # Optic flow signals (set by encode_retina, consumed in step)
         self.flow_asymmetry = 0.0   # RAW left/right motion imbalance (-1..1), NOT self-motion corrected
         self.flow_looming = 0.0     # center expansion index (-1..1)
@@ -197,6 +308,15 @@ class FlyModel:
 
         # --- Multi-frame cliff history ---
         self._cliff_history.append(self.flow_cliff)
+
+        # --- Visual short-term memory (scene change detection) ---
+        drive_mean = float(drive.mean())
+        scene_state = self.scene_memory.update(drive_mean)
+        self.scene_mean = scene_state["scene_mean"]
+        self.scene_var = scene_state["scene_var"]
+        self.scene_change = scene_state["scene_change"]
+        self.scene_change_rate = scene_state["scene_change_rate"]
+
         return drive
 
     @property
@@ -241,6 +361,19 @@ class FlyModel:
         equals the raw asymmetry.
         """
         return self._self_motion_cache.get("true_asymmetry", self.flow_asymmetry)
+
+    def reset_scene(self) -> None:
+        """Clear the scene memory buffer and reset statistics.
+
+        Call this when switching to a completely new visual environment
+        to avoid false scene-change signals from the previous scene's
+        statistics.
+        """
+        self.scene_memory.reset()
+        self.scene_mean = 0.0
+        self.scene_var = 0.0
+        self.scene_change = False
+        self.scene_change_rate = 0.0
 
     def step(self, rgb: np.ndarray, now: float | None = None,
              novelty: float = 0.5, heading: float = 0.0) -> tuple[Control, np.ndarray]:

@@ -382,7 +382,8 @@ class SpatialMemoryMap:
         return xs, zs, heats
 
     def novelty_direction(self, x: float, z: float, heading: float,
-                          dead_end_keys: set[tuple[int, int]] | None = None) -> float:
+                          dead_end_keys: set[tuple[int, int]] | None = None,
+                          scene_change_rate: float = 0.0) -> float:
         """Evaluate novelty in 4 directions relative to *heading* and return a
         turn bias.
 
@@ -394,6 +395,10 @@ class SpatialMemoryMap:
 
         If *dead_end_keys* is provided, cells in that set (or their immediate
         neighbors) have their novelty score penalised by 0.5.
+
+        If *scene_change_rate* >= 0.3 (rapid scene changes = new area), the
+        dead-end penalty is halved to 0.25, allowing more exploration in
+        unfamiliar surroundings where old dead-end information may not apply.
         """
         base_key = self._key(x, z)
         cx, cz = base_key
@@ -416,6 +421,10 @@ class SpatialMemoryMap:
 
         half = self.grid_cells // 2
 
+        # When scene_change_rate >= 0.3 (new area), halve the dead-end penalty
+        # so old dead-end info doesn't suppress exploration in a fresh scene.
+        _penalty_modifier = 0.5 if scene_change_rate >= 0.3 else 1.0
+
         def cell_novelty(off):
             """Average novelty over the cell at offset and its onward neighbor,
             penalised if near a dead-end cell."""
@@ -423,16 +432,16 @@ class SpatialMemoryMap:
             if not (-half <= nk[0] < half and -half <= nk[1] < half):
                 return 0.0
 
-            # Dead-end penalty: subtract 0.5 if the target cell or its
-            # 4-neighbor is a known dead-end
+            # Dead-end penalty: subtract 0.5 × modifier if the target cell or
+            # its 4-neighbor is a known dead-end
             dead_end_penalty = 0.0
             if dead_end_keys:
                 if nk in dead_end_keys:
-                    dead_end_penalty = 0.5
+                    dead_end_penalty = 0.5 * _penalty_modifier
                 else:
                     for dk_off in [(1,0), (-1,0), (0,1), (0,-1)]:
                         if (nk[0] + dk_off[0], nk[1] + dk_off[1]) in dead_end_keys:
-                            dead_end_penalty = 0.5
+                            dead_end_penalty = 0.5 * _penalty_modifier
                             break
 
             n1 = max(0.0, (self.novelty_at(nk[0] * self.cell_size, nk[1] * self.cell_size)
