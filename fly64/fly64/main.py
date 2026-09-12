@@ -382,8 +382,10 @@ async def run(args) -> None:
             if model.step_count > 10:
                 # Ramp suppression: if ground_angle > 0.3 (slope or flat), don't trigger cliff
                 is_ramp = model.ramp_score > 0.5 or model.ground_angle > 0.3
+                # Ramp stuck override: if stuck on ramp >30s, allow turning
+                ramp_stuck_override = is_ramp and memory_ctrl.stuck_duration > 30.0
                 # 1. High-confidence cliff: cliff_confirmed AND rapid green drop
-                if not is_ramp and model.cliff_confirmed and model.cliff_rate < -0.03:
+                if (not is_ramp or ramp_stuck_override) and model.cliff_confirmed and model.cliff_rate < -0.03:
                     turn_dir = -60 if model.rng.random() < 0.5 else 60
                     control.x = turn_dir
                     control.y = -10  # brief reverse in SM64
@@ -392,7 +394,7 @@ async def run(args) -> None:
                     cliff_turn_bias = float(turn_dir)
                     cliff_recovery_timer = 0.0
                 # 2. Low-confidence cliff: raw cliff low but no rapid drop (suppressed on ramps)
-                elif not is_ramp and model.flow_cliff < 0.25:
+                elif (not is_ramp or ramp_stuck_override) and model.flow_cliff < 0.25:
                     control.x = int(control.x * 1.5)
                     control.y = max(0, control.y - 20)
                     cliff_triggered = True
