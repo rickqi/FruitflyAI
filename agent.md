@@ -100,7 +100,126 @@ D:\codes\flygym\
 
 ---
 
-### 变更 3: 修复 telemetry JSON 序列化错误
+### 变更 4: Phase 2 光流计算 + 碰撞避障
+
+**提交**: `40b241d`
+
+**原因：** 马里奥频繁坠落和卡住的根本原因是**无法感知前方障碍和悬崖**。原有 1,536 个视觉细胞仅输出全局 temporal_energy 标量，无法区分左右/中心相对运动。
+
+**变更内容：**
+- `retina.py` — 新增 `compute_flow()`：8 方位角扇区、左右不对称、中心膨胀（looming）、下视野绿色（cliff）
+- `model.py` — `encode_retina()` 存储 flow 信号，`step()` 按 asymmetry/looming/cliff 调制转向/减速/提前转向
+- `main.py` — 新增 `/flow.json`、主动避障模块（先于 escape 触发）、flow 传入 memory 决策
+- `memory.py` — MemoryController 接收 flow 参数，flow 感知型 escape 阈值
+- `telemetry.py` — 新增 flow 字段到 observatory 行
+
+**涉及文件：** 6 文件，+695/-102 行
+
+---
+
+### 变更 5: 仪表板增强 — Escape 事件日志 + 历史图表 + 热力图
+
+**提交**: `3b24246`
+
+**原因：** 仪表板只能看瞬时值，无法观察 stuck_score、flow_asymmetry 等信号的历史趋势。
+
+**变更内容：**
+- `main.py` — EscapeEventBuffer（200 事件环形缓冲）、escape 起止追踪、`/events.json`、`/history.json`（60 秒滚动）
+- `memory-heatmap.js` — 轨迹路径叠加（青色）、Escape 事件标记（颜色编码）、悬停提示
+- `dashboard.js` — Stuck Trend 图表（绿→黄→红渐变）、Optic Flow 三线图表（asymmetry/looming/cliff）
+- `index.html` + `dashboard.css` — 新增 chart 元素和布局
+
+**涉及文件：** 5 文件，+443/-13 行
+
+---
+
+### 变更 6: CSS 布局重叠修复（多次迭代）
+
+**提交**: `661b939` → `a30dfbb` → `cd555f8` → `d9bd246`
+
+**原因链：**
+1. `.history-row` 高度不足，chart 溢出
+2. `@media(min-width:1100px)` 覆盖 `grid-template-rows`，145px 替代 260px
+3. `.memory-map` 106px 无法容纳 124px 内容
+
+**修复：**
+- 媒体查询 Row4 145px → 275px；`.memory-map` 106px → 146px；`.memory-row` 110px → 150px
+- 简化 grid 从 6 行 → 5 行
+
+---
+
+### 变更 7: Escape 方向修复 — 光流不对称引导
+
+**提交**: `f265bd8`
+
+**原因：** Escape 转向方向完全随机（50% 左/右），转角撞墙时无法脱困。观测到 stuck_score=1.0 持续 167 秒。
+
+**变更内容：**
+- `main.py` — 两级 escape 的转向方向由随机改为 `flow_asymmetry > 0.12 → 右转；< -0.12 → 左转；否则随机`
+- FailureMemory `avoid_direction()` 优先于不对称信号
+
+**涉及文件：** 1 文件，+17/-5 行
+
+---
+
+### 变更 8: P3 地形感知 — 悬崖检测 + 提前避障
+
+**提交**: `5ed950e`
+
+**原因：** Phase 2 已计算 cliff 信号但仅作为被动监控，无人使用提前转向逻辑，马里奥走到悬崖边时坠落。
+
+**变更内容：**
+- `model.py` — `_cliff_history`（maxlen=10）、`cliff_confirmed`（7/10 < 0.25）、`cliff_rate`
+- `memory.py` — CliffDetector（迟滞 entry=0.35/exit=0.40）、集成到 MemoryController
+- `main.py` — 三级提前避障：高置信→急转±60+后退；低置信→放大转向；恢复→0.5s 渐变
+- `dashboard.js` + `memory-heatmap.js` — 悬崖指示器（Safe/Edge/Cliff）+ 红色边框闪烁
+
+**涉及文件：** 5 文件，+278/-17 行
+
+---
+
+### 变更 9: 探索策略 — novelty 导向 + 覆盖率 + 死胡同
+
+**提交**: `4ab5485`
+
+**原因：** Escape 仅有"随机转向"一种策略，无目标导向探索，覆盖率仅 ~15%。
+
+**变更内容：**
+- `memory.py` — `novelty_direction()` 采样 4 方向 novelty；`coverage_pct`、`coverage_rate`、`coverage_history`；FailureMemory `record_dead_end`、`is_dead_end`
+- `main.py` — Escape 方向优先级：avoid → flow_asymmetry → novelty_bias（>0.2）→ 随机
+- `memory-heatmap.js` — 覆盖率百分比（红/黄/绿）、死胡同 X 标记
+
+**涉及文件：** 4 文件，+271/-2 行
+
+---
+
+### 变更 10: 多通道视网膜升级（6 通道编码）
+
+**提交**: `8161eee`
+
+**原因：** 每个小眼仅 1 个细胞类型，信息维度太低，无法区分"静止墙壁"vs"移动物体"。
+
+**变更内容：**
+- `retina.py` — `encode_on_off()`（ON=+Δ、OFF=-Δ、sustained=5 帧滑动对比）；`edge_orientation()`（4 方向边缘能量 0/45/90/135°）
+- `model.py` — 7 个新通道信号：ON 跳跃提升、OFF 转向偏置、sustained 减速、dominant edge 转向塑形
+- `main.py` — flow_json + signal_history 包含所有新通道
+
+**涉及文件：** 3 文件，+457/-172 行
+
+---
+
+### 变更 11: 自运动分离 — true_asymmetry
+
+**提交**: `7b1ac9e`
+
+**原因：** `flow_asymmetry` 同时包含"马里奥在转向"和"障碍物在靠近"两种运动，无法区分，导致误触发 escape。
+
+**变更内容：**
+- `model.py` — `SELF_MOTION_K=0.08`；`heading_rate`（从连续 pose[3] 差值计算）；`true_asymmetry = raw - K × heading_rate`
+- `main.py` — escape 方向使用 `true_asymmetry`；避障保留 raw（低级反射）；flow_json + signal_history 含 `true_asymmetry`/`heading_rate`
+- 6 新测试，全部通过
+
+**涉及文件：** 3 文件，+174/-11 行
 
 **原因：** `telemetry.py` 中 `json.dumps()` 遇到 numpy int64 类型时抛出 `TypeError: Object of type int64 is not JSON serializable`。原因是 memory 模块引入的 numpy 类型数据进入 observatory 数据链。
 
