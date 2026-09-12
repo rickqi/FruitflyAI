@@ -879,7 +879,13 @@ class MotionStateDetector:
 
     def _detect_micro_loop(self, visited_cells: int, loop_score: float,
                            stuck_duration: float) -> bool:
-        return visited_cells < 5 and loop_score > 0.5 and stuck_duration > 30.0
+        # Tier 1: classic micro-loop in small area
+        if visited_cells < 5 and loop_score > 0.5 and stuck_duration > 30.0:
+            return True
+        # Tier 2: general stuck — any cell count, stuck > 90s (covers exploration gaps)
+        if stuck_duration > 90.0 and loop_score > 0.5:
+            return True
+        return False
 
     @staticmethod
     def _detect_fallen(pos_y: float) -> bool:
