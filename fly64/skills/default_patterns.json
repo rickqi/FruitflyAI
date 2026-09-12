@@ -73,6 +73,44 @@
       "tags": ["exploration", "coverage", "stagnation"],
       "rollback_strategy": "revert_added_block",
       "threshold_justification": "coverage_stagnant_120s=no new cells in 2min, visited_cells<50=very small explored area"
+    },
+    {
+      "id": "below_ground_stuck",
+      "name": "Below ground stuck — Y坐标异常导致无法移动",
+      "version": "1.0.0",
+      "description": "Mario is below normal ground level (Y<50) but above the -100 fallen threshold, so fallen anomaly doesn't trigger. Mario cannot move properly at this height and sits idle.",
+      "conditions": {
+        "pos_y": {"min": -99, "max": 49},
+        "stuck_duration": {"min": 30},
+        "control_magnitude": {"max": 10}
+      },
+      "contradiction": "pos_y=-35 is clearly below ground (normal=120) but fallen threshold is Y<-100",
+      "diagnosis": "Fallen detection threshold (Y<-100) is too permissive. SM64 normal ground is Y=120. Y<50 already indicates below-ground (void/water). Fix: change fallen threshold from Y<-100 to Y<50.",
+      "fix_template": "# Fix: Lower fallen detection threshold from -100 to 50\n# File: fly64/fly64/memory.py\n# In MotionStateDetector and MemoryController:\n# CHANGE:\n#   fallen = pos_y < -100 or pos_y > 1000\n# TO:\n#   fallen = pos_y < 50 or pos_y > 1000\n# SM64 ground level is Y=120; any Y<50 means Mario is below ground surface.",
+      "fix_files": ["fly64/fly64/memory.py"],
+      "severity": "high",
+      "tags": ["fallen", "y_coordinate", "below_ground", "threshold"],
+      "rollback_strategy": "revert_value",
+      "threshold_justification": "pos_y between -99 and 49=abnormal height (SM64 ground=120), stuck>30s=stuck in place, control_magnitude<10=no effective movement; the -100 fallen threshold was designed for extreme falls but misses partial falls into void/water at Y=-30 to Y=-80"
+    },
+    {
+      "id": "suspended_animation",
+      "name": "Suspended animation — 控制信号为零停止响应",
+      "version": "1.0.0",
+      "description": "All control signals are zero (x=0, y=0, jump=False) while stuck_duration is increasing. Mario is completely idle without any escape attempt.",
+      "conditions": {
+        "control_x_zero": true,
+        "control_y_zero": true,
+        "stuck_duration": {"min": 15},
+        "jump_not_active": true
+      },
+      "diagnosis": "Brain model is outputting zero control signals while Mario is not in an escape state. This could indicate a visual disconnection, bridge issue, or the model has entered a dead state.",
+      "fix_template": "# Investigate: All control signals zero while game state=1 neural control active\n# Check: bridge connectivity, model.visual_connected flag, encode_retina() output\n# Check: timeout recovery in main.py for visual disconnection\n",
+      "fix_files": ["fly64/fly64/main.py", "fly64/fly64/model.py"],
+      "severity": "high",
+      "tags": ["control", "dead_state", "disconnected", "bridge"],
+      "rollback_strategy": "investigate",
+      "threshold_justification": "control_x/y both zero=no movement, stuck>15s=not just startup transient, jump=False=no escape attempt; combined with seq advancing indicates brain is running but outputting zero"
     }
   ]
 }

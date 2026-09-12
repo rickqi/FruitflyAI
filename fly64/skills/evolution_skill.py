@@ -114,6 +114,22 @@ DEFAULT_PATTERNS = {
          "fix_files": ["fly64/fly64/main.py"],
          "severity": "medium", "tags": ["exploration", "coverage"], "rollback_strategy": "revert_added_block",
          "threshold_justification": "coverage_stagnant_120s=no new cells in 2min, visited_cells<50=very small explored area"},
+        {"id": "below_ground_stuck", "name": "Below ground stuck - Y anomaly prevents movement", "version": "1.0.0",
+         "description": "Mario below normal ground level (Y<50) but above fallen threshold (-100), stuck with zero control.",
+         "conditions": {"pos_y": {"min": -99, "max": 49}, "stuck_duration": {"min": 30}, "control_magnitude": {"max": 10}},
+         "diagnosis": "Fallen detection threshold (Y<-100) too permissive. SM64 ground=120, Y<50=below ground.",
+         "fix_template": "# Fix: Lower fallen threshold from -100 to 50\n# File: fly64/fly64/memory.py\n# Change: fallen = pos_y < -100\n# To: fallen = pos_y < 50",
+         "fix_files": ["fly64/fly64/memory.py"],
+         "severity": "high", "tags": ["fallen", "y_coordinate", "threshold"], "rollback_strategy": "revert_value",
+         "threshold_justification": "pos_y between -99 and 49=abnormal (SM64 ground=120), stuck>30s, ctrl<10=no movement"},
+        {"id": "suspended_animation", "name": "Suspended animation - Zero control signals", "version": "1.0.0",
+         "description": "All controls zero (x=0,y=0,jump=0) while stuck increases. Brain outputs no movement.",
+         "conditions": {"control_x_zero": True, "control_y_zero": True, "stuck_duration": {"min": 15}, "jump_not_active": True},
+         "diagnosis": "Brain outputs zero control while receiving neural control. Possible bridge/visual disconnection.",
+         "fix_template": "# Investigate: Zero control with state=1\n# Check: bridge connectivity, model.visual_connected flag",
+         "fix_files": ["fly64/fly64/main.py"],
+         "severity": "high", "tags": ["control", "dead_state", "bridge"], "rollback_strategy": "investigate",
+         "threshold_justification": "x=0 and y=0=no movement, stuck>15s=not transient, jump=False=no escape attempt"},
     ]
 }
 
