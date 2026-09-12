@@ -550,8 +550,13 @@ async def run(args) -> None:
                     elif escape_toggle_timer < 1.6:
                         # Open-area stuck: no obstacles, just stuck → go straight
                         if _open_stuck:
-                            control.x = 0
-                            control.y = 80
+                            # Ramp escape: if stuck on ramp >180s, sharp turn instead
+                            if model.ramp_score > 0.5 and memory_ctrl.stuck_duration > 180:
+                                control.x = model.rng.integers(60, 80) * (-1 if model.rng.random() < 0.5 else 1)
+                                control.y = 40
+                            else:
+                                control.x = 0
+                                control.y = 80
                         else:
                             control.x = int(-escape_x // 2)
                             control.y = int(70 * _revisit_boost)
