@@ -152,6 +152,18 @@ class FlyModel:
         self.activity = np.zeros(self.n, dtype=np.float32)
         self.retina = SphericalRetina(self.visual_pixels)
         self.previous_rgb = np.zeros((len(self.visual), 3), dtype=np.float32)
+
+        # ---- Landmark memory: random projection of retina output to scene signatures ----
+        # Project 1536-dim retina drive → 128-dim scene signature using a random
+        # matrix drawn from N(0, scale=0.1) with PROJECTION_SEED=42 for cross-run
+        # reproducibility (independent of the model's main RNG seeding).
+        PROJECTION_SEED = 42
+        _proj_rng = np.random.default_rng(PROJECTION_SEED)
+        self.projection = _proj_rng.normal(
+            0.0, 0.1, (128, 1536)
+        ).astype(np.float32)
+        self.scene_sig = np.zeros(128, dtype=np.float32)
+        self.scene_sig_valid = False
         self.history = deque(maxlen=13)
         self.motor_nodes = np.concatenate((self.forward, self.turn_left, self.turn_right, self.jump_nodes))
         self.motor_splits = np.cumsum([len(self.forward), len(self.turn_left), len(self.turn_right)])
@@ -336,6 +348,14 @@ class FlyModel:
         self.scene_change = scene_state["scene_change"]
         self.scene_change_rate = scene_state["scene_change_rate"]
 
+        # ---- Scene signature: random projection of 1536-dim retina drive ----
+        # Project the full drive vector through P: ℝ^{1536} → ℝ^{128}
+        self.scene_sig = (self.projection @ drive).astype(np.float32)
+        norm = float(np.linalg.norm(self.scene_sig))
+        if norm > 1e-8:
+            self.scene_sig /= norm  # L2-normalize to unit length
+        self.scene_sig_valid = True
+
         return drive
 
     @property
@@ -381,6 +401,16 @@ class FlyModel:
         """
         return self._self_motion_cache.get("true_asymmetry", self.flow_asymmetry)
 
+    @property
+    def scene_signature(self) -> np.ndarray:
+        """128-dim L2-normalised scene signature from random projection of retina drive.
+
+        This is a compressed, viewpoint-invariant fingerprint of the current
+        visual scene, suitable for cosine-similarity matching against known
+        scenes in the landmark memory database.
+        """
+        return self.scene_sig
+
     def reset_scene(self) -> None:
         """Clear the scene memory buffer and reset statistics.
 
@@ -393,6 +423,8 @@ class FlyModel:
         self.scene_var = 0.0
         self.scene_change = False
         self.scene_change_rate = 0.0
+        self.scene_sig[:] = 0.0
+        self.scene_sig_valid = False
 
     def step(self, rgb: np.ndarray, now: float | None = None,
              novelty: float = 0.5, heading: float = 0.0) -> tuple[Control, np.ndarray]:

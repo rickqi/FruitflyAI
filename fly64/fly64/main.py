@@ -485,6 +485,10 @@ async def run(args) -> None:
                     else:
                         escape_toggle_timer = 0.0; control.jump = True
                 else:
+                    # ---- Revisit-penalty escape modulation ----
+                    # When revisit_penalty > 0.3 (heavily familiar scene), increase
+                    # turn aggression to push the agent out of the known area.
+                    _revisit_boost = 1.0 + max(0.0, memory_ctrl.revisit_penalty - 0.3) * 1.0
                     if escape_toggle_timer < 0.8:
                         if escape_toggle_timer < model.dt:
                             avoid = memory_ctrl.failures.avoid_direction(pose_ev[0], pose_ev[2], pose_ev[3])
@@ -496,21 +500,23 @@ async def run(args) -> None:
                                 scene_change_rate=model.scene_change_rate,
                                 forced_bold_explore=memory_ctrl.forced_bold_explore)
                             if avoid > 0:
-                                escape_x = 60
+                                escape_x = int(60 * _revisit_boost)
                             elif asym > 0.12:
-                                escape_x = 60
+                                escape_x = int(60 * _revisit_boost)
                             elif asym < -0.12:
-                                escape_x = -60
+                                escape_x = int(-60 * _revisit_boost)
                             elif abs(novelty_bias) > 0.2:
                                 # Novelty bias takes priority (>0.2 threshold)
-                                escape_x = int(novelty_bias * 70)
+                                escape_x = int(novelty_bias * 70 * _revisit_boost)
                             else:
-                                escape_x = model.rng.integers(40, 70)
+                                escape_x = model.rng.integers(int(40 * _revisit_boost), int(70 * _revisit_boost))
                                 if model.rng.random() < 0.5:
                                     escape_x = -escape_x
-                        control.x = escape_x; control.y = 0
+                        control.x = int(np.clip(escape_x, -80, 80))
+                        control.y = 0
                     elif escape_toggle_timer < 1.6:
-                        control.x = -escape_x // 2; control.y = 70
+                        control.x = int(-escape_x // 2)
+                        control.y = int(70 * _revisit_boost)
                     else:
                         escape_toggle_timer = 0.0; control.jump = True
             else:
@@ -603,6 +609,7 @@ async def run(args) -> None:
                     flow_cliff=model.flow_cliff,
                     scene_change_rate=model.scene_change_rate,
                     ground_angle=model.ground_angle,
+                    scene_sig=model.scene_sig,
                 )
                 xs, zs, heats = memory_ctrl.spatial.get_heatmap()
                 DashboardHTTP.memory_json = json.dumps({
@@ -626,6 +633,11 @@ async def run(args) -> None:
                     "scene_change_rate": round(model.scene_change_rate, 3),
                     "forced_bold_explore": memory_ctrl.forced_bold_explore,
                     "scene_low_duration": round(memory_ctrl.scene_low_duration, 2),
+                    # Landmark memory fields
+                    "scene_id": memory_ctrl.scene_id,
+                    "revisit_count": memory_ctrl.revisit_count,
+                    "revisit_penalty": round(memory_ctrl.revisit_penalty, 3),
+                    "scene_match": round(memory_ctrl.scene_match, 4),
                 }, separators=(",", ":")).encode()
                 DashboardHTTP.flow_json = json.dumps({
                     "asymmetry": round(model.flow_asymmetry, 4),
@@ -656,6 +668,7 @@ async def run(args) -> None:
                     "edge_45": round(model.edge_45, 4),
                     "edge_90": round(model.edge_90, 4),
                     "edge_135": round(model.edge_135, 4),
+                    "scene_match": round(memory_ctrl.scene_match, 4),
                 }, separators=(",", ":")).encode()
                 DashboardHTTP.events_json = json.dumps({
                     "events": escape_buffer.get_recent(100),
@@ -693,6 +706,7 @@ async def run(args) -> None:
                     "edge_45": round(model.edge_45, 4),
                     "edge_90": round(model.edge_90, 4),
                     "edge_135": round(model.edge_135, 4),
+                    "scene_match": round(memory_ctrl.scene_match, 4),
                 })
                 DashboardHTTP.history_json = json.dumps(
                     list(DashboardHTTP.signal_history),

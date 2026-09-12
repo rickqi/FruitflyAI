@@ -7,6 +7,7 @@ Phase 3: CliffDetector — multi-frame confirmation of lower_field_green dips.
 from __future__ import annotations
 
 import math
+import hashlib
 from collections import deque
 
 import numpy as np
@@ -274,6 +275,9 @@ class SpatialMemoryMap:
         self._coverage_history: deque[tuple[int, float]] = deque(maxlen=6000)
         self._last_coverage_tick = 0
 
+        # Scene database for landmark revisit detection
+        self._scene_db = SceneDatabase()
+
     # -- helpers ----------------------------------------------------------
 
     def _key(self, x: float, z: float) -> tuple[int, int]:
@@ -333,10 +337,27 @@ class SpatialMemoryMap:
         return self._novelty(key)
 
     def _novelty(self, key: tuple[int, int]) -> float:
-        """novelty = 1 / (visit_count + 1) × recency"""
+        """novelty = 1 / (visit_count + 1) × recency × (1 - revisit_penalty)"""
         v = int(self._cells[key])
         r = self._recency.get(key, 0.0)
-        return (1.0 / (v + 1)) * r
+        base = (1.0 / (v + 1)) * r
+        return base * (1.0 - self.revisit_penalty)
+
+    @property
+    def revisit_penalty(self) -> float:
+        """Scene-revisit penalty in [0, 0.5]: 0 when revisit_count ≤ 3,
+        linearly increasing to 0.5 at revisit_count = 8 and above.
+        
+        Multiplied into novelty to suppress re-exploration of familiar scenes.
+        """
+        rc = self._scene_db.revisit_count
+        if rc <= 3:
+            return 0.0
+        return min((rc - 3) * 0.1, 0.5)
+
+    @property
+    def scene_db(self) -> SceneDatabase:
+        return self._scene_db
 
     @property
     def loop_score(self) -> float:
@@ -521,6 +542,10 @@ class SpatialMemoryMap:
         self._coverage_history.clear()
         self._last_coverage_tick = 0
 
+    def reset_scene_db(self) -> None:
+        """Clear the scene database (landmark signatures)."""
+        self._scene_db.reset()
+
 
 # ---------------------------------------------------------------------------
 # MemoryController — combined navigation memory
@@ -646,6 +671,99 @@ class FailureMemory:
         self._dead_ends.clear()
 
 
+# ---------------------------------------------------------------------------
+# SceneDatabase — scene signature ring buffer with revisit detection
+# ---------------------------------------------------------------------------
+
+class SceneDatabase:
+    """Ring buffer of 128-dim scene signatures with cosine-similarity matching.
+
+    Stores up to *maxlen* (signature, tick) pairs. On each query computes
+    the cosine similarity of the query signature against every stored
+    signature (all L2-normalised) and reports the best match score and
+    the count of matches above *match_threshold*.
+
+    Attributes
+    ----------
+    revisit_count : int
+        Number of stored signatures whose cosine similarity exceeds the
+        match threshold (set by the most recent match() call).
+    best_score : float
+        Highest cosine similarity among all stored signatures (set by
+        the most recent match() call).
+    size : int
+        Current number of stored signatures.
+    """
+
+    def __init__(self, maxlen: int = 500, match_threshold: float = 0.85):
+        self._buffer: deque[tuple[np.ndarray, int]] = deque(maxlen=maxlen)
+        self._match_threshold = match_threshold
+        self._revisit_count = 0
+        self._best_score = 0.0
+
+    def add(self, sig: np.ndarray, tick: int) -> None:
+        """Store a (signature, tick) pair in the ring buffer."""
+        self._buffer.append((sig.copy(), tick))
+
+    def match(self, sig: np.ndarray) -> tuple[float, int]:
+        """Compute cosine similarity against all stored signatures.
+
+        Parameters
+        ----------
+        sig : ndarray, shape (128,)
+            L2-normalised scene signature to match.
+
+        Returns
+        -------
+        best_score : float
+            Highest cosine similarity found (0 if buffer empty).
+        revisit_count : int
+            Number of stored signatures with similarity > threshold.
+        """
+        best_score = 0.0
+        revisit_count = 0
+        n = len(self._buffer)
+        if n == 0:
+            self._best_score = 0.0
+            self._revisit_count = 0
+            return 0.0, 0
+
+        # Vectorised: stack all stored signatures → (N, 128) @ (128,) = (N,)
+        stored = np.stack([s for s, _ in self._buffer], axis=0)  # (N, 128)
+        sims = stored @ sig  # cosine similarity for unit vectors → (N,)
+        best_score = float(sims.max())
+        revisit_count = int((sims > self._match_threshold).sum())
+
+        self._best_score = best_score
+        self._revisit_count = revisit_count
+        return best_score, revisit_count
+
+    @property
+    def revisit_count(self) -> int:
+        """Number of stored signatures matching the last query."""
+        return self._revisit_count
+
+    @property
+    def best_score(self) -> float:
+        """Highest cosine similarity from the last query."""
+        return self._best_score
+
+    @property
+    def size(self) -> int:
+        """Current number of stored signatures."""
+        return len(self._buffer)
+
+    def reset(self) -> None:
+        """Clear the ring buffer and reset match state."""
+        self._buffer.clear()
+        self._revisit_count = 0
+        self._best_score = 0.0
+
+
+# ---------------------------------------------------------------------------
+# MemoryController — combined navigation memory
+# ---------------------------------------------------------------------------
+
 class MemoryController:
     """Aggregate stuck detection, spatial memory, cliff detection, and novelty into an
     ``escape_behavior`` flag.
@@ -681,6 +799,11 @@ class MemoryController:
         self._forced_bold_explore: bool = False
         self._bold_explore_dt: float = 0.020  # tick interval, same as model.dt
 
+        # Landmark memory state
+        self._scene_sig = np.zeros(128, dtype=np.float32)
+        self._scene_id: str = ""
+        self._scene_tick: int = 0
+
     def update(self, temporal_energy: float, frame_seq: int,
                forward_rate: float, x: float, z: float,
                pos_y: float = 0.0, heading: float = 0.0,
@@ -688,7 +811,8 @@ class MemoryController:
                flow_looming: float = 0.0,
                flow_cliff: float = 1.0,
                scene_change_rate: float = 0.0,
-               ground_angle: float = 0.7) -> tuple:
+               ground_angle: float = 0.7,
+               scene_sig: np.ndarray | None = None) -> tuple:
         """Feed one tick; returns ``(stuck_score, stuck_duration, novelty,
         escape_behavior, fallen, forced_bold_explore)``."""
         self._stuck_score, self._stuck_duration, self._fallen = self.stuck.update(
@@ -698,6 +822,17 @@ class MemoryController:
 
         # Update cliff detector with multi-frame confirmation
         self._cliff_state = self.cliff.update(flow_cliff)
+
+        # ---- Scene signature matching (landmark memory) ----
+        if scene_sig is not None and scene_sig.size == 128:
+            self._scene_sig = scene_sig.copy()
+            # Match against known scenes and add current to database
+            self.spatial.scene_db.match(scene_sig)
+            self.spatial.scene_db.add(scene_sig, self._scene_tick)
+            self._scene_tick += 1
+            # Compute a short scene identifier from signature bytes
+            _hash = hashlib.md5(scene_sig.tobytes()).hexdigest()[:12]
+            self._scene_id = _hash
 
         # Record position for fall detection
         self._last_pos = (x, pos_y, z)
@@ -753,6 +888,10 @@ class MemoryController:
                              "raw_lower_field_green": 1.0}
         self._scene_low_duration = 0.0
         self._forced_bold_explore = False
+        self._scene_sig[:] = 0.0
+        self._scene_id = ""
+        self._scene_tick = 0
+        self.spatial.scene_db.reset()
 
     @property
     def stuck_score(self) -> float: return self._stuck_score
@@ -819,3 +958,37 @@ class MemoryController:
     def scene_low_duration(self) -> float:
         """Seconds that scene_change_rate has been continuously below 0.05."""
         return self._scene_low_duration
+
+    # ---- Landmark memory properties ----
+
+    @property
+    def scene_db(self) -> SceneDatabase:
+        """Scene signature database (delegated to spatial.scene_db)."""
+        return self.spatial.scene_db
+
+    @property
+    def scene_id(self) -> str:
+        """Short hex identifier of the current scene signature."""
+        return self._scene_id
+
+    @property
+    def revisit_count(self) -> int:
+        """Number of stored scene signatures matching the current scene."""
+        return self.spatial.scene_db.revisit_count
+
+    @property
+    def revisit_penalty(self) -> float:
+        """Scene-revisit penalty modulating novelty (0 = no penalty, up to 0.5)."""
+        return self.spatial.revisit_penalty
+
+    @property
+    def scene_match(self) -> float:
+        """Highest cosine similarity match score for the current scene (0-1)."""
+        return self.spatial.scene_db.best_score
+
+    def reset_scene_db(self) -> None:
+        """Clear the scene signature database."""
+        self.spatial.reset_scene_db()
+        self._scene_sig[:] = 0.0
+        self._scene_id = ""
+        self._scene_tick = 0
