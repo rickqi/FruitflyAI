@@ -469,3 +469,36 @@ if (typeof document !== 'undefined') {
   const exportBtn = $('exportData');
   if (exportBtn) exportBtn.onclick = exportTelemetryData;
 }
+
+// ── Health strip update ──────────────────────────────────────────────
+
+async function updateHealthStrip() {
+  try {
+    const r = await fetch('/memory.json');
+    if (!r.ok) return;
+    const d = await r.json();
+    const hp = $('healthPill');
+    if (hp) {
+      const h = d.health_score !== undefined ? Math.round(d.health_score * 100) : 0;
+      hp.textContent = `Health ${h}%`;
+      hp.dataset.health = h > 60 ? 'high' : h > 30 ? 'mid' : 'low';
+    }
+    const rp = $('repulsionPill');
+    if (rp) {
+      const v = d.revisit_penalty !== undefined ? d.revisit_penalty : 0;
+      rp.textContent = `↖ ${(v * 100).toFixed(0)}`;
+    }
+    const ap = $('anomalyPill');
+    if (ap) {
+      const state = d.anomaly_state || 'idle';
+      ap.textContent = state === 'idle' ? '—' : state;
+      ap.dataset.state = state === 'idle' ? '' : state;
+    }
+  } catch (_) {}
+}
+
+// Start health strip refresh
+if (typeof document !== 'undefined') {
+  updateHealthStrip();
+  setInterval(updateHealthStrip, 2000);
+}
