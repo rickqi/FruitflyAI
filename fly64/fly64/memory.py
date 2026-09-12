@@ -889,7 +889,7 @@ class MotionStateDetector:
 
     @staticmethod
     def _detect_fallen(pos_y: float) -> bool:
-        return pos_y < -100.0 or pos_y > 1000.0
+        return pos_y < 50.0 or pos_y > 1000.0
 
     def _vote(self, *, ramp_score: float = 0.0,
               stuck_duration: float = 0.0,
