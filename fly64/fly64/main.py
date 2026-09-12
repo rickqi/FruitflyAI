@@ -380,8 +380,10 @@ async def run(args) -> None:
             # ---- Pre-emptive cliff avoidance (fires BEFORE escape, highest priority) ----
             cliff_triggered = False
             if model.step_count > 10:
+                # Ramp suppression: if ground_angle > 0.3 (slope or flat), don't trigger cliff
+                is_ramp = model.ramp_score > 0.5 or model.ground_angle > 0.3
                 # 1. High-confidence cliff: cliff_confirmed AND rapid green drop
-                if model.cliff_confirmed and model.cliff_rate < -0.03:
+                if not is_ramp and model.cliff_confirmed and model.cliff_rate < -0.03:
                     turn_dir = -60 if model.rng.random() < 0.5 else 60
                     control.x = turn_dir
                     control.y = -10  # brief reverse in SM64
@@ -389,8 +391,8 @@ async def run(args) -> None:
                     cliff_triggered = True
                     cliff_turn_bias = float(turn_dir)
                     cliff_recovery_timer = 0.0
-                # 2. Low-confidence cliff: raw cliff low but no rapid drop
-                elif model.flow_cliff < 0.25:
+                # 2. Low-confidence cliff: raw cliff low but no rapid drop (suppressed on ramps)
+                elif not is_ramp and model.flow_cliff < 0.25:
                     control.x = int(control.x * 1.5)
                     control.y = max(0, control.y - 20)
                     cliff_triggered = True
@@ -600,6 +602,7 @@ async def run(args) -> None:
                     flow_looming=model.flow_looming,
                     flow_cliff=model.flow_cliff,
                     scene_change_rate=model.scene_change_rate,
+                    ground_angle=model.ground_angle,
                 )
                 xs, zs, heats = memory_ctrl.spatial.get_heatmap()
                 DashboardHTTP.memory_json = json.dumps({
@@ -636,6 +639,14 @@ async def run(args) -> None:
                     "cliff_rate": round(model.cliff_rate, 4),
                     # Tau (time-to-contact) estimation
                     "tau": round(model.tau, 4) if model.tau != float("inf") else None,
+                    "terrain": model.terrain,
+                    "wall_score": round(model.wall_score, 4),
+                    "ramp_score": round(model.ramp_score, 4),
+                    "opening_score": round(model.opening_score, 4),
+                    "sky_score": round(model.sky_score, 4),
+                    "ground_angle": round(model.ground_angle, 4),
+                    "door_frame_score": round(model.door_frame_score, 4),
+                    "opening_width": round(model.opening_width, 4),
                     "tick": model.step_count,
                     # Multi-channel retina summary values
                     "on": round(model.on_energy, 4),
@@ -666,6 +677,14 @@ async def run(args) -> None:
                     "cliff_rate": round(model.cliff_rate, 4),
                     # Tau (time-to-contact)
                     "tau": round(model.tau, 4) if model.tau != float("inf") else None,
+                    "terrain": model.terrain,
+                    "wall_score": round(model.wall_score, 4),
+                    "ramp_score": round(model.ramp_score, 4),
+                    "opening_score": round(model.opening_score, 4),
+                    "sky_score": round(model.sky_score, 4),
+                    "ground_angle": round(model.ground_angle, 4),
+                    "door_frame_score": round(model.door_frame_score, 4),
+                    "opening_width": round(model.opening_width, 4),
                     # Multi-channel retina
                     "on": round(model.on_energy, 4),
                     "off": round(model.off_energy, 4),

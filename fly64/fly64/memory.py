@@ -687,7 +687,8 @@ class MemoryController:
                flow_asymmetry: float = 0.0,
                flow_looming: float = 0.0,
                flow_cliff: float = 1.0,
-               scene_change_rate: float = 0.0) -> tuple:
+               scene_change_rate: float = 0.0,
+               ground_angle: float = 0.7) -> tuple:
         """Feed one tick; returns ``(stuck_score, stuck_duration, novelty,
         escape_behavior, fallen, forced_bold_explore)``."""
         self._stuck_score, self._stuck_duration, self._fallen = self.stuck.update(
@@ -718,9 +719,12 @@ class MemoryController:
 
         # Flow-aware escape threshold: looming lowers threshold,
         # cliff (multi-frame confirmed) forces immediate escape
+        # ground_angle > 0.3 = slope or flat → suppress cliff emergency
         flow_danger = max(0.0, flow_looming - 0.3) * 2.0  # 0..1+ from looming
+        is_actual_cliff = (ground_angle < 0.3)  # only true cliffs (<0.3), not slopes
         cliff_emergency = (self._cliff_state["cliff_detected"]
-                           and temporal_energy > 0.005)
+                           and temporal_energy > 0.005
+                           and is_actual_cliff)
         adjusted_threshold = 0.8 - flow_danger * 0.4
         self.escape_behavior = (
             (self._stuck_score >= adjusted_threshold

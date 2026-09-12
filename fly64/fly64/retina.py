@@ -154,24 +154,36 @@ class SphericalRetina:
         }
         self._edge_names = ["edge_0", "edge_45", "edge_90", "edge_135"]
 
-        # ---- 8 azimuth-elevation sector masks (4 horizontal x 2 vertical) ----
-        left = self.azimuth_deg < -67.5
-        ctr_left = (~left) & (self.azimuth_deg < 0)
-        ctr_right = (~left) & (~ctr_left) & (self.azimuth_deg < 67.5)
-        right = self.azimuth_deg >= 67.5
+        # ---- 16 azimuth-elevation sector masks (8 horizontal x 2 vertical) ----
+        # Visual field spans -135° to +135° (270° total), each azimuth band = 33.75°.
+        az_bounds = np.linspace(-135, 135, 9)  # 9 edges → 8 bands
         upper = self.elevation_deg >= 0
         lower = ~upper
-        self._sector_names = (
+        self._sector_names = tuple(
+            f"az{i}_{v}" for i in range(8) for v in ("upper", "lower")
+        )
+        self._sector_masks = {}
+        for i in range(8):
+            band = (self.azimuth_deg >= az_bounds[i]) & (self.azimuth_deg < az_bounds[i + 1])
+            self._sector_masks[f"az{i}_upper"] = band & upper
+            self._sector_masks[f"az{i}_lower"] = band & lower
+
+        # For backward compatibility keep 4-band analysis
+        self._old_sector_names = (
             "left_upper","left_lower",
             "center-left_upper","center-left_lower",
             "center-right_upper","center-right_lower",
             "right_upper","right_lower",
         )
-        self._sector_masks = {}
-        for h_name, h_mask in (("left", left), ("center-left", ctr_left),
-                               ("center-right", ctr_right), ("right", right)):
-            self._sector_masks[h_name + "_upper"] = h_mask & upper
-            self._sector_masks[h_name + "_lower"] = h_mask & lower
+        _left = self.azimuth_deg < -67.5
+        _ctr_left = (~_left) & (self.azimuth_deg < 0)
+        _ctr_right = (~_left) & (~_ctr_left) & (self.azimuth_deg < 67.5)
+        _right = self.azimuth_deg >= 67.5
+        self._old_sector_masks = {}
+        for h_name, h_mask in (("left", _left), ("center-left", _ctr_left),
+                               ("center-right", _ctr_right), ("right", _right)):
+            self._old_sector_masks[h_name + "_upper"] = h_mask & upper
+            self._old_sector_masks[h_name + "_lower"] = h_mask & lower
 
         # ---- Masks for flow-signal computations ----
         self._left_half = self.azimuth_deg < 0           # azimuth < 0
@@ -345,10 +357,16 @@ class SphericalRetina:
         # Per-cell brightness as a proxy for local energy
         brightness = rgb.mean(axis=1)  # (1536,)
 
-        # ---- Per-sector energy ----
-        sectors = {}
+        # ---- Per-sector energy (16 sectors) ----
+        sectors_16 = {}
         for name in self._sector_names:
             mask = self._sector_masks[name]
+            sectors_16[name] = float(brightness[mask].mean()) if mask.any() else 0.0
+
+        # ---- Legacy 8-sector energy (backward compat) ----
+        sectors = {}
+        for name in self._old_sector_names:
+            mask = self._old_sector_masks[name]
             sectors[name] = float(brightness[mask].mean()) if mask.any() else 0.0
 
         # ---- Flow signals ----
@@ -367,6 +385,16 @@ class SphericalRetina:
 
         # ---- Edge orientation means ----
         edges = self.edge_orientation(atlas)
+
+        # Compute per-cell luminance once for downstream consumers
+        _per_cell_lum = self._per_cell_luminance(atlas)
+
+        # ---- Ground angle detection (cliff vs slope discrimination) ----
+        # Analyze horizontal green gradient across elevation bands in lower field
+        ground_angle = self._compute_ground_angle(rgb)
+
+        # ---- Door frame detection from vertical edge pair spatial analysis ----
+        door_frame_score, opening_width = self._compute_door_frame(_per_cell_lum)
 
         # ---- Tau (time-to-contact) estimation from radial divergence ----
         # During approach, the optic flow field expands radially outward:
@@ -399,11 +427,48 @@ class SphericalRetina:
         divergence = max(slope * div_scale, 0.0)          # expansion-only
         tau = 1.0 / max(divergence, _EPS) if divergence > _EPS else float("inf")
 
+        # ---- Terrain classification from 16-sector flow pattern ----
+        terrain = self.classify_terrain(sectors_16, edges, lower_green,
+                                        left_right_asymmetry, center_expansion)
+
+        # ---- Sector-derived terrain scores (task contract) ----
+        # wall_score: lower sectors bright, upper sectors dark (vertical surface ahead)
+        _lower_vals = np.array([sectors_16.get(f"az{i}_lower", 0.0) for i in range(8)])
+        _upper_vals = np.array([sectors_16.get(f"az{i}_upper", 0.0) for i in range(8)])
+        _lower_mean = float(_lower_vals.mean())
+        _upper_mean = float(_upper_vals.mean())
+        wall_score = max(0.0, min(1.0, (_lower_mean - _upper_mean + 0.2) * 2.5))
+        # ramp_score: both upper and lower elevated, moderate looming
+        _both = min(_lower_mean, _upper_mean)
+        ramp_score = max(0.0, min(1.0, (_both - 0.1) * 2.5 * (1.0 - min(center_expansion, 0.5) * 1.5)))
+        # opening_score: center (az3,az4) dimmer than periphery (az0,az1,az6,az7)
+        _center_vals = np.array([sectors_16.get(f"az{i}_upper", 0.0) + sectors_16.get(f"az{i}_lower", 0.0)
+                                 for i in (3, 4)])
+        _peri_vals = np.array([sectors_16.get(f"az{i}_upper", 0.0) + sectors_16.get(f"az{i}_lower", 0.0)
+                               for i in (0, 1, 6, 7)])
+        _c_mean = _center_vals.mean() if _center_vals.size > 0 else 0.0
+        _p_mean = _peri_vals.mean() if _peri_vals.size > 0 else 0.0
+        opening_score = max(0.0, min(1.0, (_p_mean - _c_mean) * 3.0))
+        # sky_score: upper sectors bright, low temporal energy (on_raw small)
+        sky_score = max(0.0, min(1.0, (_upper_mean - 0.1) * 2.0 * (1.0 - min(on_raw, 0.2) * 5.0)))
+
         return {"tau": tau,
             "sectors": sectors,
+            "sectors_16": sectors_16,
             "left_right_asymmetry": left_right_asymmetry,
             "center_expansion": center_expansion,
             "lower_field_green": lower_green,
+            "terrain": terrain,
+            # Sector-derived terrain scores (task contract)
+            "wall_score": round(wall_score, 4),
+            "ramp_score": round(ramp_score, 4),
+            "opening_score": round(opening_score, 4),
+            "sky_score": round(sky_score, 4),
+            # Ground angle discrimination (cliff vs slope)
+            "ground_angle": round(ground_angle, 4),
+            # Door frame detection from vertical edge pairs
+            "door_frame_score": round(door_frame_score, 4),
+            "opening_width": round(opening_width, 4),
             # New multi-channel raw means
             "on_raw": on_raw,
             "off_raw": off_raw,
@@ -414,3 +479,212 @@ class SphericalRetina:
             "edge_90": edges["edge_90"],
             "edge_135": edges["edge_135"],
         }
+
+    def _compute_ground_angle(self, rgb: np.ndarray) -> float:
+        """Compute ground disappearance angle from horizontal green gradient.
+
+        Groups lower-visual-field cells by elevation band and measures how
+        green intensity changes horizontally across azimuth.  A gradual
+        drop → slope (ground_angle ~0.3-0.7); an abrupt drop → cliff
+        (ground_angle < 0.3); sustained high green → flat (ground_angle > 0.7).
+
+        Returns float in [0, 1].
+        """
+        lower = self._lower_third
+        n_lower = int(lower.sum())
+        if n_lower < 10:
+            return 0.7  # insufficient data → assume flat
+
+        green = rgb[:, 1]  # green channel
+        green_lower = green[lower]
+        el_lower = self.elevation_deg[lower]
+
+        # Bin by elevation (5 bins of ~14.4° each, covering -72° to -24°)
+        n_bins = 5
+        el_min, el_max = -72.0, -24.0
+        edges_el = np.linspace(el_min, el_max, n_bins + 1)
+        centres_el = (edges_el[:-1] + edges_el[1:]) * 0.5
+
+        bin_means = np.zeros(n_bins)
+        for i in range(n_bins):
+            m = (el_lower >= edges_el[i]) & (el_lower < edges_el[i + 1])
+            bin_means[i] = float(green_lower[m].mean()) if m.any() else 0.0
+
+        # Slope of green vs. elevation (most negative = cliff drop)
+        if np.ptp(centres_el) > _EPS and np.std(bin_means) > 0.01:
+            slope = np.polyfit(centres_el, bin_means, 1)[0]
+        else:
+            slope = 0.0
+
+        # Abruptness: negative slope magnitude normalized
+        # slope units: green_per_degree.  -0.02/deg → abrupt cliff
+        abruptness = max(0.0, min(1.0, abs(slope) * 50.0))
+
+        # ground_angle = 1 - abruptness, but modulated by overall green
+        base = max(0.0, min(1.0, 1.0 - abruptness))
+        overall_green = float(green_lower.mean())
+        return max(0.0, min(1.0, base * 0.7 + min(overall_green * 1.5, 1.0) * 0.3))
+
+    def _compute_door_frame(self, lum: np.ndarray) -> tuple[float, float]:
+        """Detect door frames from spatial distribution of vertical-edge pairs.
+
+        Uses precomputed per-cell luminance (from _per_cell_luminance).
+        Analyzes per-row vertical-edge (edge_0: horizontal luminance difference)
+        patterns across the visual grid.  A doorway appears as two strong
+        vertical-edges with a low-edge gap between them at a width matching
+        typical openings.
+
+        Returns
+        -------
+        door_frame_score : float [0, 1]
+            0 = no door frame detected, 1 = clear doorway ahead
+        opening_width : float [0, 1]
+            Normalized width of the detected opening (0 = narrow, 1 = wide)
+        """
+        pairs = self._edge_pairs["edge_0"]
+        n_pairs = len(pairs)
+        if n_pairs == 0:
+            return 0.0, 0.0
+
+        diffs = np.abs(lum[pairs[:, 0]] - lum[pairs[:, 1]])
+
+        # Build per-cell edge_0 magnitude using numpy scatter
+        n_cells = len(lum)
+        cell_edge = np.zeros(n_cells, dtype=np.float32)
+        # For each pair, assign mean diff to both ends (vectorized)
+        pair_max = np.maximum(
+            np.zeros(n_pairs, dtype=np.float32),
+            np.maximum(diffs, cell_edge[pairs[:, 0]])
+        )
+        # Scatter via loop-free approach: use np.maximum.at for unbounded update
+        np.maximum.at(cell_edge, pairs[:, 0], diffs)
+        np.maximum.at(cell_edge, pairs[:, 1], diffs)
+
+        vp = self._vp_rc
+        rows_set = sorted(set(int(r) for r in vp[:, 0]))
+        total_score = 0.0
+        total_width = 0.0
+        row_count = 0
+        strong_thr = 0.04
+        gap_thr = 0.015
+
+        for row in rows_set:
+            row_mask = vp[:, 0] == row
+            idx = np.where(row_mask)[0]
+            if len(idx) < 11:
+                continue
+            order = np.argsort(vp[idx, 1])
+            idx = idx[order]
+            edges_row = cell_edge[idx]
+            n = len(edges_row)
+
+            # Categorize cells into state runs using diff transitions
+            state = np.zeros(n, dtype=np.int8)
+            state[edges_row > strong_thr] = 1  # strong
+            state[edges_row < gap_thr] = -1    # gap
+
+            # Find runs: where state changes
+            trans = np.diff(state, prepend=0)
+            starts = np.where(trans != 0)[0]
+            ends = np.concatenate((starts[1:], [n]))
+            run_len = ends - starts
+            run_state = state[starts]
+
+            # Pattern: strong(≥2) → gap(≥3) → strong(≥2)
+            for i in range(len(run_state) - 2):
+                if (run_state[i] == 1 and run_len[i] >= 2 and
+                    run_state[i + 1] == -1 and run_len[i + 1] >= 3 and
+                    run_state[i + 2] == 1 and run_len[i + 2] >= 2):
+                    left_s = starts[i]
+                    left_e = ends[i]
+                    gap_s = starts[i + 1]
+                    gap_e = ends[i + 1]
+                    right_s = starts[i + 2]
+                    right_e = ends[i + 2]
+
+                    left_strength = float(np.mean(edges_row[left_s:left_e]))
+                    right_strength = float(np.mean(edges_row[right_s:right_e]))
+                    avg_strength = (left_strength + right_strength) * 0.5
+                    gap_ratio = (gap_e - gap_s) / n
+                    seg_balance = (min(left_e - left_s, right_e - right_s) /
+                                   max(left_e - left_s, right_e - right_s, 1))
+
+                    if avg_strength > 0.03 and gap_ratio > 0.1:
+                        row_score = avg_strength * min(1.0, gap_ratio * 3.0) * seg_balance
+                        total_score += row_score
+                        total_width += gap_ratio
+                        row_count += 1
+
+        if row_count == 0:
+            return 0.0, 0.0
+
+        door_frame_score = max(0.0, min(1.0, total_score / row_count))
+        opening_width = max(0.0, min(1.0, total_width / row_count))
+        return door_frame_score, opening_width
+
+    @staticmethod
+    def classify_terrain(sectors_16: dict, edges: dict,
+                         lower_green: float, asymmetry: float,
+                         looming: float) -> str:
+        """Classify terrain type from 16-sector flow pattern.
+
+        Rules (applied in priority order):
+          "cliff"       — lower_green < 0.3 and lower azimuth sectors
+                          significantly dimmer than upper ones
+          "water"       — low overall brightness (< 0.15) and near-zero
+                          edge energy
+          "corridor"    — strong vertical edges (edge_90 > 0.15) but
+                          low horizontal edges (edge_0 < 0.08)
+          "wall_ahead"  — strong center expansion (looming > 0.3) with
+                          high forward-sector energy
+          "open_flat"   — uniform sector energy (std < 0.04) and
+                          low edge energy overall
+          "dense"       — high complexity: all edge orientations > 0.1
+                          and high sector variance
+          "forest_edge" — strong diagonal edges (edge_45+edge_135 > 0.3)
+                          and moderate asymmetry
+          "mixed"       — default when no clear pattern
+        """
+        vals_16 = list(sectors_16.values())
+        mean_16 = float(np.mean(vals_16)) if vals_16 else 0.0
+        std_16 = float(np.std(vals_16)) if vals_16 else 0.0
+
+        # Cliff: lower-field green collapse AND lower sectors dimmer than upper
+        lower_sectors = [v for k, v in sectors_16.items() if "lower" in k]
+        upper_sectors = [v for k, v in sectors_16.items() if "upper" in k]
+        lower_mean = float(np.mean(lower_sectors)) if lower_sectors else 0.0
+        upper_mean = float(np.mean(upper_sectors)) if upper_sectors else 0.0
+
+        if lower_green < 0.3 and lower_mean < upper_mean * 0.6 and upper_mean > 0.05:
+            return "cliff"
+
+        # Water: very low brightness and negligible edges
+        edge_total = sum(edges.get(k, 0.0) for k in ("edge_0", "edge_45", "edge_90", "edge_135"))
+        if mean_16 < 0.15 and edge_total < 0.05:
+            return "water"
+
+        # Wall ahead: strong looming with high forward-sector energy
+        if looming > 0.3 and mean_16 > 0.15:
+            return "wall_ahead"
+
+        # Corridor: strong vertical edges, weak horizontal
+        vertical = edges.get("edge_90", 0.0)
+        horizontal = edges.get("edge_0", 0.0)
+        if vertical > 0.15 and horizontal < 0.08:
+            return "corridor"
+
+        # Dense / forest: all edge orientations active
+        diag_45 = edges.get("edge_45", 0.0)
+        diag_135 = edges.get("edge_135", 0.0)
+        if all(edges.get(k, 0.0) > 0.1 for k in ("edge_0", "edge_45", "edge_90", "edge_135")) and std_16 > 0.05:
+            return "dense"
+
+        # Forest edge: strong diagonal edges with asymmetry
+        if diag_45 + diag_135 > 0.3 and abs(asymmetry) > 0.15:
+            return "forest_edge"
+
+        # Open flat: low variance and low edges
+        if std_16 < 0.04 and edge_total < 0.15:
+            return "open_flat"
+
+        return "mixed"

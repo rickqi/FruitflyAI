@@ -207,6 +207,17 @@ class FlyModel:
         self.CLIFF_RAPID_DROP = 0.15
         self.CLIFF_CONFIRM_FRAMES = 7
 
+        # ---- Terrain classification from 16-sector optic flow ----
+        self.terrain = "mixed"  # one of: cliff, water, corridor, wall_ahead,
+                                # open_flat, dense, forest_edge, mixed
+        self.wall_score = 0.0   # 0-1: vertical surface ahead
+        self.ramp_score = 0.0   # 0-1: sloping surface
+        self.opening_score = 0.0  # 0-1: passage/opening ahead
+        self.sky_score = 0.0    # 0-1: open sky above
+        self.ground_angle = 0.7  # 0=cliff, 0.3-0.7=slope, >0.7=flat
+        self.door_frame_score = 0.0  # 0-1: doorway detected
+        self.opening_width = 0.0  # 0-1: opening width
+
         # ---- Tau (time-to-contact) for collision avoidance ----
         self.tau = float("inf")  # seconds until contact; inf = no collision risk
         self.TAU_SHARP_TURN = 0.5   # τ below this → emergency sharp turn
@@ -278,6 +289,14 @@ class FlyModel:
         self.flow_asymmetry = float(flow["left_right_asymmetry"])  # RAW (backward compat)
         self.flow_looming = float(flow["center_expansion"])
         self.flow_cliff = float(flow["lower_field_green"])
+        self.terrain = str(flow.get("terrain", "mixed"))
+        self.wall_score = float(flow.get("wall_score", 0.0))
+        self.ramp_score = float(flow.get("ramp_score", 0.0))
+        self.opening_score = float(flow.get("opening_score", 0.0))
+        self.sky_score = float(flow.get("sky_score", 0.0))
+        self.ground_angle = float(flow.get("ground_angle", 0.7))
+        self.door_frame_score = float(flow.get("door_frame_score", 0.0))
+        self.opening_width = float(flow.get("opening_width", 0.0))
 
         # ---- Self-motion separation ----
         # Subtract turning-induced visual motion from the raw asymmetry to
@@ -511,6 +530,44 @@ class FlyModel:
                 # Nearby: slight caution
                 raw_y *= max(0.5, tau / self.TAU_NEAR)
                 raw_x += self.rng.uniform(-5.0, 5.0)  # exploratory turn noise
+
+            # ---- Terrain modulation (between optic flow and escape) ----
+            # 5a. High wall_score > 0.5 → wall ahead: increase turn away from wall
+            #     (wall creates motion asymmetry on the side it occupies)
+            if self.wall_score > 0.5:
+                # Turn away from the side with more visual motion (the wall)
+                wall_turn = self.wall_score * 25.0
+                if self.flow_asymmetry > 0:  # more motion on left → wall left → turn right
+                    raw_x += wall_turn
+                else:  # more motion on right → wall right → turn left
+                    raw_x -= wall_turn
+
+            # 5b. High ramp_score > 0.5 → slope, not cliff: suppress random cliff turns
+            if self.ramp_score > 0.5:
+                # Cancel any previous random cliff turn by pulling x toward zero
+                raw_x *= 0.3
+                # Maintain forward drive (slopes are traversable)
+                raw_y = max(raw_y, 30)
+
+            # 5c. High opening_score > 0.5 → passage/opening ahead: explore toward it
+            if self.opening_score > 0.5:
+                # Opening ahead — reduce turn rate to aim for the opening
+                raw_x *= 0.5
+                # Slight forward boost
+                opening_boost = 1.0 + self.opening_score * 0.3
+                raw_y = min(70, raw_y * opening_boost)
+
+            # 5d. door_frame_score > 0.5 → doorway detected: priority turn toward it
+            if self.door_frame_score > 0.5:
+                # Doorway = turn toward the side with less visual energy (the opening)
+                # Use asymmetry inverted: turning toward the quieter side
+                door_turn = self.door_frame_score * 35.0
+                if self.flow_asymmetry < 0:  # more motion on right → door on left → turn left
+                    raw_x -= door_turn
+                else:  # more motion on left → door on right → turn right
+                    raw_x += door_turn
+                # Reduce forward speed approaching the door
+                raw_y *= max(0.5, 1.0 - self.door_frame_score * 0.3)
 
         raw_y = np.clip(raw_y, 0, 70)
         raw_x = np.clip(raw_x, -70, 70)
