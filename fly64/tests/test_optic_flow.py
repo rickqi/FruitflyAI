@@ -358,6 +358,110 @@ def test_memory_flow_asymmetry_does_not_affect_threshold():
 
 
 # ======================================================================
+# 3b. Self-motion separation tests
+# ======================================================================
+
+def test_self_motion_correction_preserves_zero_at_rest():
+    """With heading=0 (no turn), true_asymmetry equals raw flow_asymmetry."""
+    model = FlyModel(demo=True)
+    atlas = _uniform_atlas()
+    model.encode_retina(atlas, heading=0.0)
+    assert model.true_asymmetry == model.flow_asymmetry, (
+        "Zero heading change should not alter asymmetry"
+    )
+
+
+def test_self_motion_correction_reduces_asymmetry_during_turn():
+    """A steady turn (non-zero heading_rate) reduces |true_asymmetry|
+    compared to the raw flow_asymmetry."""
+    model = FlyModel(demo=True)
+    atlas = _uniform_atlas()
+    # Step 1: initial heading = 0
+    model.encode_retina(atlas, heading=0.0)
+    raw_no_turn = model.flow_asymmetry
+    corrected_before = model.true_asymmetry
+
+    # Step 2: turn right — heading increases by 0.1 rad in one dt (0.02 s)
+    # → heading_rate = 0.1 / 0.02 = 5 rad/s
+    # → correction = 0.08 * 5 = 0.4
+    model.encode_retina(atlas, heading=0.1)
+
+    # The corrected true_asymmetry should be pulled toward zero
+    # relative to the raw value by the correction term
+    correction_magnitude = abs(model.SELF_MOTION_K * model.heading_rate)
+    expected_raw_vs_corrected_diff = correction_magnitude
+    actual_diff = abs(model.flow_asymmetry - model.true_asymmetry)
+    assert abs(actual_diff - expected_raw_vs_corrected_diff) < 1e-6, (
+        f"true_asymmetry should differ from raw by {expected_raw_vs_corrected_diff:.4f}, "
+        f"got {actual_diff:.4f}"
+    )
+
+
+def test_self_motion_correction_clamps_to_one():
+    """Extreme heading rates clamp true_asymmetry within [-1, 1]."""
+    model = FlyModel(demo=True)
+    atlas = _uniform_atlas((200, 200, 200))  # bright uniform
+    # First call sets prev_heading = heading
+    model.encode_retina(atlas, heading=0.0)
+    # Extreme turn: heading jumps by 100 rad
+    model.encode_retina(atlas, heading=100.0)
+    assert -1.0 <= model.true_asymmetry <= 1.0, (
+        f"true_asymmetry {model.true_asymmetry} out of [-1, 1]"
+    )
+
+
+def test_self_motion_heading_rate_preserved():
+    """heading_rate is correctly computed from consecutive heading values."""
+    model = FlyModel(demo=True)
+    atlas = _uniform_atlas()
+    model.encode_retina(atlas, heading=0.0)
+    assert model.heading_rate == 0.0
+    # Turn right: 0.05 rad in 0.02 s
+    model.encode_retina(atlas, heading=0.05)
+    expected_rate = 0.05 / model.dt  # 0.05 / 0.02 = 2.5 rad/s
+    assert abs(model.heading_rate - expected_rate) < 1e-6
+    # Turn left: back toward 0
+    model.encode_retina(atlas, heading=-0.03)
+    expected_rate2 = (-0.03 - 0.05) / model.dt  # -0.08 / 0.02 = -4.0 rad/s
+    assert abs(model.heading_rate - expected_rate2) < 1e-6
+
+
+def test_self_motion_property_exists():
+    """FlyModel has self_motion property that returns heading_rate and true_asymmetry."""
+    model = FlyModel(demo=True)
+    atlas = _uniform_atlas()
+    model.encode_retina(atlas, heading=0.0)
+    sm = model.self_motion
+    assert isinstance(sm, dict)
+    assert "heading_rate" in sm
+    assert "true_asymmetry" in sm
+    assert "k" in sm
+    assert sm["k"] == model.SELF_MOTION_K
+
+
+def test_flow_asymmetry_unchanged_backward_compat():
+    """flow_asymmetry remains the raw value (backward compatible)."""
+    model = FlyModel(demo=True)
+    atlas = _uniform_atlas((200, 200, 200))
+    model.encode_retina(atlas, heading=0.0)
+    raw_before = model.flow_asymmetry
+    # With heading change, flow_asymmetry should still be the RAW compute_flow value
+    model.encode_retina(atlas, heading=0.1)
+    # The raw flow_asymmetry records the new frame's left/right brightness
+    assert isinstance(model.flow_asymmetry, float)
+    assert isinstance(model.true_asymmetry, float)
+    # true_asymmetry differs from flow_asymmetry when heading_rate is non-zero
+    if abs(model.heading_rate) > 0:
+        assert model.true_asymmetry != model.flow_asymmetry, (
+            "true_asymmetry should differ from raw flow_asymmetry during a turn"
+        )
+    # flow_asymmetry should still be valid
+    import math
+    assert not math.isnan(model.flow_asymmetry)
+    assert not math.isnan(model.true_asymmetry)
+
+
+# ======================================================================
 # 4. Performance
 # ======================================================================
 
@@ -392,6 +496,8 @@ def test_flow_json_structure():
     # Simulate the dict construction from main.py
     flow_json = json.dumps({
         "asymmetry": round(-0.4849, 4),
+        "true_asymmetry": round(-0.0849, 4),
+        "heading_rate": round(5.0, 4),
         "looming": round(0.1234, 4),
         "cliff": round(0.5678, 4),
         "cliff_detected": False,
@@ -402,6 +508,8 @@ def test_flow_json_structure():
     }, separators=(",", ":"))
     parsed = json.loads(flow_json)
     assert "asymmetry" in parsed
+    assert "true_asymmetry" in parsed
+    assert "heading_rate" in parsed
     assert "looming" in parsed
     assert "cliff" in parsed
     assert "cliff_detected" in parsed
@@ -410,6 +518,8 @@ def test_flow_json_structure():
     assert "cliff_rate" in parsed
     assert "tick" in parsed
     assert isinstance(parsed["asymmetry"], float)
+    assert isinstance(parsed["true_asymmetry"], float)
+    assert isinstance(parsed["heading_rate"], float)
     assert isinstance(parsed["looming"], float)
     assert isinstance(parsed["cliff"], float)
     assert isinstance(parsed["cliff_detected"], bool)

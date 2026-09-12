@@ -371,10 +371,11 @@ async def run(args) -> None:
                 frame = np.frombuffer(pixels, np.uint8).reshape(HEIGHT, WIDTH, CHANNELS).copy()
                 last_frame_seq = seq
             model.escape_mode = memory_ctrl.escape_behavior
-            control, spikes = model.step(frame, model.step_count * model.dt,
-                                         novelty=memory_ctrl.novelty)
-
             pose_ev = bridge.frame_metadata.get("pose", [0, 0, 0, 0])
+            heading = pose_ev[3]
+            control, spikes = model.step(frame, model.step_count * model.dt,
+                                         novelty=memory_ctrl.novelty,
+                                         heading=heading)
 
             # ---- Pre-emptive cliff avoidance (fires BEFORE escape, highest priority) ----
             cliff_triggered = False
@@ -447,7 +448,7 @@ async def run(args) -> None:
                         control.x = -50; control.y = 60; control.jump = True
                     else:
                         escape_toggle_timer = 0.0
-                        asym = model.flow_asymmetry
+                        asym = model.true_asymmetry  # self-motion corrected
                         if asym > 0.12:
                             escape_x = 60
                         elif asym < -0.12:
@@ -458,7 +459,7 @@ async def run(args) -> None:
                     if escape_toggle_timer < 0.8:
                         if escape_toggle_timer < model.dt:
                             avoid = memory_ctrl.failures.avoid_direction(pose_ev[0], pose_ev[2], pose_ev[3])
-                            asym = model.flow_asymmetry
+                            asym = model.true_asymmetry  # self-motion corrected
                             # Novelty-biased escape: prefer high-novelty directions
                             novelty_bias = memory_ctrl.spatial.novelty_direction(
                                 pose_ev[0], pose_ev[2], pose_ev[3],
@@ -495,7 +496,7 @@ async def run(args) -> None:
                     reason = "stuck"
                 elif memory_ctrl.cliff_detected:
                     reason = "cliff"
-                elif model.flow_asymmetry > 0.3:
+                elif model.true_asymmetry > 0.3:
                     reason = "flow"
                 else:
                     reason = "stuck"
@@ -592,6 +593,8 @@ async def run(args) -> None:
                 }, separators=(",", ":")).encode()
                 DashboardHTTP.flow_json = json.dumps({
                     "asymmetry": round(model.flow_asymmetry, 4),
+                    "true_asymmetry": round(model.true_asymmetry, 4),
+                    "heading_rate": round(model.heading_rate, 4),
                     "looming": round(model.flow_looming, 4),
                     "cliff": round(model.flow_cliff, 4),
                     "cliff_detected": memory_ctrl.cliff_detected,
@@ -618,6 +621,8 @@ async def run(args) -> None:
                     "stuck_score": round(memory_ctrl.stuck_score, 3),
                     "stuck_duration": round(memory_ctrl.stuck_duration, 3),
                     "asymmetry": round(model.flow_asymmetry, 4),
+                    "true_asymmetry": round(model.true_asymmetry, 4),
+                    "heading_rate": round(model.heading_rate, 4),
                     "looming": round(model.flow_looming, 4),
                     "cliff": round(model.flow_cliff, 4),
                     "cliff_detected": memory_ctrl.cliff_detected,

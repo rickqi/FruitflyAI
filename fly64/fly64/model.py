@@ -27,6 +27,7 @@ class FlyModel:
     tau_m = 0.100
     threshold = 1.0
     reset = 0.0
+    SELF_MOTION_K = 0.08  # maps heading_rate (rad/s) → flow_asymmetry correction
 
     def __init__(self, cache: Path | None = None, demo: bool = False, seed: int = 64):
         self.rng = np.random.default_rng(seed)
@@ -68,9 +69,17 @@ class FlyModel:
         self.escape_mode = False
         self.escape_current = 0.15  # extra depolarisation during escape
         # Optic flow signals (set by encode_retina, consumed in step)
-        self.flow_asymmetry = 0.0   # left/right motion imbalance (-1..1)
+        self.flow_asymmetry = 0.0   # RAW left/right motion imbalance (-1..1), NOT self-motion corrected
         self.flow_looming = 0.0     # center expansion index (-1..1)
         self.flow_cliff = 1.0       # lower-field green ratio (1=grass, 0=void)
+
+        # ---- Self-motion separation: heading tracking for optic-flow correction ----
+        self.heading = 0.0          # current heading (yaw) in radians
+        self.prev_heading = 0.0     # previous-frame heading for rate computation
+        self.heading_rate = 0.0     # angular velocity (rad/s), positive = turning right
+        self._self_motion_cache = {
+            "heading_rate": 0.0, "true_asymmetry": 0.0, "k": self.SELF_MOTION_K,
+        }  # backing store for self_motion and true_asymmetry properties
 
         # ---- Multi-channel retina signals (6-channel encoding) ----
         self.on_energy = 0.0        # ON channel: positive luminance transients
@@ -136,7 +145,7 @@ class FlyModel:
             flat_pixels = np.linspace(0, 48 * 64 - 1, len(self.visual)).astype(np.int32)
             self.visual_pixels = np.column_stack((flat_pixels // 64, flat_pixels % 64)).astype(np.uint8)
 
-    def encode_retina(self, rgb: np.ndarray) -> np.ndarray:
+    def encode_retina(self, rgb: np.ndarray, heading: float = 0.0) -> np.ndarray:
         frame = self.retina.sample(rgb)
         lum = frame @ np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
         prev_lum = self.previous_rgb @ np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
@@ -148,9 +157,27 @@ class FlyModel:
         self.temporal_energy = float(temporal.mean())
         # --- Optic flow signals ---
         flow = self.retina.compute_flow(rgb)
-        self.flow_asymmetry = float(flow["left_right_asymmetry"])
+        self.flow_asymmetry = float(flow["left_right_asymmetry"])  # RAW (backward compat)
         self.flow_looming = float(flow["center_expansion"])
         self.flow_cliff = float(flow["lower_field_green"])
+
+        # ---- Self-motion separation ----
+        # Subtract turning-induced visual motion from the raw asymmetry to
+        # obtain true_asymmetry (world motion only).  When Mario turns
+        # (positive heading_rate = turning right), the world sweeps leftward
+        # across the retina, injecting a bias into the raw left-right
+        # asymmetry.  We estimate this component as  SELF_MOTION_K * heading_rate
+        # and remove it.
+        self.prev_heading = self.heading
+        self.heading = heading
+        self.heading_rate = (self.heading - self.prev_heading) / self.dt
+        correction = self.SELF_MOTION_K * self.heading_rate
+        true_asym = max(-1.0, min(1.0, self.flow_asymmetry - correction))
+        self._self_motion_cache = {
+            "heading_rate": round(self.heading_rate, 4),
+            "true_asymmetry": round(true_asym, 4),
+            "k": self.SELF_MOTION_K,
+        }
 
         # --- Multi-channel retina signals (extracted from compute_flow) ---
         self.on_energy = float(flow.get("on_raw", 0.0))
@@ -187,10 +214,31 @@ class FlyModel:
         recent = list(self._cliff_history)[-5:]
         return (recent[-1] - recent[0]) / max(len(recent) - 1, 1)
 
+    @property
+    def self_motion(self) -> dict:
+        """Self-motion separation state.
+
+        Returns a dict with:
+            heading_rate (float) — angular velocity in rad/s
+            true_asymmetry (float) — self-motion corrected flow asymmetry (-1..1)
+            k (float) — scale factor applied to heading_rate
+        """
+        return self._self_motion_cache
+
+    @property
+    def true_asymmetry(self) -> float:
+        """Self-motion corrected flow asymmetry (world motion only), in [-1, 1].
+        
+        Raw flow_asymmetry minus the estimated self-motion component
+        (SELF_MOTION_K * heading_rate).  When Mario is not turning this
+        equals the raw asymmetry.
+        """
+        return self._self_motion_cache.get("true_asymmetry", self.flow_asymmetry)
+
     def step(self, rgb: np.ndarray, now: float | None = None,
-             novelty: float = 0.5) -> tuple[Control, np.ndarray]:
+             novelty: float = 0.5, heading: float = 0.0) -> tuple[Control, np.ndarray]:
         now = self.step_count * self.dt if now is None else now
-        sensory = self.encode_retina(rgb)
+        sensory = self.encode_retina(rgb, heading=heading)
 
         # Novelty-driven visual modulation:
         # Low novelty (familiar) → boost sensory to seek variety
