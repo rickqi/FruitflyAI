@@ -1,5 +1,14 @@
 # FruitflyAI 项目记录
 
+## 工作流程规则
+
+1. 按优先级顺序执行任务（P1 → P2 → P3 → P4）
+2. **每完成一个任务**，立即更新 agent.md 变更说明
+3. **每完成一个任务**，立即 `git add`、`git commit`、`git push`
+4. 确保 `README.md` 和 `agent.md` 同步更新
+5. 脑模型需重启使网页文件生效（HTTP 缓存）
+6. 保留每个 commit 的根因分析和变更内容说明
+
 ## 项目结构
 
 ```
@@ -228,6 +237,37 @@ D:\codes\flygym\
 - **修改** `fly64/fly64/main.py:340` — `log.write()` 中的 `frame_seq` 和 `temporal_energy` 显式转换为 Python 原生类型
 
 **涉及文件：** 2 文件（`telemetry.py`, `main.py`）
+
+---
+
+### 变更 12: 视觉提升 — 16扇区光流 + 地形分类 + 地面角 + 门框检测
+
+**提交**: `cd8f10b`
+
+**原因：** 原有 8 扇区光流无法区分墙壁、斜坡、通道、天空。地面角无感知导致斜坡误判为悬崖。门/通道无法识别。
+
+**变更内容：**
+- `retina.py` — 升级 8→16 扇区（8 方位 × 2 高度）；`classify_terrain()` 返回 8 种地形；`wall/ramp/opening/sky_score`；`_compute_ground_angle()` 区分悬崖 vs 斜坡；`_compute_door_frame()` 垂直边缘对分析检测门框
+- `model.py` — 8 个新信号；`wall_score>0.5` 转向、`ramp_score>0.5` 抑制悬崖、`opening_score>0.5` 前进、`door_frame_score>0.5` 优先转向门
+- `main.py` — flow_json 包含所有新信号；斜坡时抑制悬崖触发
+- `memory.py` — `ground_angle` 参数门控 cliff_emergency
+
+**涉及文件：** 5 文件，+633/-49 行，93/93 测试通过
+
+---
+
+### 变更 13: 地标记忆 — 视网膜签名匹配 + 回访检测
+
+**提交**: `5a39e74`（+ 修复 `df7be90`）
+
+**原因：** 无法判断"来过这里"→ 每次重新探索 → 重复场景重复行动。缺乏场景级记忆。
+
+**变更内容：**
+- `model.py` — 128×1536 随机投影（PROJECTION_SEED=42）；`scene_sig = projection @ drive` L2 归一化
+- `memory.py` — `SceneDatabase` 环形缓冲（maxlen=500）；余弦相似度匹配 0.85 阈值；`revisit_penalty` 线性增长 0→0.5
+- `main.py` — memory_json/flow_json 含 `scene_id/revisit_count/revisit_penalty`；`revisit_penalty>0.3` 增强转向
+
+**涉及文件：** 3 文件，+230/-11 行，100/100 测试通过
 
 ---
 
