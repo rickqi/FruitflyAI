@@ -447,6 +447,29 @@ class FlyModel:
         # Escape-mode depolarisation of motor neurons
         if self.escape_mode:
             self.v[self.motor_nodes] += self.escape_current
+
+        # ---- Tau (time-to-contact) → jump motor pool current injection ----
+        # Imminent collision → depolarise jump nodes directly so the neural
+        # network drives the jump response instead of Python escape logic.
+        if self.tau < self.TAU_NEAR and np.isfinite(self.tau):
+            _tau_inj = max(0.0, (self.TAU_NEAR - self.tau) / self.TAU_NEAR) * 0.35
+            self.v[self.jump_nodes] += _tau_inj
+
+        # ---- Sky_score → jump motor pool current injection ----
+        # Open sky above signals a launch/escape opportunity; inject current
+        # into jump motor nodes to bias toward an upward jump.
+        if self.sky_score > 0.5:
+            self.v[self.jump_nodes] += self.sky_score * 0.12
+
+        # ---- Central complex novelty injection for direction selection ----
+        # Novelty from spatial memory biases turn motor pools at the neural
+        # level, implementing exploratory direction selection through current
+        # injection rather than Python escape logic.
+        _nv = max(0.0, min(1.0, novelty))
+        _nv_turn = (_nv - 0.5) * 0.15  # [-0.075, 0.075]
+        self.v[self.turn_left] -= _nv_turn
+        self.v[self.turn_right] += _nv_turn
+
         fired = self.v >= self.threshold
         self.v[fired] = self.reset
         self.spikes[:] = fired
@@ -607,12 +630,6 @@ class FlyModel:
         self.filtered_y = 0.78 * self.filtered_y + 0.22 * raw_y
         self.filtered_x = 0.78 * self.filtered_x + 0.22 * raw_x
         jump = jump_rate > 0.04 and now - self.last_jump >= 0.8
-        # Increase jump likelihood during looming (only with active synapses)
-        if self.visual_connected and self.w.nnz > 0 and self.flow_looming > 0.4 and jump_rate > 0.02 and now - self.last_jump >= 0.6:
-            jump = True
-        # High ON + low OFF = object appearing ahead → boost jump probability
-        if self.visual_connected and self.w.nnz > 0 and self.on_energy > 0.04 and self.off_energy < 0.01 and jump_rate > 0.02 and now - self.last_jump >= 0.6:
-            jump = True
         if jump:
             self.last_jump = now
         return Control(int(self.filtered_x) if abs(self.filtered_x) >= 8 else 0,
