@@ -23,9 +23,13 @@ else
   echo "[consolidate] no game process -> SYNTHETIC mode"
 fi
 
-# Stop any running brain instance.
-pkill -f "venv/bin/python -m fly64.main" 2>/dev/null || true
+# Stop any running brain instance.  Match on the module invocation, not the
+# interpreter path: instances may run as `python3 -m fly64.main` (system
+# python), `venv/bin/python -m fly64.main`, etc.  (EVO R8 follow-up fix.)
+pkill -f "[f]ly64\.main" 2>/dev/null || true
 sleep 2
+pkill -9 -f "[f]ly64\.main" 2>/dev/null || true
+sleep 1
 
 cd "$PROJECT"
 PYTHONPATH="$PROJECT" nohup ./venv/bin/python -m fly64.main \
