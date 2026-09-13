@@ -761,7 +761,8 @@ async def run(args) -> None:
             # ---- Corollary-discharge un-corner reflex ----
             # ~1.2s of "commanding forward but not moving" = wedged in
             # geometry. Reverse out + turn, then normal logic resumes.
-            if not dlg_now and _cmd_fail_frames > 60:
+            if (not dlg_now and not memory_ctrl.fallen
+                    and _cmd_fail_frames > 60):
                 control.x = int(60 * (1 if (model.step_count // 30) % 2 else -1))
                 control.y = -50
                 control.jump = False
