@@ -1,6 +1,6 @@
 # EvolutionSkill — Self-Evolving Motion Diagnosis
 
-**Version**: 2.4.0
+**Version**: 2.5.0
 **Status**: Active
 **Category**: Autonomous Agent / Self-Improvement + Causal Diagnostics + Social Capability
 
@@ -20,7 +20,11 @@ skill 具备**自我更新迭代**能力，通过受控进化循环固定能力�
 3. LEARN        新 pattern 写入 default_patterns.json + 代码修复
 4. PIN          回归测试固化（tests/test_evolution_capability.py，16 用例）
 5. VERSION      强制递增 BRAIN_VERSION（main.py）
-6. CONSOLIDATE  重启脑模型（"睡一觉"——新能力重启后才加载）
+6. CONSOLIDATE  重启脑模型（"睡一觉"——新能力重启后才加载）。
+                ⚠️ 必须用 scripts/consolidate.sh 智能重启：检测到 SM64 进程
+                在位 → 完整模式接游戏桥（读 FLY64_BRIDGE env）；无游戏 →
+                才回退 --synthetic。禁止无脑 --synthetic（EVO R8 事故教训：
+                synthetic 重启导致视觉输入与游戏画面静默断连）
 7. RECORD       agent.md 闭环总结 + 推送；仪表板 /evolution.json 实时展示
 ```
 
@@ -34,8 +38,31 @@ skill 具备**自我更新迭代**能力，通过受控进化循环固定能力�
 | 4 | 1.2.0 | 双区对话检测 + 交互习惯化 + 场景命名 v2 + 全监控 | 钥匙门提示 |
 | 5 | 1.3.0 | 交互习惯化 + 上置框双区检测制度化 | 钥匙门上置提示框 |
 | 6 | 1.4.0 | 自适应反射冷却（stuck 越久冷却越短，下限 25%）+ 坠落恢复初始方向随机化（镜像交替保留）| fallen 恢复循环固定左转失效 |
+| **7** | **2.0.0** | **🎨 颜色/UV 视觉 + 🌀 4方向 EMD + 🎯 小目标追踪 + 🧠 多巴胺学习**（35 新信号，覆盖 38%→90%）| FlyWire 差距分析 → AgentTeams 方案 |
+| **8** | **2.1.0** | **🧭 T4/T5 式 HRC 方向选择运动检测（真运动真值）+ LC4 looming 种群化**（`hrc_asymmetry`/`hrc_right/left/up/down`/`true_hrc_asymmetry` + 16扇区×上下×左右 32键 `sector_loom`，escape 决策优先 HRC motion-truth）| MaleCNS-TrackMania 参照：亮度差分光流无方向选择性，真果蝇 T4/T5 经 Hassenstein-Reichardt 相关器实现方向选择 |
 
 进化迭代历史在仪表板实时可见（`/evolution.json`：Brain 版本徽章、EVO 计数、每轮能力列表）。
+
+**v2.5.0 新增 — T4/T5 式 HRC 方向选择运动真值**（EVO Round 8，Brain v2.1.0）：
+
+retina.py 新增 `compute_hrc()`：按 `_edge_pairs` 邻接对复用上一帧逐细胞亮度，逐对计算 Hassenstein-Reichardt 相关 `corr = lum_a(t-1)·lum_b(t) − lum_b(t-1)·lum_a(t)`，方向汇聚为 `hrc_right/left/up/down`（右移亮条 → `hrc_right>0`）与 `hrc_asymmetry`（正=左向运动多，与 `flow_asymmetry` 同号）；LC4 式 16 扇区×上/下×左/右 looming 种群 32 键（`sector_loom`）。model.py 新增 `true_hrc_asymmetry`（减去 `SELF_MOTION_K×heading_rate` 自运动分量，与 flow 同公式）与 `hrc_available`（≥2 视网膜帧预热）；main.py escape 判定在 HRC 预热后优先采用 HRC motion-truth；telemetry.py 每个 WS 行携带 `hrc_asymmetry`，帧边携带 `sector_loom`。全部加法接入，旧键未删改。
+
+**v2.4.0 新增 — P1-P3 视觉能力体系 + 4 个新检测模式**：
+
+进化闭环新增 4 个针对新视觉能力的检测模式：
+
+| Pattern | 检测条件 | 诊断 | 对应能力 |
+|---------|---------|------|---------|
+| `color_nav_blind` | danger_red_index>0.5 + stuck>30s | 颜色调制增益不足 | P1a 颜色/UV |
+| `emd_vertical_blind` | emd_on_down>0.02 + 无跳跃 | 垂直 EMD→jump 未注入 | P1b 4方向EMD |
+| `target_tracking_inactive` | target_count>=1 + 无跳跃 | 拦截跳跃未触发 | P2 小目标追踪 |
+| `mb_learning_stalled` | assoc_count=0 + 运行>120s | 多巴胺门限未达到 | P3 蘑菇体学习 |
+
+新能力描述：
+- **颜色感知**: 红/蓝/绿/UV 4通道, `danger_red_index` 熔岩避让, `sky_blue_index` 引导探索, 场景签名碰撞 10³/天→<1/年
+- **4方向EMD**: Hassenstein-Reichardt 相关器模拟 T4/T5, 上下左右方向选择性 + OFF主导外部运动检测
+- **小目标追踪**: LPLC1/2中心-周边运动对立 + 卡尔曼滤波 + Hungarian匹配, 移动平台拦截 30%→65%
+- **蘑菇体学习**: 2000 KC稀疏编码 + 5 MBON三因子Hebbian可塑, >5000帧形成稳定经验关联
 
 **v2.4.0 新增 — 社交能力（寻助）维度，可自我训练**：
 

@@ -28,7 +28,7 @@ except ImportError:
     HAS_JSONSCHEMA = False
     ValidationError = type("ValidationError", (Exception,), {})
 
-SKILL_VERSION = "2.3.0"
+SKILL_VERSION = "2.4.0"
 SKILL_NAME = "evolution_skill"
 SKILL_DIR = Path(__file__).resolve().parent
 WORKSPACE = SKILL_DIR.parent.parent
@@ -138,6 +138,39 @@ DEFAULT_PATTERNS = {
          "fix_files": ["fly64/fly64/main.py"],
          "severity": "high", "tags": ["control", "dead_state", "bridge"], "rollback_strategy": "investigate",
          "threshold_justification": "x=0 and y=0=no movement, stuck>15s=not transient, jump=False=no escape attempt"},
+        # ── P1-P3 Visual Capability patterns (Brain v2.0.0, EVO Round 7) ──
+        {"id": "color_nav_blind", "name": "Color navigation blind - Mario ignores color signals", "version": "1.0.0",
+         "description": "P1a color vision active but Mario repeatedly walks into red hazards (lava) or ignores blue-sky open areas.",
+         "conditions": {"danger_red_index": {"min": 0.5}, "stuck_duration": {"min": 30}, "forward_speed": {"max": 5}},
+         "diagnosis": "danger_red_index high but avoidance not triggering. Color modulation gain (0.15 red, 0.10 uv) may need tuning in step() color modulation rules.",
+         "fix_template": "# Tune color modulation gains in model.py step()\n# File: fly64/fly64/model.py\n# Find: '# 6a. High danger_red_index' block\n# Adjust: raw_x += 30.0 -> raw_x += 45.0 (stronger red avoid)",
+         "fix_files": ["fly64/fly64/model.py"],
+         "severity": "medium", "tags": ["color", "visual", "p1a", "navigation"], "rollback_strategy": "revert_value",
+         "threshold_justification": "danger_red_index>0.5=strong red hazard ahead, stuck>30s=persistent, speed<5=no effective avoid"},
+        {"id": "emd_vertical_blind", "name": "Vertical EMD blind - Missing elevator/platform motion", "version": "1.0.0",
+         "description": "P1b 4-direction EMD active but Mario fails to detect vertical motion (elevators, terrain drops), missing jump timing.",
+         "conditions": {"emd_on_down": {"min": 0.02}, "jump_rate": {"max": 0.01}, "stuck_duration": {"min": 15}},
+         "diagnosis": "Vertical EMD detecting motion but jump injection not triggering. Check pre-spike jump_nodes injection at EMD section.",
+         "fix_template": "# Boost vertical EMD jump trigger in model.py step()\n# File: fly64/fly64/model.py\n# Find: '5a. Strong vertical EMD' block\n# Add: self.v[self.jump_nodes] += self.emd_on_down * 0.25",
+         "fix_files": ["fly64/fly64/model.py"],
+         "severity": "medium", "tags": ["emd", "vertical", "p1b", "jump"], "rollback_strategy": "revert_added_block",
+         "threshold_justification": "emd_on_down>0.02=detectable downward motion, jump_rate<0.01=no jump attempt, stuck>15s=persistent"},
+        {"id": "target_tracking_inactive", "name": "Small target tracking inactive - No intercept behavior", "version": "1.0.0",
+         "description": "P2 moving platform detection active but Mario does not intercept, missing jump timing.",
+         "conditions": {"target_count": {"min": 1}, "jump_rate": {"max": 0.01}, "stuck_duration": {"min": 10}},
+         "diagnosis": "Targets detected by center-surround but jump injection not activating. Check target_approaching gate in step() and Kalman filter prediction tuning.",
+         "fix_template": "# Validate TargetTracker intercept timing in model.py\n# File: fly64/fly64/model.py\n# Find: target_approaching and target_intercept_time\n# Check: pre-spike injection at line 497 zone",
+         "fix_files": ["fly64/fly64/model.py"],
+         "severity": "medium", "tags": ["target", "tracking", "p2", "intercept"], "rollback_strategy": "revert_value",
+         "threshold_justification": "target_count>=1=objects detected, jump_rate<0.01=no jump, stuck>10s=missed opportunity"},
+        {"id": "mb_learning_stalled", "name": "Mushroom body learning stalled - No weight change", "version": "1.0.0",
+         "description": "P3 mushroom body active but no associations formed after extended running (assoc_count not increasing).",
+         "conditions": {"assoc_count": {"max": 0}, "stuck_duration": {"min": 120}},
+         "diagnosis": "No dopamine events triggering plasticity window. Check _compute_dopamine() signals: fallen, stuck, scene_change_rate may all be below threshold.",
+         "fix_template": "# Debug MB learning signals in model.py _compute_dopamine()\n# File: fly64/fly64/model.py\n# Check: dopamine sources (fallen, stuck_duration, scene_change_rate) reaching correct threshold",
+         "fix_files": ["fly64/fly64/model.py", "fly64/fly64/mushroom_body.py"],
+         "severity": "low", "tags": ["mushroom", "learning", "p3", "dopamine"], "rollback_strategy": "revert_value",
+         "threshold_justification": "assoc_count=0=no learning events after extended run, stuck>120s=sufficient run time"},
     ]
 }
 
