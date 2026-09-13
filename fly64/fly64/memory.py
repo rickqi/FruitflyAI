@@ -1115,7 +1115,7 @@ class ReflexController:
     # ---- public API --------------------------------------------------------
 
     def update(self, dt: float, anomaly_state: dict,
-               rng_choice) -> str:
+               rng_choice, stuck_duration: float = 0.0) -> str:
         """Tick the reflex controller.
 
         Parameters
@@ -1127,6 +1127,8 @@ class ReflexController:
         rng_choice : callable
             A function ``(low, high) -> int`` for random turn selection (e.g.
             ``model.rng.integers``).
+        stuck_duration : float
+            Seconds the fly has been stuck — drives adaptive cooldown (EVO R6).
 
         Returns
         -------
@@ -1152,18 +1154,27 @@ class ReflexController:
 
         if state_name in self.REFLEX_TYPES and confidence >= self.confidence_threshold:
             if self._cooldowns[state_name] <= 0.0:
-                return self._start_reflex(state_name, rng_choice)
+                return self._start_reflex(state_name, rng_choice,
+                                          stuck_duration=stuck_duration)
 
         return ""
 
-    def _start_reflex(self, reflex_type: str, rng_choice) -> str:
+    def _start_reflex(self, reflex_type: str, rng_choice,
+                      stuck_duration: float = 0.0) -> str:
         """Begin a new reflex activation.
+
+        Adaptive cooldown (EVO R6): the longer the fly has been stuck, the
+        shorter the post-reflex cooldown — prolonged stuck periods allow more
+        frequent reflex attempts.  Scale: 1.0 at 0s down to 0.25 at >=90s.
 
         Returns the reflex type string.
         """
         self._active_reflex = reflex_type
         self._phase_timer = 0.0
-        self._cooldowns[reflex_type] = self.cooldown_duration * self._aggressive_cooldown_factor
+        adaptive = max(0.25, 1.0 - stuck_duration / 120.0)
+        self._cooldowns[reflex_type] = (self.cooldown_duration
+                                        * self._aggressive_cooldown_factor
+                                        * adaptive)
 
         if reflex_type == self.STUCK_RAMP:
             self._reflex_phase = "forward"

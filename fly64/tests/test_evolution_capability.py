@@ -219,3 +219,47 @@ class TestClosedLoop:
         cat = PatternCatalog()
         for p in cat.patterns:
             assert p.get("threshold_justification"), p["id"]
+
+
+# ── 6. EVO Round 6: adaptive reflex cooldown + random fallen direction ──
+
+class TestEvoRound6:
+    """Pins Brain v1.4.0: adaptive reflex cooldown + random initial fall-recovery turn."""
+
+    def _controller(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        try:
+            from fly64.memory import ReflexController
+        finally:
+            sys.path.pop(0)
+        return ReflexController()
+
+    def test_adaptive_cooldown_shrinks_with_stuck_duration(self):
+        rc = self._controller()
+        rc._cooldowns[rc.STUCK_RAMP] = 0.0
+        rc.update(0.02, {"state": "stuck_ramp", "confidence": 0.9},
+                  lambda lo, hi: 0, stuck_duration=0.0)
+        fresh = rc.cooldowns[rc.STUCK_RAMP]
+        rc2 = self._controller()
+        rc2._cooldowns[rc2.STUCK_RAMP] = 0.0
+        rc2.update(0.02, {"state": "stuck_ramp", "confidence": 0.9},
+                   lambda lo, hi: 0, stuck_duration=90.0)
+        prolonged = rc2.cooldowns[rc2.STUCK_RAMP]
+        assert fresh > 0
+        assert prolonged < fresh, "longer stuck must shorten cooldown"
+        assert prolonged >= fresh * 0.25 - 1e-6, "cooldown floor is 25%"
+
+    def test_adaptive_cooldown_backward_compatible_default(self):
+        rc = self._controller()
+        rc._cooldowns[rc.STUCK_RAMP] = 0.0
+        rc.update(0.02, {"state": "stuck_ramp", "confidence": 0.9},
+                  lambda lo, hi: 0)
+        assert rc.cooldowns[rc.STUCK_RAMP] == pytest.approx(rc.cooldown_duration)
+
+    def test_fallen_initial_direction_is_random_not_fixed(self):
+        import re
+        main_src = (Path(__file__).resolve().parent.parent / "fly64" / "main.py").read_text(encoding="utf-8")
+        m = re.search(r"if escape_x == 0:\s*\n\s*escape_x = (.+)", main_src)
+        assert m, "fallen recovery initial direction not found"
+        expr = m.group(1).strip()
+        assert "rng" in expr, f"initial direction must be random, got: {expr}"

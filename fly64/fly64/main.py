@@ -31,7 +31,7 @@ from .memory import MemoryController
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "1.3.0"
+BRAIN_VERSION = "1.4.0"
 SKILL_VERSION = "2.3.0"   # must mirror fly64/skills/evolution_skill.py SKILL_VERSION
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
@@ -548,6 +548,7 @@ async def run(args) -> None:
                 model.dt,
                 memory_ctrl.anomaly_state,
                 model.rng.integers,
+                stuck_duration=memory_ctrl.stuck_duration,
             )
             if reflex_active:
                 action = memory_ctrl.reflex_action
@@ -596,9 +597,12 @@ async def run(args) -> None:
                 model.escape_mode = True
                 if memory_ctrl.fallen:
                     # Fall recovery: jump + forward burst
-                    # Initialize turn direction on first fallen cycle
+                    # EVO R6: random initial direction (was fixed -50, which
+                    # biased recovery loops leftward); mirror each cycle keeps
+                    # left/right alternating so one bad direction can't trap
+                    # the recovery loop.
                     if escape_x == 0:
-                        escape_x = -50
+                        escape_x = 50 if model.rng.random() < 0.5 else -50
                     if escape_toggle_timer < 0.4:
                         # Phase 1: Jump, no movement
                         control.x = 0; control.y = 0; control.jump = True

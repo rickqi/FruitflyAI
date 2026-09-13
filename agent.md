@@ -68,6 +68,22 @@ D:\codes\flygym\
 
 # 变更日志
 
+## 2026-09-12: EVO Round 6 — Brain v1.4.0（自适应反射冷却 + 坠落恢复随机化）
+
+**触发**：EvolutionSkill 诊断循环发现 2 项 findings（fallen_recovery_stuck high / reflex_cooldown_gap medium，conf 均为 1.0）。因果时间轴上 x 固定方波 + 因果卡 `escape (stuck 1.00)` 为可视化证据。
+
+**变更**（LEARN）：
+- `memory.py` ReflexController：update() 增加 `stuck_duration` 参数；`_start_reflex` 冷却自适应缩放 `max(0.25, 1 - stuck_duration/120)`——卡得越久反射重触发越频繁（修复固定 10s 冷却失效问题）
+- `main.py` 坠落恢复：初始转向方向随机 ±50（原固定 -50 左偏），镜像交替保留；BRAIN_VERSION → 1.4.0
+
+**PIN**：test_evolution_capability.py 新增 3 用例（自适应冷却缩短 / 默认参数向后兼容 / 初始方向随机化源码断言），16→19 用例全绿；test_memory 8 失败经 stash 基线对照为既存问题。
+
+**CONSOLIDATE**：同步 WSL /root/fly64，脑模型重启，实测 `flow.json brain_version: 1.4.0` ✅；因果字段（causal_schema=1 / decision_source）持续在线。
+
+**RECORD**：skills.md 轮次表 + Round 6。
+
+---
+
 ## 2026-09-12: 神经因果链路可视化 (P0–P3 全量落地)
 
 ### 背景
