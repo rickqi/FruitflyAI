@@ -282,6 +282,38 @@ function drawTimeline() {
     ctx.beginPath(); ctx.moveTo(X(replayRow.t), 4); ctx.lineTo(X(replayRow.t), h - 6); ctx.stroke();
     ctx.setLineDash([]);
   }
+  // P3 causal arcs: cliff_confirmed rising edge → next x sign flip (+ms label)
+  try { drawArcs(ctx, rows, t0, t1, X, lanes, w); } catch {}
+}
+
+function drawArcs(ctx, rows, t0, t1, X, lanes, w) {
+  let edge = null;
+  let lastX = null;
+  let prevConfirmed = false;
+  for (const r of rows) {
+    if (r.t < t0) { prevConfirmed = !!r.cliff_confirmed; if (Number.isFinite(r.x) && r.x !== 0) lastX = r.x; continue; }
+    if (edge === null) {
+      if (r.cliff_confirmed && !prevConfirmed) edge = { t0: r.t, x0: lastX };
+      prevConfirmed = !!r.cliff_confirmed;
+      if (Number.isFinite(r.x) && r.x !== 0) lastX = r.x;
+      continue;
+    }
+    // Searching for the response: x sign flip vs pre-edge direction
+    if (Number.isFinite(r.x) && r.x !== 0 && lastX !== null && Math.sign(r.x) !== Math.sign(lastX)) {
+      if (r.t - edge.t0 <= 1.5) {
+        const xa = X(edge.t0), xb = X(r.t);
+        ctx.strokeStyle = 'rgba(157,123,255,.8)';
+        ctx.beginPath();
+        ctx.moveTo(xa, lanes[2][1] - 2);
+        ctx.quadraticCurveTo((xa + xb) / 2, lanes[2][0] - 8, xb, lanes[3][0] + 2);
+        ctx.stroke();
+        ctx.fillStyle = PURPLE; ctx.font = '9px sans-serif';
+        ctx.fillText(`+${Math.round((r.t - edge.t0) * 1000)}ms`, Math.max(6, (xa + xb) / 2 - 14), lanes[2][0] - 2);
+      }
+      edge = null;
+    } else if (Number.isFinite(r.x) && r.x !== 0) lastX = r.x;
+    if (r.t > t1) break;
+  }
 }
 
 // Timeline interaction: hover = inspect causal card of nearest sample;
@@ -320,6 +352,20 @@ if (typeof document !== 'undefined') {
     drawTimeline();
     const info = $('timelineInfo');
     if (info) info.textContent = `inspecting t=${number(r.t, 2)}s · click Freeze/Resume to return live`;
+  });
+  // Escape table row → jump timeline to t-2s before the event and freeze
+  document.addEventListener('click', event => {
+    if (window.__CAUSAL_ENABLED === false) return;
+    const tr = event.target.closest?.('tr.causal-jump');
+    if (!tr) return;
+    const tEvent = parseFloat(tr.dataset.t);
+    if (!Number.isFinite(tEvent) || ringBuffer.length < 2) return;
+    const target = tEvent - 2;
+    const r = ringBuffer.reduce((best, s) => Math.abs(s.t - target) < Math.abs(best.t - target) ? s : best, ringBuffer[0]);
+    replayRow = r; frozen = true; $('freeze').textContent = 'Resume live';
+    renderCausal({ ...r, force: true });
+    try { drawTimeline(); } catch {}
+    $('timeline')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   });
 }
 
@@ -563,7 +609,8 @@ function renderEscapeTable(data) {
     const dur = ev.duration !== undefined ? ev.duration.toFixed(1) + 's' : '—';
     const dist = ev.distance_moved !== undefined ? ev.distance_moved.toFixed(0) + 'u' : '—';
     const time = ev.timestamp !== undefined ? ev.timestamp.toFixed(1) + 's' : '—';
-    html += `<tr><td>${time}</td><td class="${reasonClass}">${reasonLabel}</td><td>${dur}</td><td>${dist}</td></tr>`;
+    const jumpable = ev.timestamp !== undefined && window.__CAUSAL_ENABLED !== false;
+    html += `<tr${jumpable ? ` class="causal-jump" data-t="${ev.timestamp}" title="click: jump timeline to t-${number(ev.timestamp,1)}s"` : ''}><td>${time}</td><td class="${reasonClass}">${reasonLabel}</td><td>${dur}</td><td>${dist}</td></tr>`;
   }
   if (!html) {
     html = '<tr><td colspan="4" style="color:#536170;text-align:center;padding:8px">No escape events yet</td></tr>';
