@@ -8,6 +8,7 @@ import time
 import numpy as np
 from scipy import sparse
 from .retina import SphericalRetina
+from .mushroom_body import MushroomBody
 
 
 @dataclass
@@ -120,6 +121,195 @@ class SceneMemory:
         self.scene_change = False
 
 
+@dataclass
+class TrackState:
+    """Single target track state for small target tracking."""
+    track_id: int
+    centroid: tuple[float, float]    # (row, col) in grid coordinates
+    velocity: tuple[float, float]    # pixels/frame
+    age: int                          # frames since track creation
+    hit_count: int                    # number of successful detections
+    missed_count: int                 # consecutive misses
+    approaching: bool                 # is target on approach trajectory?
+    time_to_intercept: float          # estimated frames until interception
+
+
+class TargetTracker:
+    """Multi-target tracker with Kalman filter and Hungarian association.
+
+    Maintains a set of tracks, performs prediction-update cycles, and
+    estimates interception timing for moving platforms and enemies.
+    """
+
+    def __init__(self, dt: float = 0.02):
+        self.dt = dt
+        self.tracks: list[TrackState] = []
+        self.next_id = 0
+        self.MISSED_THRESHOLD = 10        # drop track after 10 misses
+        self.INTERCEPTION_MIN_FRAMES = 5  # minimum frames for interception
+        self.VELOCITY_DECAY = 0.9         # velocity low-pass filter
+        self.MAX_ASSOC = 15.0             # max association distance in pixels
+
+    def update(self, detections: list[tuple[float, float]],
+               sizes: list[int],
+               directions: list[str]) -> list[TrackState]:
+        """Update tracks with new detections using Hungarian matching.
+
+        Parameters
+        ----------
+        detections : list[(r, c)]
+            Centroid positions from compute_small_targets().
+        sizes : list[int]
+            Target sizes in cells.
+        directions : list[str]
+            Target direction labels.
+
+        Returns
+        -------
+        list[TrackState]
+            Active tracks after matching.
+        """
+        if not detections:
+            for t in self.tracks:
+                t.missed_count += 1
+            self._prune_tracks()
+            return self.tracks
+
+        # Predict new positions (constant velocity)
+        predicted = []
+        for t in self.tracks:
+            pr = t.centroid[0] + t.velocity[0]
+            pc = t.centroid[1] + t.velocity[1]
+            predicted.append((pr, pc))
+
+        n_tracks = len(predicted)
+        n_det = len(detections)
+        assigned_tracks: set[int] = set()
+        assigned_dets: set[int] = set()
+
+        if n_tracks > 0 and n_det > 0:
+            # Build cost matrix
+            cost = np.zeros((n_tracks, n_det), dtype=np.float32)
+            for i, (pr, pc) in enumerate(predicted):
+                for j, (dr, dc) in enumerate(detections):
+                    cost[i, j] = np.hypot(pr - dr, pc - dc)
+
+            # Hungarian or greedy matching
+            if 4 <= n_tracks <= 15 and n_det <= 15:
+                from scipy.optimize import linear_sum_assignment
+                row_idx, col_idx = linear_sum_assignment(cost)
+                for i, j in zip(row_idx, col_idx):
+                    if cost[i, j] < self.MAX_ASSOC:
+                        assigned_tracks.add(i)
+                        assigned_dets.add(j)
+            else:
+                # Greedy nearest-neighbor for small/large sets
+                for j in range(n_det):
+                    best_dist = self.MAX_ASSOC
+                    best_i = -1
+                    for i in range(n_tracks):
+                        dist = cost[i, j]
+                        if dist < best_dist and i not in assigned_tracks:
+                            best_dist = dist
+                            best_i = i
+                    if best_i >= 0:
+                        assigned_tracks.add(best_i)
+                        assigned_dets.add(j)
+
+            # Update matched tracks
+            for i in assigned_tracks:
+                det_idx = min(j for j in assigned_dets
+                              if all(cost[i, j] < self.MAX_ASSOC
+                                     for other_i in assigned_tracks
+                                     if other_i == i))
+                j = det_idx
+                # Find the detection matched to this track
+                matches = [(ii, jj) for ii in assigned_tracks
+                           for jj in assigned_dets
+                           if cost[ii, jj] < self.MAX_ASSOC]
+                track_match = next(((ii, jj) for ii, jj in matches if ii == i), None)
+                if track_match is None:
+                    continue
+                j = track_match[1]
+                t = self.tracks[i]
+                dr = detections[j][0] - t.centroid[0]
+                dc = detections[j][1] - t.centroid[1]
+                t.velocity = (
+                    t.velocity[0] * self.VELOCITY_DECAY + dr * (1 - self.VELOCITY_DECAY),
+                    t.velocity[1] * self.VELOCITY_DECAY + dc * (1 - self.VELOCITY_DECAY),
+                )
+                t.centroid = detections[j]
+                t.age += 1
+                t.hit_count += 1
+                t.missed_count = 0
+                drc = directions[j] if j < len(directions) else "stationary"
+                t.approaching = (drc == "approaching")
+                speed = np.hypot(t.velocity[0], t.velocity[1])
+                if speed > 0.5 and t.approaching:
+                    dist_to_center = np.hypot(
+                        t.centroid[0] - 24,
+                        t.centroid[1] - 32,
+                    )
+                    t.time_to_intercept = dist_to_center / speed
+                else:
+                    t.time_to_intercept = float("inf")
+
+            # Unassigned tracks → increment miss
+            for i in range(n_tracks):
+                if i not in assigned_tracks:
+                    self.tracks[i].missed_count += 1
+
+            # Unassigned detections → new tracks
+            for j in range(n_det):
+                if j not in assigned_dets:
+                    new_track = TrackState(
+                        track_id=self.next_id,
+                        centroid=detections[j],
+                        velocity=(0.0, 0.0),
+                        age=0, hit_count=1, missed_count=0,
+                        approaching=False,
+                        time_to_intercept=float("inf"),
+                    )
+                    self.tracks.append(new_track)
+                    self.next_id += 1
+        else:
+            if n_tracks > 0:
+                for t in self.tracks:
+                    t.missed_count += 1
+            for j in range(n_det):
+                new_track = TrackState(
+                    track_id=self.next_id,
+                    centroid=detections[j],
+                    velocity=(0.0, 0.0),
+                    age=0, hit_count=1, missed_count=0,
+                    approaching=False,
+                    time_to_intercept=float("inf"),
+                )
+                self.tracks.append(new_track)
+                self.next_id += 1
+
+        self._prune_tracks()
+        return self.tracks
+
+    def _prune_tracks(self):
+        """Remove tracks that have been missing too long."""
+        self.tracks = [t for t in self.tracks
+                       if t.missed_count < self.MISSED_THRESHOLD]
+
+    def nearest_approaching_target(self) -> TrackState | None:
+        """Return the approaching track with smallest time_to_intercept."""
+        approaching = [t for t in self.tracks
+                       if t.approaching and np.isfinite(t.time_to_intercept)]
+        if not approaching:
+            return None
+        return min(approaching, key=lambda t: t.time_to_intercept)
+
+    def reset(self):
+        """Clear all tracks."""
+        self.tracks.clear()
+        self.next_id = 0
+
+
 class FlyModel:
     """Connectome-derived LIF approximation with explicit engineered I/O maps."""
 
@@ -161,6 +351,11 @@ class FlyModel:
         _proj_rng = np.random.default_rng(PROJECTION_SEED)
         self.projection = _proj_rng.normal(
             0.0, 0.1, (128, len(self.visual))
+        ).astype(np.float32)
+        # 5-channel color projection for color-enhanced scene signature
+        # Shape: (128, 1536 * 5) = (128, 7680), same distribution as above
+        self.color_projection = _proj_rng.normal(
+            0.0, 0.1, (128, len(self.visual) * 5)
         ).astype(np.float32)
         self.scene_sig = np.zeros(128, dtype=np.float32)
         self.scene_sig_valid = False
@@ -216,6 +411,36 @@ class FlyModel:
         self.edge_90 = 0.0          # Vertical edge energy
         self.edge_135 = 0.0         # Anti-diagonal (135°) edge energy
 
+        # ---- Color vision channels ----
+        self.sky_blue_index = 0.0       # 0-1: open sky above
+        self.danger_red_index = 0.0     # 0-1: lava/enemy below
+        self.color_contrast = 0.0       # 0-1: hue diversity
+        self.rg_opponent_mean = 0.0     # red-green opponent balance
+        self.by_opponent_mean = 0.0     # blue-yellow opponent balance
+        self.uv_appx_mean = 0.0         # mean UV approximation
+        self.saturation_mean = 0.0      # mean color saturation
+        self.color_azimuth = {}          # per-band dominant hue dict
+
+        # ---- Color-enhanced scene signature (backward-compat gated) ----
+        self.color_signature = False     # set True to enable 5-channel color projection
+
+        # ---- 4-direction EMD (T4/T5 equivalent) ----
+        self.emd_on_right = 0.0   # T4 rightward motion energy
+        self.emd_on_left = 0.0    # T4 leftward motion energy
+        self.emd_on_down = 0.0    # T4 downward motion energy
+        self.emd_on_up = 0.0      # T4 upward motion energy
+        self.emd_off_right = 0.0  # T5 rightward motion energy
+        self.emd_off_left = 0.0   # T5 leftward motion energy
+        self.emd_off_down = 0.0   # T5 downward motion energy
+        self.emd_off_up = 0.0     # T5 upward motion energy
+        self.emd_on_total = 0.0   # T4 summed energy
+        self.emd_off_total = 0.0  # T5 summed energy
+        # Derived compound signals
+        self.emd_horizontal = 0.0  # emd_on_right + emd_on_left + emd_off_right + emd_off_left
+        self.emd_vertical = 0.0    # emd_on_up + emd_on_down + emd_off_up + emd_off_down
+        self.emd_net_lateral = 0.0 # (right - left) / (right + left + eps) — signed lateral bias
+        self.emd_net_vertical = 0.0 # (down - up) / (down + up + eps) — signed vertical bias
+
         # ---- Cliff detection (multi-frame confirmation) ----
         self._cliff_history = deque(maxlen=10)  # last 10 lower_field_green values
         self.CLIFF_THRESHOLD = 0.25
@@ -224,11 +449,12 @@ class FlyModel:
 
         # ---- Terrain classification from 16-sector optic flow ----
         self.terrain = "mixed"  # one of: cliff, water, corridor, wall_ahead,
-                                # open_flat, dense, forest_edge, mixed
+                                # open_flat, dense, forest_edge, indoor, mixed
         self.wall_score = 0.0   # 0-1: vertical surface ahead
         self.ramp_score = 0.0   # 0-1: sloping surface
         self.opening_score = 0.0  # 0-1: passage/opening ahead
-        self.sky_score = 0.0    # 0-1: open sky above
+        self.sky_score = 0.0    # 0-1: open sky above (blue-dominance gated, EVO R9)
+        self.enclosure_score = 0.0  # 0-1: indoor/enclosed probability (EVO R9)
         self.ground_angle = 0.7  # 0=cliff, 0.3-0.7=slope, >0.7=flat
         self.door_frame_score = 0.0  # 0-1: doorway detected
         self.opening_width = 0.0  # 0-1: opening width
@@ -238,6 +464,23 @@ class FlyModel:
         self.TAU_SHARP_TURN = 0.5   # τ below this → emergency sharp turn
         self.TAU_DECELERATE = 1.0   # τ below this → reduce speed
         self.TAU_NEAR = 2.0         # τ below this → cautious modulation
+
+        # ---- Mushroom Body associative learning ----
+        self.mushroom = MushroomBody()
+        self.mbon_gain_forward = 0.15
+        self.mbon_gain_turn = 0.12
+        self.mbon_gain_jump = 0.20
+        self.mbon_gain_explore = 0.10
+
+        # ---- Small target tracking (LPLC/LC11 equivalent) ----
+        self.target_tracker = TargetTracker(dt=self.dt)
+        self.target_count = 0
+        self.target_approaching = False
+        self.target_intercept_time = float("inf")
+        self.target_nearest_centroid = (0.0, 0.0)
+        self.target_nearest_velocity = (0.0, 0.0)
+        self.fg_fraction = 0.0
+        self.max_target_energy = 0.0
 
     def _load_demo(self):
         self.n = 4096
@@ -294,7 +537,23 @@ class FlyModel:
         prev_lum = self.previous_rgb @ np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
         temporal = np.abs(lum - prev_lum)
         color = np.maximum(frame[..., 1] - 0.5 * (frame[..., 0] + frame[..., 2]), 0)
-        drive = np.clip(0.45 * lum + 1.6 * temporal + 0.25 * color, 0, 1)
+        # ---- Color-enhanced drive ----
+        # Original components
+        drive_lum = 0.45 * lum
+        drive_temp = 1.6 * temporal
+        # Color-salient components
+        # Red salience: objects with R >> G (enemies, switches, mushrooms)
+        red_sal = np.maximum(frame[..., 0] - frame[..., 1], 0)
+        # UV salience: sky/water rich in short wavelengths
+        uv_sal = np.maximum(frame[..., 2] - 0.5 * (frame[..., 0] + frame[..., 1]), 0)
+        # Green boost (existing color term, preserved)
+        green_sal = np.maximum(frame[..., 1] - 0.5 * (frame[..., 0] + frame[..., 2]), 0)
+        drive_color = (
+            0.15 * red_sal +
+            0.10 * uv_sal +
+            0.25 * green_sal       # original color term, kept
+        )
+        drive = np.clip(drive_lum + drive_temp + drive_color, 0, 1)
         self.previous_rgb = frame
         self.mean_luminance = float(lum.mean())
         self.temporal_energy = float(temporal.mean())
@@ -345,6 +604,7 @@ class FlyModel:
         self.ramp_score = float(flow.get("ramp_score", 0.0))
         self.opening_score = float(flow.get("opening_score", 0.0))
         self.sky_score = float(flow.get("sky_score", 0.0))
+        self.enclosure_score = float(flow.get("enclosure_score", 0.0))
         self.ground_angle = float(flow.get("ground_angle", 0.7))
         self.door_frame_score = float(flow.get("door_frame_score", 0.0))
         # --- Interactive object proximity: isolated vertical structure being
@@ -355,6 +615,20 @@ class FlyModel:
             and self.tau != float("inf") and self.tau < 2.0
         )
         self.opening_width = float(flow.get("opening_width", 0.0))
+
+        # ---- HRC (T4/T5) direction-selective motion signals (EVO R7) ----
+        # hrc_asymmetry is motion-truth from the Hassenstein-Reichardt
+        # correlator (sign-matched with flow_asymmetry).  Raw values kept on
+        # the model; self-motion separation applied below.
+        self.hrc_asymmetry = float(flow.get("hrc_asymmetry", 0.0))
+        self.hrc_right = float(flow.get("hrc_right", 0.0))
+        self.hrc_left = float(flow.get("hrc_left", 0.0))
+        self.hrc_up = float(flow.get("hrc_up", 0.0))
+        self.hrc_down = float(flow.get("hrc_down", 0.0))
+        self.hrc_sector_looming = {
+            k: float(v) for k, v in flow.items() if k.startswith("hrc_looming_az")}
+        if "hrc_asymmetry" in flow:
+            self._hrc_frames = getattr(self, "_hrc_frames", 0) + 1
 
         # ---- Self-motion separation ----
         # Subtract turning-induced visual motion from the raw asymmetry to
@@ -368,9 +642,12 @@ class FlyModel:
         self.heading_rate = (self.heading - self.prev_heading) / self.dt
         correction = self.SELF_MOTION_K * self.heading_rate
         true_asym = max(-1.0, min(1.0, self.flow_asymmetry - correction))
+        # Same separation applied to the HRC motion-truth asymmetry.
+        true_hrc_asym = max(-1.0, min(1.0, self.hrc_asymmetry - correction))
         self._self_motion_cache = {
             "heading_rate": round(self.heading_rate, 4),
             "true_asymmetry": round(true_asym, 4),
+            "true_hrc_asymmetry": round(true_hrc_asym, 4),
             "k": self.SELF_MOTION_K,
         }
 
@@ -382,6 +659,76 @@ class FlyModel:
         self.edge_45 = float(flow.get("edge_45", 0.0))
         self.edge_90 = float(flow.get("edge_90", 0.0))
         self.edge_135 = float(flow.get("edge_135", 0.0))
+
+        # ---- 4-direction EMD signals ----
+        self.emd_on_right = float(flow.get("emd_on_right", 0.0))
+        self.emd_on_left = float(flow.get("emd_on_left", 0.0))
+        self.emd_on_down = float(flow.get("emd_on_down", 0.0))
+        self.emd_on_up = float(flow.get("emd_on_up", 0.0))
+        self.emd_off_right = float(flow.get("emd_off_right", 0.0))
+        self.emd_off_left = float(flow.get("emd_off_left", 0.0))
+        self.emd_off_down = float(flow.get("emd_off_down", 0.0))
+        self.emd_off_up = float(flow.get("emd_off_up", 0.0))
+        self.emd_on_total = float(flow.get("emd_on_total", 0.0))
+        self.emd_off_total = float(flow.get("emd_off_total", 0.0))
+
+        # ---- Color channel signals ----
+        self.sky_blue_index = float(flow.get("sky_blue_index", 0.0))
+        self.danger_red_index = float(flow.get("danger_red_index", 0.0))
+        self.color_contrast = float(flow.get("color_contrast", 0.0))
+        self.rg_opponent_mean = float(flow.get("rg_opponent_mean", 0.0))
+        self.by_opponent_mean = float(flow.get("by_opponent_mean", 0.0))
+        self.uv_appx_mean = float(flow.get("uv_appx_mean", 0.0))
+        self.saturation_mean = float(flow.get("saturation_mean", 0.0))
+        self.color_azimuth = {k: v for k, v in flow.items() if k.startswith("hue_az")}
+
+        # ---- Derived compound EMD signals ----
+        eps = 1e-8
+        self.emd_horizontal = (
+            self.emd_on_right + self.emd_on_left +
+            self.emd_off_right + self.emd_off_left
+        )
+        self.emd_vertical = (
+            self.emd_on_up + self.emd_on_down +
+            self.emd_off_up + self.emd_off_down
+        )
+        _lat_denom = self.emd_horizontal + eps
+        self.emd_net_lateral = (
+            (self.emd_on_right + self.emd_off_right) -
+            (self.emd_on_left + self.emd_off_left)
+        ) / _lat_denom
+        _vert_denom = self.emd_vertical + eps
+        self.emd_net_vertical = (
+            (self.emd_on_down + self.emd_off_down) -
+            (self.emd_on_up + self.emd_off_up)
+        ) / _vert_denom
+
+        # ---- Small target tracking signals (LPLC/LC11 equivalent) ----
+        self.target_count = int(flow.get("target_count", 0))
+        self.fg_fraction = float(flow.get("fg_fraction", 0.0))
+        self.max_target_energy = float(flow.get("max_target_energy", 0.0))
+
+        # Self-motion gating: suppress target detection during fast turns
+        _heading_rate_mag = abs(getattr(self, "heading_rate", 0.0))
+        if _heading_rate_mag > 1.0:
+            self.fg_fraction *= 0.3
+
+        # Update tracker with detections
+        detections = flow.get("target_centroids", [])
+        sizes = flow.get("target_sizes", [])
+        directions = flow.get("target_directions", [])
+        tracks = self.target_tracker.update(detections, sizes, directions)
+
+        # Find nearest approaching target
+        nearest = self.target_tracker.nearest_approaching_target()
+        if nearest is not None:
+            self.target_approaching = True
+            self.target_intercept_time = nearest.time_to_intercept
+            self.target_nearest_centroid = nearest.centroid
+            self.target_nearest_velocity = nearest.velocity
+        else:
+            self.target_approaching = False
+            self.target_intercept_time = float("inf")
 
         # --- Multi-frame cliff history ---
         self._cliff_history.append(self.flow_cliff)
@@ -395,12 +742,28 @@ class FlyModel:
         self.scene_change_rate = scene_state["scene_change_rate"]
 
         # ---- Scene signature: random projection of 1536-dim retina drive ----
-        # Project the full drive vector through P: ℝ^{1536} → ℝ^{128}
-        self.scene_sig = (self.projection @ drive).astype(np.float32)
+        # Color-enhanced signature (5-channel) when color_signature flag is True
+        if getattr(self, "color_signature", False):
+            # Build 5-channel input: drive, red_sal, uv_sal, green_sal, mean RGB
+            color_input = np.column_stack([
+                drive,                         # luminance drive (existing)
+                red_sal,                       # red salience
+                uv_sal,                        # UV salience
+                green_sal,                     # green salience
+                frame.mean(axis=1),            # mean RGB (neutral)
+            ])  # (N, 5)
+            self.scene_sig = (self.color_projection @ color_input.ravel()).astype(np.float32)
+        else:
+            # Original single-channel projection for backward compat
+            self.scene_sig = (self.projection @ drive).astype(np.float32)
         norm = float(np.linalg.norm(self.scene_sig))
         if norm > 1e-8:
             self.scene_sig /= norm  # L2-normalize to unit length
         self.scene_sig_valid = True
+
+        # ---- Mushroom Body encoding ----
+        if self.scene_sig_valid:
+            self.mushroom.encode(self.scene_sig)
 
         return drive
 
@@ -448,6 +811,27 @@ class FlyModel:
         return self._self_motion_cache.get("true_asymmetry", self.flow_asymmetry)
 
     @property
+    def true_hrc_asymmetry(self) -> float:
+        """Self-motion corrected HRC (motion-truth) asymmetry, in [-1, 1].
+
+        Raw hrc_asymmetry minus the same SELF_MOTION_K * heading_rate
+        component used for flow.  Falls back to the raw HRC value (which is
+        0.0) before the correlator has produced any output.
+        """
+        return self._self_motion_cache.get("true_hrc_asymmetry",
+                                           getattr(self, "hrc_asymmetry", 0.0))
+
+    @property
+    def hrc_available(self) -> bool:
+        """True once the HRC correlator is warmed up (>= 2 retina frames).
+
+        The first compute_hrc call has no previous-frame cell luminance, so
+        its output is all zeros; only after a second frame do the signed
+        correlations become meaningful motion truth.
+        """
+        return getattr(self, "_hrc_frames", 0) >= 2
+
+    @property
     def scene_signature(self) -> np.ndarray:
         """128-dim L2-normalised scene signature from random projection of retina drive.
 
@@ -471,6 +855,37 @@ class FlyModel:
         self.scene_change_rate = 0.0
         self.scene_sig[:] = 0.0
         self.scene_sig_valid = False
+        self.target_tracker.reset()
+        self.mushroom.reset()
+
+    def _compute_dopamine(self) -> float:
+        """Compute proxy dopamine signal from available behavioral signals."""
+        reward = 0.0
+        punishment = 0.0
+        # Positive: scene novelty
+        if self.scene_change_rate > 0.1:
+            reward = max(reward, 0.5)
+        # Positive: forward progress
+        fwd = getattr(self, "filtered_y", 0.0)
+        if fwd > 20.0:
+            reward = max(reward, 0.3)
+        # Negative: stuck
+        if getattr(self, "stuck_duration", 0.0) > 5.0:
+            punishment = max(punishment, min(0.3, self.stuck_duration / 50.0))
+        # Negative: fallen
+        if getattr(self, "fallen", False):
+            punishment = max(punishment, 0.8)
+        # Negative: cliff
+        if getattr(self, "cliff_confirmed", False):
+            punishment = max(punishment, 0.4)
+        # Negative: looming
+        if self.tau < 1.0 and np.isfinite(self.tau):
+            punishment = max(punishment, 0.3)
+        # Negative: revisit
+        revisit = getattr(self, "_revisit_penalty", 0.0)
+        if revisit > 0.5:
+            punishment = max(punishment, 0.2)
+        return reward - punishment
 
     def step(self, rgb: np.ndarray, now: float | None = None,
              novelty: float = 0.5, heading: float = 0.0) -> tuple[Control, np.ndarray]:
@@ -481,6 +896,22 @@ class FlyModel:
         # Low novelty (familiar) → boost sensory to seek variety
         # High novelty (unexplored) → slight suppression for caution
         novelty_gain = 1.0 + (0.10 if novelty < 0.3 else -0.10 if novelty > 0.7 else 0.0)
+
+        # ---- Dopamine signal and Mushroom Body plasticity ----
+        dop = self._compute_dopamine()
+        self.mushroom.set_dopamine(dop)
+        n_syn = self.mushroom.update_weights()
+
+        # ---- MBON-to-motor current injection ----
+        mbon = self.mushroom.mbon_outputs
+        self.v[self.forward] += mbon[0] * self.mbon_gain_forward
+        self.v[self.turn_left] += mbon[1] * self.mbon_gain_turn
+        self.v[self.turn_right] += mbon[2] * self.mbon_gain_turn
+        self.v[self.jump_nodes] += mbon[3] * self.mbon_gain_jump
+        if mbon[4] > 0.2:
+            self.escape_current = min(0.25, self.escape_current * 1.02)
+        elif mbon[4] < -0.2:
+            self.escape_current = max(0.05, self.escape_current * 0.98)
 
         current = np.asarray(self.w[:, np.flatnonzero(self.spikes)].sum(axis=1)).ravel()
         current *= self.synaptic_gain
@@ -500,6 +931,22 @@ class FlyModel:
         if self.tau < self.TAU_NEAR and np.isfinite(self.tau):
             _tau_inj = max(0.0, (self.TAU_NEAR - self.tau) / self.TAU_NEAR) * 0.35
             self.v[self.jump_nodes] += _tau_inj
+
+        # ---- Small target tracking: approaching target → jump & turn injection (pre-spike) ----
+        if self.target_approaching and self.target_intercept_time < 10.0:
+            _frames_to_intercept = self.target_intercept_time
+            if 2.0 < _frames_to_intercept < 6.0:
+                _jump_strength = max(0.3, min(0.6, (6.0 - _frames_to_intercept) * 0.1))
+                self.v[self.jump_nodes] += _jump_strength
+            elif _frames_to_intercept <= 2.0:
+                self.v[self.jump_nodes] += 0.50
+
+            # Turn toward the approaching target
+            _tgt_r, _tgt_c = self.target_nearest_centroid
+            _lateral_bias = (_tgt_c - 32.0) / 32.0  # [-1, 1]
+            if abs(_lateral_bias) > 0.15:
+                self.v[self.turn_left] -= _lateral_bias * 0.12
+                self.v[self.turn_right] += _lateral_bias * 0.12
 
         # ---- Sky_score → jump motor pool current injection ----
         # Open sky above signals a launch/escape opportunity; inject current
@@ -628,6 +1075,83 @@ class FlyModel:
                     raw_x += 8.0
                 elif dominant_idx == 3: # anti-diagonal (135°) → bias turn opposite
                     raw_x -= 8.0
+
+            # ---- 5. 4-direction EMD modulation ----
+            # The EMD provides true direction-selective motion energy, replacing the
+            # coarse left_right_asymmetry for fine-grained behaviour.
+            _emd_h = self.emd_horizontal
+            _emd_v = self.emd_vertical
+            _emd_net_lat = self.emd_net_lateral
+            _emd_net_vert = self.emd_net_vertical
+
+            # 5a. Strong vertical EMD (up/down) → terrain change detected: reduce speed
+            if _emd_v > 0.03 and _emd_h < 0.01:
+                # Pure vertical motion = elevator/terrain drop → slight caution
+                raw_y *= max(0.6, 1.0 - _emd_v * 3.0)
+
+            # 5b. Asymmetric horizontal EMD → precise turn bias
+            # Unlike flow_asymmetry (global brightness), this is true direction-selective
+            if abs(_emd_net_lat) > 0.1 and _emd_h > 0.02:
+                lat_bias = _emd_net_lat * 15.0
+                raw_x -= lat_bias  # net rightward motion → turn right to steer into flow
+
+            # 5c. Strong symmetric horizontal EMD → passing through corridor/opening
+            if _emd_h > 0.05 and abs(_emd_net_lat) < 0.15:
+                # Optic flow on both sides equally → reduce turn (straighten)
+                raw_x *= max(0.5, 1.0 - _emd_h * 2.0)
+
+            # 5d. OFF-dominant EMD → external moving object detected
+            # (high off_total without on_total = passing dark edge, e.g. a Goomba passing)
+            if (self.emd_off_total > self.emd_on_total * 2.0
+                and self.emd_off_total > 0.02):
+                # Possible moving threat on one side
+                threat_bias = self.emd_off_total * 20.0
+                if self.emd_off_right > self.emd_off_left:
+                    raw_x += threat_bias  # turn left away from right-side threat
+                else:
+                    raw_x -= threat_bias  # turn right away from left-side threat
+
+            # ---- 6. Color vision modulation ----
+            # 6a. High danger_red_index → avoid (lava = bad, red switch = interesting)
+            #     Use contextual gating: red + high temperature (tau near) = avoid
+            if self.danger_red_index > 0.4 and self.tau < 3.0:
+                # Red hazard near → turn away
+                if self.rg_opponent_mean > 0:
+                    raw_x += 30.0  # left side is redder → turn right
+                else:
+                    raw_x -= 30.0  # right side is redder → turn left
+                raw_y *= 0.6  # slow down approaching hazard
+
+            # 6b. High sky_blue_index → open area detected: explore forward
+            if self.sky_blue_index > 0.5 and self.danger_red_index < 0.3:
+                raw_y = min(70, raw_y * 1.15)  # slight forward boost in open areas
+
+            # 6c. High color_contrast + high saturation → interactive objects nearby
+            #     (coins, switches have saturated colors against neutral backgrounds)
+            if self.color_contrast > 0.3 and self.saturation_mean > 0.25:
+                # Interesting scene: reduce random turns, keep heading
+                raw_x *= 0.7
+
+            # ---- 7. Small target tracking: peripheral avoidance (post-spike, raw_x/raw_y level) ----
+            # 7a. Strong figure-ground energy without approaching → lateral object avoidance
+            if (self.max_target_energy > 0.05
+                and self.fg_fraction < 0.08
+                and not self.target_approaching):
+                # Object in periphery — mild avoidance bias
+                if self.target_count > 0:
+                    _tgt_r, _tgt_c = self.target_nearest_centroid
+                    _lateral_bias = (_tgt_c - 32.0) / 32.0
+                    _avoid = self.max_target_energy * 20.0
+                    if abs(_lateral_bias) > 0.3:
+                        if _lateral_bias > 0:  # target on right → turn left
+                            raw_x -= _avoid * 0.10
+                        else:                   # target on left → turn right
+                            raw_x += _avoid * 0.10
+
+            # 7b. High fg_fraction (>15%) = wide-field disturbance → suppress target tracking
+            #     (defer to existing optic flow navigation)
+            if self.fg_fraction > 0.15:
+                pass  # wide-field motion — let existing rules handle it
 
             # ---- Tau-based collision avoidance ----
             tau = self.tau

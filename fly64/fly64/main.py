@@ -34,8 +34,8 @@ from .memory import MemoryController
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.0.0"
-SKILL_VERSION = "2.4.0"   # must mirror fly64/skills/evolution_skill.py SKILL_VERSION
+BRAIN_VERSION = "2.2.0"
+SKILL_VERSION = "2.5.0"   # must mirror fly64/skills/evolution_skill.py SKILL_VERSION
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
 _evo_iter_counter = 0
@@ -322,6 +322,11 @@ def _scene_name(model, memory_ctrl) -> str:
     above a floor of 0.25. Terrain classifier types map fully (8 types).
     """
     t = getattr(model, "terrain", "mixed")
+    # Indoor/enclosed detection takes priority (EVO R9): blue-gated sky and
+    # structured non-blue upper field mean "inside", not "slope+sky".
+    if getattr(model, "enclosure_score", 0.0) > 0.5:
+        h = (memory_ctrl.scene_id or "")[:4]
+        return f"室内 #{h}" if h else "室内"
     feats = {
         "墙体": getattr(model, "wall_score", 0.0),
         "山坡": getattr(model, "ramp_score", 0.0),
@@ -1051,6 +1056,7 @@ async def run(args) -> None:
                     "ramp_score": round(model.ramp_score, 4),
                     "opening_score": round(model.opening_score, 4),
                     "sky_score": round(model.sky_score, 4),
+                    "enclosure_score": round(getattr(model, "enclosure_score", 0.0), 4),
                     "ground_angle": round(model.ground_angle, 4),
                     "door_frame_score": round(model.door_frame_score, 4),
                     "opening_width": round(model.opening_width, 4),
@@ -1101,6 +1107,7 @@ async def run(args) -> None:
                     "ramp_score": round(model.ramp_score, 4),
                     "opening_score": round(model.opening_score, 4),
                     "sky_score": round(model.sky_score, 4),
+                    "enclosure_score": round(getattr(model, "enclosure_score", 0.0), 4),
                     "ground_angle": round(model.ground_angle, 4),
                     "door_frame_score": round(model.door_frame_score, 4),
                     "opening_width": round(model.opening_width, 4),

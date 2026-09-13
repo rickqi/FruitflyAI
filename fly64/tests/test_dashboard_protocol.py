@@ -117,3 +117,51 @@ def test_causal_fields_present_json_safe_and_degrade():
     assert row["cliff_confirmed"] is True
     assert row["decision_source"] in CAUSAL_SOURCES
     json.dumps(meta, allow_nan=False)
+
+
+# ── EVO R7: HRC motion-truth fields (additive protocol evolution) ──
+
+def test_hrc_fields_present_and_json_safe():
+    """Every WS row carries hrc_asymmetry; frame rows carry the LC4 sector
+    looming population.  Additive: legacy fields unchanged, JSON-safe."""
+    m = FlyModel(demo=True)
+    obs = Observatory(m)
+    rng = np.random.default_rng(7)
+    for tick in range(4):
+        frame = rng.integers(0, 256, (256, 384, 3), np.uint8)
+        control, spikes = m.step(frame)
+        row = obs.observe(frame, tick, control, spikes, GAME)
+        assert "hrc_asymmetry" in row
+        assert -1. <= row["hrc_asymmetry"] <= 1.
+        assert "flow_asymmetry" in row  # legacy field preserved
+    meta, _ = unpack(obs.packet(4))
+    assert meta["schema"] == 3  # additive evolution: schema unchanged
+    json.dumps(meta, allow_nan=False)
+    frame_rows = [r for r in meta["rows"] if "sector_loom" in r]
+    assert frame_rows, "at least one frame row must carry sector_loom"
+    loom = frame_rows[-1]["sector_loom"]
+    assert len(loom) == 32  # 16 azimuth sectors x upper/lower x L/R
+    for k, v in loom.items():
+        assert k.startswith("hrc_looming_az")
+        assert v >= 0.
+
+
+def test_hrc_self_motion_separation_matches_flow_formula():
+    """true_hrc_asymmetry = clamp(hrc_asymmetry - 0.08*heading_rate), same
+    separation formula as the flow true_asymmetry."""
+    m = FlyModel(demo=True)
+    rng = np.random.default_rng(11)
+    for _ in range(3):
+        frame = rng.integers(0, 256, (256, 384, 3), np.uint8)
+        prev_heading = m.heading  # per-step rate, mirroring model.step
+        m.step(frame, heading=float(rng.uniform(-1., 1.)))
+    rate = (m.heading - prev_heading) / m.dt
+    expected = max(-1., min(1., m.hrc_asymmetry - m.SELF_MOTION_K * rate))
+    assert m.true_hrc_asymmetry == pytest.approx(expected, abs=1e-3)
+    assert m.hrc_available  # warmed up after 3 frames
+    cache = m.self_motion
+    assert cache["true_hrc_asymmetry"] == pytest.approx(m.true_hrc_asymmetry)
+    # Correlator not warmed up on a fresh model -> flow fallback semantics.
+    m2 = FlyModel(demo=True)
+    assert not m2.hrc_available
+    assert m2.true_hrc_asymmetry == 0.

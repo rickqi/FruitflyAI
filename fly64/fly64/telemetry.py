@@ -24,6 +24,7 @@ class Observatory:
         self.has_comparison = False
         self.sector_contrast = None
         self.sector_active = None
+        self.sector_loom = None
         self.groups = dict(visual=model.visual, forward=model.forward,
                            left=model.turn_left, right=model.turn_right, jump=model.jump_nodes)
 
@@ -57,6 +58,10 @@ class Observatory:
                     if v > 2.0:
                         active |= 1 << i
                 self.sector_active = active
+                # LC4-style HRC looming population (16 azimuth sectors x
+                # upper/lower x L/R).  Frame-edge only, additive field.
+                loom = getattr(m, "hrc_sector_looming", None)
+                self.sector_loom = dict(loom) if loom else None
             self.previous_preview = self.preview.copy()
             self.frame_seq, self.frame_time = seq, t
         slot = self.ticks % WINDOW
@@ -75,6 +80,7 @@ class Observatory:
                    game_state=game["state"], game_age=game["age_ms"],
                    frame_age=t-self.frame_time,
                    flow_asymmetry=m.flow_asymmetry,
+                   hrc_asymmetry=getattr(m, "hrc_asymmetry", 0.0),
                    flow_looming=m.flow_looming,
                    flow_cliff=m.flow_cliff,
                    cliff_conf=causal.get("cliff_conf"),
@@ -82,10 +88,13 @@ class Observatory:
                    cliff_confirmed=bool(causal.get("cliff_confirmed", False)),
                    gate_forward=bool(rates["forward"] is not None and rates["forward"] > .4),
                    gate_jump=bool(rates["jump"] is not None and rates["jump"] > 2.),
+                   enclosure_score=float(getattr(m, "enclosure_score", 0.0)),
                    decision_source=causal.get("decision_source", "steering"))
         if self.sector_active is not None:
             row["sector_contrast"] = self.sector_contrast
             row["sector_active"] = self.sector_active
+        if self.sector_loom:
+            row["sector_loom"] = self.sector_loom
         self.rows.append(row)
         return row
 
