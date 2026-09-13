@@ -523,11 +523,17 @@ function renderHealthGauge(value) {
   const canvas = $('healthGauge');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
-  const dpr = window.devicePixelRatio || 1;
-  const w = canvas.clientWidth, h = canvas.clientHeight;
-  canvas.width = Math.round(w * dpr);
-  canvas.height = Math.round(h * dpr);
-  ctx.scale(dpr, dpr);
+  // Fixed pixel size — prevents canvas feedback-loop growth
+  // (clientWidth → attribute ×dpr → clientWidth grows each frame if CSS missing)
+  const size = 110;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const target = size * dpr;
+  if (canvas.width !== target || canvas.height !== target) {
+    canvas.width = target;
+    canvas.height = target;
+  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const w = size, h = size;
   const cx = w / 2, cy = h / 2, r = Math.min(cx, cy) - 8;
   ctx.clearRect(0, 0, w, h);
   // Background arc
