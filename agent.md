@@ -63,6 +63,47 @@ D:\codes\flygym\
 
 # 变更日志
 
+## 2026-09-12: 神经因果链路可视化 (P0–P3 全量落地)
+
+### 背景
+仪表板无法直观展示"视觉信号→神经元处理→判断逻辑→具体行动"的因果链。经 AgentTeams 两轮团队（方案设计 dashboard-viz + 布局审核 dashboard-viz-audit）产出 6 份设计/审核文档后，按 GO(有条件) 结论执行三个前置并落地 P0–P3。
+
+### 前置（commit a26caca / 83ed3b3）
+- **基线锚定**: 干净基线打 `causal-baseline` tag；B1(model.py flow 先用后赋) 确认已由 8f3428a 修复，pytest 全绿
+- **G1 修复**: dashboard.css L5/L12 `section:nth-child(2)` → `section.motor-section` 类选择器（防未来插 section 击穿 Neurons 网格）
+- **noviz kill-switch**: `?noviz=1` > `localStorage['fly64.causal']='off']`；dashboard.js 顶部环境守卫设置 `body.causal-off`；CSS 契约 `body.causal-off .causal-ui{display:none!important}`——所有因果元素必须携带 `causal-ui` 类
+
+### P0 决策解释卡 (6bbf5be, 纯前端)
+- 新增 Causal Chain section（Vision/Neurons 之间）：explain()/judgeText() 五段链卡 RAW→SIGNAL→NEURAL→JUDGE→ACTION，紫=判断/绿=行动层色
+- 缺 P1 字段时优雅降级 '—'/'awaiting causal fields'；200ms 节流；try/catch 隔离不短路 render 管线
+- 悬停 tooltip + 点选下钻（滚动高亮 1.5s，事件委托）
+
+### P1 遥测因果字段 (7d5eba0)
+- `Observatory.observe(causal=)` 新参数：每 row 增加 cliff_conf/stuck_conf/cliff_confirmed/decision_source；gate_forward(>0.4Hz)/gate_jump(>2Hz) 与渲染阈值同源派生；meta 增加 `causal_schema=1` 哨兵
+- main.py 控制级联末尾 decision_source 审计：dialogue > cliff_reflex > anomaly_reflex > escape > collision > jump > steering（含 t8 评审 R2 要求的 collision 分支）
+- 新增 test_causal_fields_present_json_safe_and_degrade（枚举校验/JSON allow_nan 安全/legacy 调用降级）
+
+### P2 扇区叠加 + 因果时间轴 (813b74a)
+- telemetry.py 帧沿复用 delta 数组计算 sector_contrast(int16 0–100)/sector_active(bitmask)，仅帧行携带；显示空间 8 方位×上下分带（与眼图渲染对齐）
+- dashboard.js：retinaOverlay 描边叠加（.eyes figure position:relative 锚点，V1 前置）；120s/0.25s ringBuffer；drawTimeline 四泳道（flow/池率+gate 虚线/判断条带+cliff▲/action x 阶梯线+jump 金标），1s 节流
+- index.html 新增 Causal Timeline section + overlay canvas（均 causal-ui）；grid 行数 8=7 sections+footer（两断点）
+
+### P3 因果弧线 + 回放跳转 (4e4cd00)
+- drawArcs：cliff_confirmed 上升沿 → 1.5s 内首个 x 符号翻转，紫色弧线 + "+ms" 延迟标注
+- Escape 表行点击 → 时间轴跳到事件前 2s 并冻结（复用 frozen 语义），显示该时刻因果卡；Freeze/Resume 恢复实时
+
+### 验证
+- test_dashboard_protocol + test_dashboard_js: 6 passed（含新 causal 测试）；node 草稿检查 9/9；node --check 语法 OK
+- 后端 packet 解码实测: causal_schema=1、sector 字段 16 项、json allow_nan 安全
+- test_memory 8 失败经 git stash 基线对照确认为 HEAD 既存问题，与本次无关
+
+### 回滚
+- 逐阶段 revert: 4e4cd00(P3) → 813b74a(P2) → 7d5eba0(P1) → 6bbf5be(P0) → causal-baseline
+- 运行时: http://127.0.0.1:8765/?noviz=1 一键回到修改前布局
+- 详见 fly64/docs/causal-chain-rollback-plan.md（7 症状定位手册）
+
+---
+
 ## 2026-09-11: Phase 1 导航增强 + 卡住修复
 
 ### 变更 1: 空间记忆地图 + 卡住检测系统 (新模块)
