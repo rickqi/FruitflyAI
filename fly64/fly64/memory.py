@@ -1422,8 +1422,14 @@ class MemoryController:
             self.spatial.scene_db.match(scene_sig)
             self.spatial.scene_db.add(scene_sig, self._scene_tick)
             self._scene_tick += 1
-            # Compute a short scene identifier from signature bytes
-            _hash = hashlib.md5(scene_sig.tobytes()).hexdigest()[:12]
+            # EMA-smoothed signature stabilises the scene identifier hash
+            # against frame-to-frame luminance/heading drift (α=0.1)
+            ema = getattr(self, "_scene_sig_ema", None)
+            self._scene_sig_ema = (scene_sig.copy() if ema is None
+                                   else 0.9 * ema + 0.1 * scene_sig)
+            stable = self._scene_sig_ema / (np.linalg.norm(self._scene_sig_ema) + 1e-8)
+            # Compute a short scene identifier from stabilised signature bytes
+            _hash = hashlib.md5(stable.tobytes()).hexdigest()[:12]
             self._scene_id = _hash
 
         # Record position for fall detection

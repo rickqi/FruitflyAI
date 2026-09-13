@@ -296,40 +296,37 @@ def open_dashboard(url: str, project: Path):
 
 
 def _scene_name(model, memory_ctrl) -> str:
-    """Human-readable scene identification from terrain + feature scores.
+    """Human-readable scene identification via relative feature dominance.
 
-    Maps the 16-sector terrain classification and feature scores to SM64
-    scene-region names, disambiguated by the landmark signature hash so
-    distinct visits to similar-looking terrain get distinct labels.
+    Instead of absolute thresholds (which rarely pass on real signals —
+    measured features hover 0.3-0.5), rank features and name the top-2
+    above a floor of 0.25. Terrain classifier types map fully (8 types).
     """
     t = getattr(model, "terrain", "mixed")
-    wall = getattr(model, "wall_score", 0.0)
-    ramp = getattr(model, "ramp_score", 0.0)
-    opening = getattr(model, "opening_score", 0.0)
-    sky = getattr(model, "sky_score", 0.0)
-    door = getattr(model, "door_frame_score", 0.0)
+    feats = {
+        "墙体": getattr(model, "wall_score", 0.0),
+        "山坡": getattr(model, "ramp_score", 0.0),
+        "通道": getattr(model, "opening_score", 0.0),
+        "门洞": getattr(model, "door_frame_score", 0.0),
+        "天空": getattr(model, "sky_score", 0.0),
+    }
+    # Special terrain types from the classifier take priority
     ground = getattr(model, "ground_angle", 1.0)
-
     if t == "water":
         base = "水域"
     elif t == "cliff" and ground < 0.3:
         base = "悬崖边缘"
-    elif door > 0.5:
-        base = "门洞/通道"
-    elif opening > 0.5:
-        base = "开阔通道"
-    elif ramp > 0.5:
-        base = "山坡地带"
-    elif wall > 0.5:
-        base = "峡谷/墙体"
-    elif sky > 0.8 and wall < 0.1:
+    elif t == "open_flat":
         base = "开阔草原"
-    elif t == "corridor":
-        base = "走廊"
-    elif t == "dense":
-        base = "密林区"
+    elif t == "wall_ahead":
+        base = "墙体"
+    elif t == "forest_edge":
+        base = "密林边缘"
     else:
-        base = "混合地形"
+        # Relative dominance: top-2 features above floor, joined
+        ranked = sorted(feats.items(), key=lambda kv: kv[1], reverse=True)
+        parts = [name for name, v in ranked if v >= 0.25][:2]
+        base = "·".join(parts) if parts else "混合地形"
     h = (memory_ctrl.scene_id or "")[:4]
     return f"{base} #{h}" if h else base
 
