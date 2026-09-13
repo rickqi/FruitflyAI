@@ -314,12 +314,6 @@ class FlyModel:
         # Box appears: brightness jumps up AND region is uniform AND stable
         self.dialogue_active = (lower_lum > 0.45 and lower_var < 0.02
                                 and abs(lower_lum - prev_lower_lum) < 0.15)
-        # --- Interactive object proximity: isolated vertical structure being approached ---
-        self.interactive_near = (
-            (getattr(self, "door_frame_score", 0.0) > 0.5
-             or (float(flow.get("edge_90", 0.0)) > 0.15 and self.wall_score < 0.3))
-            and self.tau != float("inf") and self.tau < 2.0
-        )
         # --- Optic flow signals ---
         flow = self.retina.compute_flow(rgb)
         self.tau = float(flow.get("tau", float("inf")))
@@ -333,6 +327,13 @@ class FlyModel:
         self.sky_score = float(flow.get("sky_score", 0.0))
         self.ground_angle = float(flow.get("ground_angle", 0.7))
         self.door_frame_score = float(flow.get("door_frame_score", 0.0))
+        # --- Interactive object proximity: isolated vertical structure being
+        # approached (door/sign frame, or lone vertical edge without a wall) ---
+        self.interactive_near = (
+            (self.door_frame_score > 0.5
+             or (float(flow.get("edge_90", 0.0)) > 0.15 and self.wall_score < 0.3))
+            and self.tau != float("inf") and self.tau < 2.0
+        )
         self.opening_width = float(flow.get("opening_width", 0.0))
 
         # ---- Self-motion separation ----
