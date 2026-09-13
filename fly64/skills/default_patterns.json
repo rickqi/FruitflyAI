@@ -94,6 +94,23 @@
       "threshold_justification": "pos_y between -99 and 49=abnormal height (SM64 ground=120), stuck>30s=stuck in place, control_magnitude<10=no effective movement; the -100 fallen threshold was designed for extreme falls but misses partial falls into void/water at Y=-30 to Y=-80"
     },
     {
+      "id": "fallen_recovery_stuck",
+      "name": "Fallen recovery stuck — 跌落恢复循环无效",
+      "version": "1.0.0",
+      "description": "Agent is in fallen anomaly state and recovery cycles (jump+burst+turn) are not making progress. The recovery stuck means the agent repeatedly attempts jump-forward-turn cycles but remains in the fallen state without escaping the fall zone.",
+      "conditions": {
+        "anomaly_state": {"eq": "fallen"},
+        "stuck_duration": {"min": 30}
+      },
+      "diagnosis": "Fallen recovery cycles are ineffective: always turning -50 (left) fails to find an exit direction. Fix: (1) Mirror turn direction each cycle (alternate left/right), (2) Extend forward burst from 0.8s to 2s with y=80 for more distance, (3) Add reverse-before-jump when stuck>30s to back away from obstacles before the next jump.",
+      "fix_template": "# Fix: Fallen recovery — mirror turn, extend burst, add reverse-before-jump\n# File: fly64/fly64/main.py\n# In the escape control section, replace the fallen recovery block:\n# 1. Initialize escape_x on first cycle (if escape_x == 0: escape_x = -50)\n# 2. Use escape_x (alternating sign) instead of hardcoded -50\n# 3. Extend burst phase: elif escape_toggle_timer < 2.4 with y=80\n# 4. In else: flip escape_x = -escape_x for next cycle; if stuck_duration > 30: control.x = -escape_x; control.y = -40 for reverse",
+      "fix_files": ["fly64/fly64/main.py"],
+      "severity": "high",
+      "tags": ["fallen", "recovery", "stuck", "escape", "cycle"],
+      "rollback_strategy": "revert_block",
+      "threshold_justification": "anomaly_state='fallen'=agent detected in fall zone, stuck_duration>30s=persistent stuck despite recovery attempts; 30s allows ~15 recovery cycles before intervention"
+    },
+    {
       "id": "suspended_animation",
       "name": "Suspended animation — 控制信号为零停止响应",
       "version": "1.0.0",

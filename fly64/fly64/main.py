@@ -484,19 +484,24 @@ async def run(args) -> None:
                 model.escape_mode = True
                 if memory_ctrl.fallen:
                     # Fall recovery: jump + forward burst
+                    # Initialize turn direction on first fallen cycle
+                    if escape_x == 0:
+                        escape_x = -50
                     if escape_toggle_timer < 0.4:
+                        # Phase 1: Jump, no movement
                         control.x = 0; control.y = 0; control.jump = True
-                    elif escape_toggle_timer < 1.2:
-                        control.x = -50; control.y = 60; control.jump = True
+                    elif escape_toggle_timer < 2.4:
+                        # Phase 2: Extended forward burst (2s) with alternating turn direction
+                        control.x = escape_x; control.y = 80; control.jump = True
                     else:
                         escape_toggle_timer = 0.0
-                        asym = model.true_asymmetry  # self-motion corrected
-                        if asym > 0.12:
-                            escape_x = 60
-                        elif asym < -0.12:
-                            escape_x = -60
-                        else:
-                            escape_x = model.rng.integers(40, 70) * (-1 if model.rng.random() < 0.5 else 1)
+                        # Mirror turn direction for next cycle
+                        escape_x = -escape_x
+                        # Reverse-before-jump when stuck-in-fall >30s
+                        if memory_ctrl.stuck_duration > 30:
+                            control.x = -escape_x  # reverse away from obstacle
+                            control.y = -40        # backward burst
+                        # else: brief reset tick, next cycle starts immediately
                 elif memory_ctrl.forced_bold_explore:
                     # ---- forced_bold_explore breakout ----
                     # Force large turn (x=±69) + extended forward burst (y=70 for 2s)
