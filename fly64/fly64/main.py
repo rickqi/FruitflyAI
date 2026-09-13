@@ -295,6 +295,45 @@ def open_dashboard(url: str, project: Path):
         return None
 
 
+def _scene_name(model, memory_ctrl) -> str:
+    """Human-readable scene identification from terrain + feature scores.
+
+    Maps the 16-sector terrain classification and feature scores to SM64
+    scene-region names, disambiguated by the landmark signature hash so
+    distinct visits to similar-looking terrain get distinct labels.
+    """
+    t = getattr(model, "terrain", "mixed")
+    wall = getattr(model, "wall_score", 0.0)
+    ramp = getattr(model, "ramp_score", 0.0)
+    opening = getattr(model, "opening_score", 0.0)
+    sky = getattr(model, "sky_score", 0.0)
+    door = getattr(model, "door_frame_score", 0.0)
+    ground = getattr(model, "ground_angle", 1.0)
+
+    if t == "water":
+        base = "水域"
+    elif t == "cliff" and ground < 0.3:
+        base = "悬崖边缘"
+    elif door > 0.5:
+        base = "门洞/通道"
+    elif opening > 0.5:
+        base = "开阔通道"
+    elif ramp > 0.5:
+        base = "山坡地带"
+    elif wall > 0.5:
+        base = "峡谷/墙体"
+    elif sky > 0.8 and wall < 0.1:
+        base = "开阔草原"
+    elif t == "corridor":
+        base = "走廊"
+    elif t == "dense":
+        base = "密林区"
+    else:
+        base = "混合地形"
+    h = (memory_ctrl.scene_id or "")[:4]
+    return f"{base} #{h}" if h else base
+
+
 async def run(args) -> None:
     project = Path(__file__).resolve().parent.parent
     cache = project / ".cache" / "malecns"
@@ -316,6 +355,11 @@ async def run(args) -> None:
     DashboardHTTP.trajectory_points = []
     DashboardHTTP.memory_json = b"{}"
     memory_ctrl = MemoryController()
+    # Restore previously explored scene signatures (landmark persistence)
+    _loaded_sigs = memory_ctrl.load_scene_db()
+    if _loaded_sigs:
+        print(f"Scene database restored: {_loaded_sigs} signatures")
+    scene_save_counter = 0
     escape_x = 0
     escape_toggle_timer = 0.0
     escape_buffer = EscapeEventBuffer()
@@ -670,6 +714,11 @@ async def run(args) -> None:
                     heading_rate=model.heading_rate,
                     control_x=control.x,
                 )
+                # Periodic scene-database persistence (every ~600 ticks ≈ 12s)
+                scene_save_counter += 1
+                if scene_save_counter >= 600:
+                    scene_save_counter = 0
+                    memory_ctrl.save_scene_db()
                 xs, zs, heats = memory_ctrl.spatial.get_heatmap()
                 DashboardHTTP.memory_json = json.dumps({
                     "stuck_score": round(memory_ctrl.stuck_score, 3),
@@ -721,6 +770,11 @@ async def run(args) -> None:
                     # Tau (time-to-contact) estimation
                     "tau": round(model.tau, 4) if model.tau != float("inf") else None,
                     "terrain": model.terrain,
+                    # Scene naming: human-readable scene identification
+                    "scene_name": _scene_name(model, memory_ctrl),
+                    "scene_hash": (memory_ctrl.scene_id or "")[:6],
+                    "local_motion": round(model.local_motion_energy, 4),
+                    "local_motion_detected": model.local_motion_detected,
                     "wall_score": round(model.wall_score, 4),
                     "ramp_score": round(model.ramp_score, 4),
                     "opening_score": round(model.opening_score, 4),

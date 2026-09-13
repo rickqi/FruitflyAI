@@ -176,6 +176,9 @@ class FlyModel:
         self.visual_connected = True
         self.tonic_current = 0.180
         self.synaptic_gain = 1.50
+        # Local motion detection: moving objects when Mario is stationary
+        self.local_motion_energy = 0.0
+        self.local_motion_detected = False
         # Ornstein-Uhlenbeck noise for physiological motor fluctuations
         self.ou_state = np.zeros(4, dtype=np.float32)  # [fwd, left, right, jump]
         self.ou_theta = 2.0   # mean reversion rate (higher = faster decay)
@@ -295,6 +298,12 @@ class FlyModel:
         self.previous_rgb = frame
         self.mean_luminance = float(lum.mean())
         self.temporal_energy = float(temporal.mean())
+        # --- Local motion detection: external moving objects when Mario is still ---
+        # Self-motion produces global temporal energy; when stationary (low heading
+        # rate), residual temporal energy must come from external moving objects.
+        self_motion_est = abs(self.heading_rate) * 0.5
+        self.local_motion_energy = max(0.0, self.temporal_energy - self_motion_est)
+        self.local_motion_detected = self.local_motion_energy > 0.30
         # --- Optic flow signals ---
         flow = self.retina.compute_flow(rgb)
         self.tau = float(flow.get("tau", float("inf")))

@@ -561,3 +561,31 @@ if (typeof document !== 'undefined') {
   updateHealthStrip();
   setInterval(updateHealthStrip, 2000);
 }
+
+// ── Scene identification + local motion display ──────────────────────
+
+async function updateSceneDisplay() {
+  try {
+    const r = await fetch('/flow.json');
+    if (!r.ok) return;
+    const d = await r.json();
+    const sn = $('sceneName');
+    if (sn) {
+      const name = d.scene_name || '…';
+      const hash = d.scene_hash || '';
+      sn.textContent = 'Scene: ' + name + (hash ? ' · #' + hash : '');
+    }
+    const lm = $('localMotion');
+    if (lm) {
+      const v = d.local_motion !== undefined ? d.local_motion : 0;
+      const det = d.local_motion_detected;
+      lm.innerHTML = 'Local motion: ' + v.toFixed(3) +
+        (det ? ' <span style="color:#ffca72">⚠ moving object</span>' : ' <span style="color:#536170">(clear)</span>');
+    }
+  } catch (_) {}
+}
+
+if (typeof document !== 'undefined') {
+  updateSceneDisplay();
+  setInterval(updateSceneDisplay, 2000);
+}

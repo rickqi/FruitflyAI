@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import math
 import hashlib
+import pickle
 from collections import deque
+from pathlib import Path
 
 import numpy as np
 
@@ -793,6 +795,28 @@ class SceneDatabase:
         self._buffer.clear()
         self._revisit_count = 0
         self._best_score = 0.0
+
+    # ── Pickle persistence ────────────────────────────────────────────
+
+    def save(self, path: str | Path) -> None:
+        """Serialize the buffer (signatures + ticks) to disk as pickle."""
+        data = [(sig, tick) for sig, tick in self._buffer]
+        with open(path, "wb") as f:
+            pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+    @classmethod
+    def load(cls, path: str | Path, maxlen: int = 500,
+             match_threshold: float = 0.85) -> "SceneDatabase":
+        """Deserialize a previously saved SceneDatabase, or return empty."""
+        db = cls(maxlen=maxlen, match_threshold=match_threshold)
+        try:
+            with open(path, "rb") as f:
+                data = pickle.load(f)
+            for sig, tick in data:
+                db._buffer.append((sig, tick))
+        except (FileNotFoundError, pickle.UnpicklingError, EOFError):
+            pass
+        return db
 
 
 # ---------------------------------------------------------------------------
@@ -1644,3 +1668,26 @@ class MemoryController:
         self._scene_sig[:] = 0.0
         self._scene_id = ""
         self._scene_tick = 0
+
+    # ── Scene signature persistence ───────────────────────────────────
+
+    SCENE_DB_PATH = Path(__file__).resolve().parent.parent / "artifacts" / "scene_db.pkl"
+
+    def save_scene_db(self, path: str | Path | None = None) -> None:
+        """Persist scene signatures to disk (pickle)."""
+        p = Path(path) if path else self.SCENE_DB_PATH
+        p.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self.spatial._scene_db.save(p)
+        except Exception:
+            pass
+
+    def load_scene_db(self, path: str | Path | None = None) -> int:
+        """Load previously saved scene signatures. Returns count loaded."""
+        p = Path(path) if path else self.SCENE_DB_PATH
+        try:
+            db = SceneDatabase.load(p)
+            self.spatial._scene_db = db
+            return db.size
+        except Exception:
+            return 0
