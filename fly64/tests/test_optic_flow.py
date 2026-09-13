@@ -763,11 +763,29 @@ def test_preemptive_avoidance_order():
             # 'if not escape_behavior and not cliff_triggered:'
             if self._is_not_escape(node.test):
                 self.avoidance_line = node.lineno
-            # Look for 'if memory_ctrl.escape_behavior:'
-            if (isinstance(node.test, ast.Attribute)
-                    and node.test.attr == 'escape_behavior'):
+            # Look for 'if memory_ctrl.escape_behavior:' — may be a simple
+            # Attribute or part of a BoolOp such as
+            # 'if memory_ctrl.escape_behavior and not reflex_override:'
+            if self._is_escape_active(node.test):
                 self.escape_line = node.lineno
             self.generic_visit(node)
+
+        @staticmethod
+        def _is_escape_active(test_node):
+            """Check if test_node is 'memory_ctrl.escape_behavior' either
+            directly or as part of a BoolOp(And) compound expression."""
+            # Direct: memory_ctrl.escape_behavior
+            if (isinstance(test_node, ast.Attribute)
+                    and test_node.attr == 'escape_behavior'):
+                return True
+            # Compound: BoolOp(And) containing an escape_behavior operand
+            if (isinstance(test_node, ast.BoolOp)
+                    and isinstance(test_node.op, ast.And)):
+                for operand in test_node.values:
+                    if (isinstance(operand, ast.Attribute)
+                            and operand.attr == 'escape_behavior'):
+                        return True
+            return False
 
         @staticmethod
         def _is_not_escape(test_node):

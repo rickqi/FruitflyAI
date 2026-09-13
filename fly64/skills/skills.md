@@ -141,6 +141,100 @@ SM64 Game → Shared Memory Bridge → Fly64 Brain Model
 - `jsonschema` (optional, for pattern validation)
 - Fly64 dashboard at http://127.0.0.1:8765
 
+---
+
+# 附：神经因果链路遥测扩展（v2.1.0，基于 t3 实施方案）
+
+> 来源：`fly64/docs/causal-chain-implementation.md`。telemetry row 新增字段为 **schema=3 加法演进**，对现有 `DataCollector` / `evolution_agent.py` 完全透明（旧代码用 `.get()` 只取自己关心的键，新增键不破坏任何既有断言）。
+
+## 新增遥测字段（P1 上线后）
+
+### /history.json 行新增（每 tick）
+| 字段 | 类型 | 含义 |
+|---|---|---|
+| `decision_source` | str | 控制级联胜出者：`cliff_reflex > anomaly_reflex > escape > jump > steering` |
+| `cliff_conf` / `stuck_conf` | float 0–1 | cliff/stuck 判断置信度（透传 `memory_ctrl`） |
+| `cliff_confirmed` | bool | 多帧悬崖确认（`model.cliff_confirmed`） |
+| `gate_forward` / `gate_jump` | bool | 门控判定（0.4 Hz / 2.0 Hz） |
+| `escape_behavior` | bool | 逃脱行为激活 |
+
+### WebSocket packet rows 新增（仅新帧行，10Hz）
+`sector_contrast` (int[16] 0–100)、`sector_active` (uint16 bitmask)、`edge_dir`、`tau_sustained`、`tau_transient`；meta 新增 `causal_schema=1` 哨兵键（特性检测用）。
+
+## DataCollector 采集配置示例（Monitor Phase 增强）
+
+```python
+# evolution_skill.DataCollector.fetch_all 建议追加（加法，不改动既有 tuple 顺序时可不改签名）：
+causal = self.fetch_json("/history.json")          # 已有端点，行内新增字段自动带入
+# 在 sample() 中容错透传（缺字段默认值保证 P0 未上线时不抛错）：
+s = SensorSample(...,
+    decision_source=(causal or {}).get("decision_source", "steering") if causal else "steering",
+    cliff_conf=((causal or [{}])[-1].get("cliff_conf", 0.0) if causal else 0.0))
+```
+
+新技能 `neural_viz_skill` 的采集配置（独立运行，不侵入 EvolutionPipeline）：
+
+```python
+from fly64.skills.neural_viz_skill import CausalRecorder
+rec = CausalRecorder(window_seconds=300)     # 每 interval 调 rec.poll_once()
+# 或命令行： python3 -m fly64.skills.neural_viz_skill --duration 120 --record causal_log.jsonl
+```
+
+## neural_viz_skill — 离线因果链路分析与报告
+
+**Version**: 1.0.0 · **Status**: Active · **Category**: Offline Analysis / Causal Diagnostics
+
+### When to Use
+- 需要回答"某次 escape/cliff_reflex 是由什么信号触发的"（事后取证）
+- 统计 decision_source 分布、preempt 风暴、门控抖动、cliff 误报
+- 录制因果行 JSONL 供离线重放（无需 dashboard 在线）
+
+### Quick Start
+```bash
+python3 -m fly64.skills.neural_viz_skill --duration 120 --record causal_log.jsonl
+python3 -m fly64.skills.neural_viz_skill --input causal_log.jsonl --report report.md
+```
+
+### Analysis Capabilities
+| 分析项 | 方法 | 判据 |
+|---|---|---|
+| cliff 误报 | `cliff_false_positives()` | `decision_source=cliff_reflex` 且 conf<0.5 / 未 confirmed（与 circle_loop 模式同源矛盾检测） |
+| 门控抖动 | `gate_flap_rate()` | 翻转率 >40% → 建议加滞回 |
+| preempt 风暴 | `source_distribution()` | steering 占比 <30% → 反射/逃脱黏滞 |
+| 信号→行动延迟 | `signal_to_action_latency()` | cliff 上升沿到首个 x 翻转 >0.5s |
+
+输出 Markdown 报告（`neural_viz_report.md`）：分布表、preempt 事件列表、findings（severity/id/detail）。
+
+### Verification（与 evolution_agent.py 兼容性验证）
+```bash
+# 1. 新技能自检：用 mock JSONL 离线跑通（无需 dashboard）
+python3 -m fly64.skills.neural_viz_skill --input mock_causal.jsonl --report /tmp/r.md && echo OK
+
+# 2. 兼容性：新增字段不破坏既有技能 —— 旧消费者逐键 .get()，键集只增不减；
+#    回归跑一轮 evolution 管线确认 findings 数量与 fix_log 行为不变
+python3 -m fly64.skills.evolution_skill --max-iterations 1
+
+# 3. 字段契约：追加 pytest（tests/test_dashboard_protocol.py 风格）断言
+#    decision_source ∈ 枚举 / sector_active < 2**16 / 仅新帧行携带 sector_* / 行可 json 序列化无 NaN
+```
+
+## Files（更新）
+
+| File | Description |
+|------|-------------|
+| `fly64/skills/evolution_skill.py` | Core skill module (~730 lines) |
+| `fly64/skills/default_patterns.json` | 4 patterns with JSON Schema |
+| `fly64/skills/README.md` | Auto-generated documentation |
+| `fly64/skills/__init__.py` | Package exports (13 symbols) |
+| `fly64/skills/evolution_agent.py` | v1 legacy agent |
+| `fly64/skills/neural_viz_skill.py` | **新增**：离线神经因果链路分析与报告（CausalRecorder / CausalAnalyzer / Markdown 报告） |
+
+## Trigger Keywords（追加）
+
+- neural viz, causal chain, decision source, preempt, cliff false positive, 因果链路, 神经可视化, 离线分析, 决策溯源
+
+---
+
 ## Trigger Keywords
 
 - evolution, self-improve, diagnose motion, stuck analysis, circle loop problem
