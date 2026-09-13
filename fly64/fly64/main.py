@@ -676,6 +676,19 @@ async def run(args) -> None:
                     pose_ev[0], pose_ev[2])
                 event_counters["total_escapes"] += 1
                 event_last_pos = (pose_ev[0], pose_ev[2])
+                # ---- EvolutionSkill: on-demand diagnosis on escape trigger ----
+                if _evo_pipe is not None and tick_start - _evo_last_run > 10:
+                    _evo_last_run = tick_start
+                    try:
+                        _res = _evo_pipe.run_one_cycle()
+                        _evo_findings = [f"{f.pattern_id}({f.confidence:.0%})"
+                                         for f in _res.findings]
+                        for _f in _res.findings:
+                            print(f"[EvolutionSkill] {_f.severity}: "
+                                  f"{_f.pattern_id} conf={_f.confidence:.0%} "
+                                  f"during escape reason={reason}")
+                    except Exception:
+                        pass
             if currently_escaping:
                 escape_buffer.update_current(model.dt)
             elif previous_escape:
@@ -847,6 +860,7 @@ async def run(args) -> None:
                     "local_motion_detected": model.local_motion_detected,
                     "dialogue_active": getattr(model, "dialogue_active", False),
                     "interactive_near": getattr(model, "interactive_near", False),
+                    "evo_findings": _evo_findings,
                     "wall_score": round(model.wall_score, 4),
                     "ramp_score": round(model.ramp_score, 4),
                     "opening_score": round(model.opening_score, 4),
