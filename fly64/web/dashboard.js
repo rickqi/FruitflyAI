@@ -859,3 +859,32 @@ if (typeof document !== 'undefined') {
   updateSceneDisplay();
   setInterval(updateSceneDisplay, 2000);
 }
+
+// ── Evolution iteration history + brain version ──────────────────────
+
+async function updateEvolutionDisplay() {
+  try {
+    const r = await fetch('/evolution.json');
+    if (!r.ok) return;
+    const d = await r.json();
+    const bv = $('brainVerPill');
+    if (bv) bv.textContent = 'Brain v' + (d.brain_version || '—');
+    const iters = d.iterations || [];
+    const ep = $('evoIterPill');
+    if (ep) ep.textContent = 'EVO #' + iters.length;
+    const hist = $('evoHistory');
+    if (hist) {
+      hist.innerHTML = iters.slice().reverse().map(it => {
+        const caps = (it.capabilities || []).join(' ');
+        return '<div class="evo-item">#' + it.iter + ' v' + (it.brain_version || '?') +
+          ' · ' + (it.time || '') + '<br><span class="evo-cap">' +
+          (caps || 'no findings') + '</span></div>';
+      }).join('') || '<div class="evo-item">no iterations yet</div>';
+    }
+  } catch (_) {}
+}
+
+if (typeof document !== 'undefined') {
+  updateEvolutionDisplay();
+  setInterval(updateEvolutionDisplay, 3000);
+}

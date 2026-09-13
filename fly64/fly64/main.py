@@ -28,6 +28,14 @@ from .retina import BASES, CALIBRATION
 from .telemetry import Observatory
 from .memory import MemoryController
 
+# ── Brain model version ──────────────────────────────────────────────
+# MUST be incremented whenever an evolution round updates the skill /
+# behaviour pipeline and is pushed (see agent.md workflow rules).
+BRAIN_VERSION = "1.2.0"
+# Evolution iteration records: one entry per skill closed-loop execution
+evolution_log = deque(maxlen=50)
+_evo_iter_counter = 0
+
 class EscapeEventBuffer:
     """Ring buffer of last 200 escape events.
 
@@ -83,6 +91,7 @@ class DashboardHTTP(BaseHTTPRequestHandler):
     flow_json = b"{}"
     events_json = b"{}"
     history_json = b"[]"
+    evolution_json = b"{}"
     signal_history = deque(maxlen=600)
 
     def do_GET(self):
@@ -93,6 +102,8 @@ class DashboardHTTP(BaseHTTPRequestHandler):
             body, mime = self.positions, "application/octet-stream"
         elif path == "/metadata.json":
             body, mime = self.metadata, "application/json"
+        elif path == "/evolution.json":
+            body, mime = self.evolution_json, "application/json"
         elif path in self.assets:
             body, mime = self.assets[path]
         elif path == "/bridge-status.json" and self.bridge is not None:
@@ -708,6 +719,22 @@ async def run(args) -> None:
                             print(f"[EvolutionSkill] {_f.severity}: "
                                   f"{_f.pattern_id} conf={_f.confidence:.0%} "
                                   f"during escape reason={reason}")
+                        # Record this evolution iteration for the dashboard
+                        global _evo_iter_counter
+                        _evo_iter_counter += 1
+                        evolution_log.append({
+                            "iter": _evo_iter_counter,
+                            "time": time.strftime("%m-%d %H:%M:%S"),
+                            "brain_version": BRAIN_VERSION,
+                            "trigger": reason,
+                            "findings": _evo_findings,
+                            "capabilities": sorted({
+                                _fid.split("(")[0] for _fid in _evo_findings}),
+                        })
+                        DashboardHTTP.evolution_json = json.dumps({
+                            "brain_version": BRAIN_VERSION,
+                            "iterations": list(evolution_log)[-20:],
+                        }).encode()
                     except Exception:
                         pass
             if currently_escaping:
@@ -889,6 +916,8 @@ async def run(args) -> None:
                     "dialogue_active": getattr(model, "dialogue_active", False),
                     "interactive_near": getattr(model, "interactive_near", False),
                     "evo_findings": _evo_findings,
+                    "brain_version": BRAIN_VERSION,
+                    "evo_iter": _evo_iter_counter,
                     "command_decoupled": command_decoupled,
                     "wall_score": round(model.wall_score, 4),
                     "ramp_score": round(model.ramp_score, 4),

@@ -8,6 +8,11 @@
 4. 确保 `README.md` 和 `agent.md` 同步更新
 5. 脑模型需重启使网页文件生效（HTTP 缓存）
 6. 保留每个 commit 的根因分析和变更内容说明
+7. **每轮 EvolutionSkill 进化后**：
+   - **必须重启脑模型**——这是技能进化生效的基础（相当于"睡一觉"后新能力才被加载）
+   - **必须递增 `main.py` 的 `BRAIN_VERSION`**（skill/行为管线更新推送时强制）
+   - **必须将本轮 skill 闭环执行总结**（触发原因、发现、修复、能力变化）**作为一次完整进化记录写入变更说明并推送**
+8. 每轮进化能力需配套**回归测试**（`tests/test_evolution_capability.py`），确保进化能力可重复验证、不退化
 
 ## 项目结构
 
@@ -346,6 +351,40 @@ D:\codes\flygym\
 - 自适应冷却公式：`cooldown = max(2.0, 10.0 - stuck_duration * 0.05)`
 
 **涉及文件：** 6 文件（skills/），+1063 行
+
+---
+
+## 进化迭代记录（Evolution Iteration Log）
+
+> 依据工作流程规则 7/8：每轮 skill 闭环执行后，在此记录完整进化过程。
+> 脑模型版本随每轮进化强制递增（`main.py` `BRAIN_VERSION`）。
+
+### EVO Round 4 — Brain v1.2.0（视觉盲区 · 伴发放电比较器）
+
+**提交**: `ea0eefd` / `56c9a1b` / `f6de494` / `25ea329`（链条）
+
+**触发原因**: 马里奥反复卡死墙角，视觉因果链无法解释（temporal=0、ON/OFF=0、asymmetry≈0 —— 与开阔地静止信号完全相同）
+
+**闭环过程**:
+1. **Monitor** — 发现"卡墙角"期间全部视觉信号与正常静止无法区分
+2. **Diagnose** — 根因定位：**视觉因果链缺少动作-效果比较器**（corollary discharge）："卡住"由电机命令 vs 实际位移失配定义，属本体感觉，视觉天然不可见
+3. **Fix** — `main.py` 新增伴发放电比较器：`expected=y×0.6` vs `actual=pose位移`，失配>15帧触发 `command_decoupled`
+4. **Reflex** — 失配>60帧（~1.2s）→ 后退 y=-50 + 交替转向 物理脱出墙角
+5. **Verify** — skill v2.1 全监控实测命中 `wall_corner_command_decoupled` + `reflex_cooldown_gap`
+6. **Document** — 本记录 + 13 个回归测试（`test_evolution_capability.py`）固化能力
+
+**附带修复（同轮）**:
+- `telemetry.py`/`bridge.py` WSL 旧版崩溃修复（causal kwarg + Linux 屏障）
+- 对话框检测假阳性：亮墙 ≠ 对话框（SM64 对话框为暗色底，改用 亮度骤降判据 `lum<0.30 + Δ>0.12`）
+- 场景命名 v2：相对优势 top-2（如"天空·山坡"）替代"混合地形"兜底；签名 EMA 平稳定哈希
+- 交互习惯化：同位置 3 次无奖励对话 → 封锁 2min + 后退（锁门策略）
+- Escape 触发时自动运行 skill（10s 节流），`/evolution.json` 暴露迭代记录
+
+**能力增益**: 视觉盲区（几何卡死）检测能力从 0 → 1；仪表板新增 Brain v/EVO # 徽章与迭代历史列表
+
+**回归测试**: `fly64/tests/test_evolution_capability.py` — 13 用例（全监控/墙角盲区/对话判别/场景命名/端到端闭环），全部通过
+
+---
 
 ## 早期变更
 
