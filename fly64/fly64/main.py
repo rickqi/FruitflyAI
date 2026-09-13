@@ -1039,6 +1039,8 @@ async def run(args) -> None:
                     # Tau (time-to-contact) estimation
                     "tau": round(model.tau, 4) if model.tau != float("inf") else None,
                     "terrain": model.terrain,
+                    "blue_dom": round(getattr(model, "blue_dom", 0.0), 4),
+                    "underwater": getattr(model, "underwater", False),
                     # Scene naming: human-readable scene identification
                     "scene_name": _scene_name(model, memory_ctrl),
                     "scene_hash": (memory_ctrl.scene_id or "")[:6],
