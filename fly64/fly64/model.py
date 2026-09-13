@@ -305,27 +305,34 @@ class FlyModel:
         self.local_motion_energy = max(0.0, self.temporal_energy - self_motion_est)
         self.local_motion_detected = self.local_motion_energy > 0.30
         # --- Dialogue box detection: lower visual field suddenly covered by a
-        # large bright uniform block (SM64 dialogue occupies bottom ~40%) ---
-        lower = frame[frame.shape[0] // 2:, ...]
-        lower_lum = float(lower[..., 1].mean()) if lower.ndim == 3 else float(lower.mean())
-        lower_var = float(lower[..., 1].var()) if lower.ndim == 3 else 0.0
-        prev_lower_lum = getattr(self, "_prev_lower_lum", lower_lum)
-        self._prev_lower_lum = lower_lum
-        # Box appearance: SM64 dialogue = DARK box with white text → the lower
-        # field DROPS in brightness and becomes low-variance. A bright uniform
-        # lower field is a wall/slope, NOT dialogue (prevents false positive
-        # that froze motion while facing bright geometry).
-        _sudden_drop = (prev_lower_lum - lower_lum) > 0.12
-        _dark_uniform = lower_lum < 0.30 and lower_var < 0.08
-        self._dialogue_frames = getattr(self, "_dialogue_frames", 0)
+        # large uniform block — DUAL ZONE: SM64 places standard dialogue at the
+        # BOTTOM (key-sign at top). Detect dark+uniform+drop in either half.
+        def _zone_state(region, prev_attr, frames_attr):
+            lum = float(region[..., 1].mean()) if region.ndim == 3 else float(region.mean())
+            var = float(region[..., 1].var()) if region.ndim == 3 else 0.0
+            prev = getattr(self, prev_attr, lum)
+            setattr(self, prev_attr, lum)
+            drop = (prev - lum) > 0.12
+            dark = lum < 0.30 and var < 0.08
+            frames = getattr(self, frames_attr, 0)
+            if dark and (frames > 0 or drop):
+                frames += 1
+            else:
+                frames = 0
+            setattr(self, frames_attr, frames)
+            return dark and frames >= 12
+
+        half = frame.shape[0] // 2
+        _lower = frame[half:, ...]
+        _upper = frame[:half, ...]
+        lo_hit = _zone_state(_lower, "_prev_lower_lum", "_dialogue_frames_lo")
+        hi_hit = _zone_state(_upper, "_prev_upper_lum", "_dialogue_frames_hi")
         self._dialogue_total = getattr(self, "_dialogue_total", 0.0)
-        if _dark_uniform and (self._dialogue_frames > 0 or _sudden_drop):
-            self._dialogue_frames += 1
+        if lo_hit or hi_hit:
             self._dialogue_total += self.dt
         else:
-            self._dialogue_frames = 0
             self._dialogue_total = 0.0
-        self.dialogue_active = (_dark_uniform and self._dialogue_frames >= 12
+        self.dialogue_active = ((lo_hit or hi_hit)
                                 and self._dialogue_total < 20.0)
         # --- Optic flow signals ---
         flow = self.retina.compute_flow(rgb)
