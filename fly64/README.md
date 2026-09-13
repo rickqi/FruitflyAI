@@ -202,12 +202,24 @@ API 端点：
 | `fly64/retina.py` | 球面复眼采样（270° 视野） |
 | `fly64/memory.py` | 空间记忆 + 异常检测 + 反射回路 + 健康评分 |
 | `fly64/data.py` | MaleCNS 脑数据下载与预处理 |
+| `fly64/data.py` | MaleCNS 脑数据下载与预处理 |
+| `fly64/mushroom_body.py` | **P3** 多巴胺蘑菇体学习 (2000 KC, 5 MBON, 三元因子Hebbian可塑) |
 | `fly64/telemetry.py` | 只读观测仪：F643 packet 发布（池率/流信号/扇区叠加/因果归因字段，`causal_schema=1`） |
 | `web/dashboard.js` | 仪表板前端：渲染 + `explain()` 因果链派生 + 四泳道时间轴 + `?noviz=1` 降级开关 |
 | `skills/neural_viz_skill.py` | 离线因果链路分析技能（cliff 误报/门控抖动/preempt 风暴/信号→行动延迟检测 + Markdown 报告） |
 | `web/trajectory.html` | 马里奥运动轨迹回放页面 |
 
 ## 🧠 视觉→运动控制机制详解
+
+### 视觉能力增强路线图 (P1–P3)
+
+| 阶段 | 新增能力 | 生物学基础 | 信号数 | 计算开销 | 关键效果 |
+|------|---------|-----------|:------:|:--------:|---------|
+| **P1a** | 颜色/UV通道 | R7 UV + R8 蓝/绿 + 对立通道 | +18 | +45 μs | 场景签名碰撞 10³/天→<1/年 |
+| **P1b** | 4方向EMD运动检测 | T4(ON)/T5(OFF) Hassenstein-Reichardt | +10 | +35 μs | 运动覆盖 25%→80% |
+| **P2** | 小目标追踪 | LPLC1/2 + LC11 中心-周边 | +7 | +80 μs | 平台跳跃 30%→65% |
+| **P3** | 多巴胺蘑菇体学习 | Kenyon Cells + MBON + DAN | — | +30 μs | 经验关联学习 |
+| | **合计** | | **+35** | **190 μs (0.95%)** | 视觉覆盖 ~38%→~90% |
 
 ### 完整闭环流程
 
@@ -268,13 +280,15 @@ SM64 游戏通过 `fly64_vision.c` 以 10Hz 频率渲染六面立方体贴图，
 每个视觉细胞从图集中采样 7 个点，加权平均得到亮度值。采样方向基于 MaleCNS 数据集中的实际 optic-column 排列（`visual_pixels`），映射到约 270° 的球形视野。
 
 #### 3. 视网膜编码
-每个视觉细胞输出三维融合信号：
+每个视觉细胞输出六维融合信号：
 ```python
 brightness = frame @ [0.2126, 0.7152, 0.0722]     # 亮度 (luminance)
 temporal   = abs(current_lum - prev_lum)            # 时域运动 (权重最高)
-color      = max(green - 0.5×(red+blue), 0)         # 颜色对比
+red_sal    = max(R - G, 0)                          # P1a 红色显著
+uv_sal     = max(B - 0.5×(R+G), 0)                  # P1a UV逼近 (短波长)
+green_sal  = max(G - 0.5×(R+B), 0)                  # P1a 绿色显著(原color项)
 
-drive = 0.45×brightness + 1.6×temporal + 0.25×color
+drive = np.clip(0.45×brightness + 1.6×temporal + 0.15×red_sal + 0.10×uv_sal + 0.25×green_sal, 0, 1)
 ```
 **运动信号权重最高（1.6×）**，反映果蝇对运动的高度敏感。
 
@@ -489,7 +503,7 @@ Unlocated: 26,062 (15.6%)
 
 由此形成当前可观测的行为瓶颈：**锁门前 stuck→escape 死循环**（stuck 101s+，coverage 0%），逃脱逻辑在语义死角内无法自解。
 
-### 技能自我进化闭环（EVO Round 1–5，Brain v1.0.0 → v1.3.0）
+### 技能自我进化闭环（EVO Round 1–8，Brain v1.0.0 → v2.1.0）
 
 EvolutionSkill 具备**自我更新迭代**能力，七步循环已制度化：
 
@@ -510,6 +524,9 @@ EvolutionSkill 具备**自我更新迭代**能力，七步循环已制度化：
 | 3 | 1.1.0 | 伴发放电比较器（视觉盲区） | 墙角卡死 |
 | 4 | 1.2.0 | 双区对话检测 + 交互习惯化 + 场景命名 v2 + 全监控 | 钥匙门提示 |
 | 5 | 1.3.0 | 交互习惯化 + 上置框双区检测制度化 | 钥匙门上置提示框 |
+| 6 | 1.4.0 | 自适应反射冷却（stuck 越久冷却越短，下限 25%）+ 坠落恢复初始方向随机化 | fallen 恢复循环固定左转失效 |
+| 7 | 2.0.0 | 🎨 颜色/UV 视觉 + 🌀 4方向 EMD + 🎯 小目标追踪 + 🧠 多巴胺蘑菇体学习（35 新信号，覆盖 38%→90%） | FlyWire MaleCNS 差距分析 |
+| 8 | 2.1.0 | T4/T5 式 HRC 方向选择运动检测 + LC4 looming 种群 + 自适应相关接入碰撞规避 | brightness-not-flow 根治 |
 
 Round 4/5 正是**能力边界判定的实战示范**：钥匙门的"行为层"问题（反复撞门）属内生能力群 → skill 自己进化出双区检测+习惯化解决；而"语义层"问题（文字内容不可读、需要钥匙的任务理解）超出内生边界 → 走 SEEK-HELP 向教官层求助（Phase 4）。
 
@@ -552,7 +569,7 @@ Round 4/5 正是**能力边界判定的实战示范**：钥匙门的"行为层"�
 | 失败记忆避让 | ✅ | FailureMemory 死端/坠落格避让方向 |
 | 六级决策级联 | ✅ | 悬崖→反射→攻击→碰撞→逃脱 + decision_source 归因审计 |
 | 因果链路可视化 | ✅ | 决策解释卡/扇区叠加/时间轴/回放（本变更） |
-| 技能自我进化闭环 | ✅ | 七步制度化循环（EXECUTE→DETECT→LEARN→PIN→VERSION→CONSOLIDATE→RECORD），已完成 5 轮（Brain v1.0.0→v1.3.0），每轮能力经回归测试固化、重启生效、仪表板 `/evolution.json` 实时展示 |
+| 技能自我进化闭环 | ✅ | 七步制度化循环（EXECUTE→DETECT→LEARN→PIN→VERSION→CONSOLIDATE→RECORD），已完成 8 轮（Brain v1.0.0→v2.1.0，Skill v2.5.0），每轮能力经回归测试固化、重启生效、仪表板 `/evolution.json` 实时展示 |
 | 社交寻助能力 | 🔧 制度化 | SEEK-HELP 分支 + 结构化求助单 + 社交三指标自训练（v2.4.0，待实战触发） |
 | 场景语义识别 | ❌ 缺失 | 视觉仅编码亮度/运动/颜色/光流，**无法理解画面语义**——如对话文字"You need a key to open this door"这类**需要钥匙**的提示无法被识别和利用 |
 | 道具获取能力 | ❌ 缺失 | 无钥匙/星星等道具的定位、路径规划与拾取动作；遇锁门只能触发习惯化回避（3 次无奖励交互后抑制 2 分钟并远离，见 Interaction loop breaker） |
