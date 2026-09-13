@@ -1140,6 +1140,10 @@ class SphericalRetina:
             "left_right_asymmetry": left_right_asymmetry,
             "center_expansion": center_expansion,
             "lower_field_green": lower_green,
+            # Blue-opponent channel: water/underwater shows strong blue dominance
+            "blue_dom": float(np.clip(
+                float(rgb[..., 2].mean())
+                - 0.5 * (float(rgb[..., 0].mean()) + float(rgb[..., 1].mean())), 0, 1)),
             "terrain": terrain,
             # Sector-derived terrain scores (task contract)
             "wall_score": round(wall_score, 4),

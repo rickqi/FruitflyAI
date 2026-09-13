@@ -600,6 +600,10 @@ class FlyModel:
         self.flow_looming = float(flow["center_expansion"])
         self.flow_cliff = float(flow["lower_field_green"])
         self.terrain = str(flow.get("terrain", "mixed"))
+        # Underwater/void: below ground + strong blue dominance in view
+        self.blue_dom = float(flow.get("blue_dom", 0.0))
+        self.underwater = bool(self.terrain == "water"
+                               or (self.blue_dom > 0.25))
         self.wall_score = float(flow.get("wall_score", 0.0))
         self.ramp_score = float(flow.get("ramp_score", 0.0))
         self.opening_score = float(flow.get("opening_score", 0.0))
