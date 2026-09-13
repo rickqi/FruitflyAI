@@ -843,7 +843,9 @@ async function updateSceneDisplay() {
     if (sn) {
       const name = d.scene_name || '…';
       const hash = d.scene_hash || '';
-      sn.textContent = 'Scene: ' + name + (hash ? ' · #' + hash : '');
+      const sv = d.skill_version || '';
+      sn.innerHTML = 'Scene: ' + name + (hash ? ' · #' + hash : '') +
+        (sv ? ' <span style="color:#4cdf7c;font-size:12px">[Skill v' + sv + ']</span>' : '');
     }
     const lm = $('localMotion');
     if (lm) {
