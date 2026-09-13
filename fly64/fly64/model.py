@@ -311,9 +311,21 @@ class FlyModel:
         lower_var = float(lower[..., 1].var()) if lower.ndim == 3 else 0.0
         prev_lower_lum = getattr(self, "_prev_lower_lum", lower_lum)
         self._prev_lower_lum = lower_lum
-        # Box appears: brightness jumps up AND region is uniform AND stable
-        self.dialogue_active = (lower_lum > 0.45 and lower_var < 0.02
-                                and abs(lower_lum - prev_lower_lum) < 0.15)
+        # Box appears: brightness jumps up AND region is uniform AND stable.
+        # Require N consecutive confirming frames + auto-release after 20s
+        # to avoid false-positive deadlock on uniform walls/fog.
+        _raw_dialogue = (lower_lum > 0.45 and lower_var < 0.02
+                         and abs(lower_lum - prev_lower_lum) < 0.15)
+        self._dialogue_frames = getattr(self, "_dialogue_frames", 0)
+        self._dialogue_total = getattr(self, "_dialogue_total", 0.0)
+        if _raw_dialogue:
+            self._dialogue_frames += 1
+            self._dialogue_total += self.dt
+        else:
+            self._dialogue_frames = 0
+            self._dialogue_total = 0.0
+        self.dialogue_active = (_raw_dialogue and self._dialogue_frames >= 15
+                                and self._dialogue_total < 20.0)
         # --- Optic flow signals ---
         flow = self.retina.compute_flow(rgb)
         self.tau = float(flow.get("tau", float("inf")))

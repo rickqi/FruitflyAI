@@ -428,11 +428,9 @@ async def run(args) -> None:
                                          novelty=memory_ctrl.novelty,
                                          heading=heading)
 
-            # ---- Dialogue mode override (HIGHEST priority) ----
-            # A dialogue box is up: stop moving entirely; pulse A (jump) every
-            # 1.5s to advance text. After 3 unrewarded engagements at the same
-            # spot (e.g. "you need a key"), habituate: block interaction 2min
-            # and back away — the neural analogue of learned non-association.
+            # ---- Dialogue episode tracking (habituation counter) ----
+            # Final dialogue control override happens just before
+            # bridge.write_control so telemetry still publishes every tick.
             dlg_now = getattr(model, "dialogue_active", False)
             if dlg_now and not prev_dialogue_active:
                 px, pz = pose_ev[0], pose_ev[2]
@@ -447,21 +445,6 @@ async def run(args) -> None:
                     dialogue_blocked_until = time.monotonic() + 120.0
                     dialogue_engagements = 0
             prev_dialogue_active = dlg_now
-
-            if dlg_now:
-                if time.monotonic() < dialogue_blocked_until:
-                    # Unrewarded stimulus — withdraw and turn away
-                    control.x = int(60 * (1 if (model.step_count // 20) % 2 else -1))
-                    control.y = -60
-                    control.jump = False
-                else:
-                    control.x = 0
-                    control.y = 0
-                    _dlg_t = getattr(model, "_dialogue_pulse", 0.0)
-                    control.jump = _dlg_t < 0.25   # brief A press at pulse start
-                bridge.write_control(control.x, control.y, control.jump)
-                pending_jump |= control.jump
-                continue
 
             # ---- Pre-emptive cliff avoidance (fires BEFORE escape, highest priority) ----
             cliff_triggered = False
@@ -698,6 +681,19 @@ async def run(args) -> None:
                     event_counters["total_flow_avoid"] += 1
 
             latest_control = control
+            # ---- Dialogue final override (after all other logic, so telemetry
+            # still publishes every tick — no continue/skip) ----
+            if dlg_now:
+                if time.monotonic() < dialogue_blocked_until:
+                    # Unrewarded stimulus — withdraw and turn away
+                    control.x = int(60 * (1 if (model.step_count // 20) % 2 else -1))
+                    control.y = -60
+                    control.jump = False
+                else:
+                    control.x = 0
+                    control.y = 0
+                    _dlg_t = getattr(model, "_dialogue_pulse", 0.0)
+                    control.jump = _dlg_t < 0.25   # brief A press at pulse start
             bridge.write_control(control.x, control.y, control.jump)
             replay.add((model.step_count - 1) * model.dt, frame, control, spikes, bridge.frame_metadata)
             observatory.observe(frame, seq, control, spikes, bridge.game_status())
