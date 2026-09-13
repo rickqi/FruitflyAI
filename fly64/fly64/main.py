@@ -360,6 +360,12 @@ async def run(args) -> None:
     if _loaded_sigs:
         print(f"Scene database restored: {_loaded_sigs} signatures")
     scene_save_counter = 0
+    # Interaction loop breaker: a prompt that keeps re-appearing despite
+    # A-presses (e.g. locked door) is an unrewarded stimulus — habituate.
+    dialogue_engagements = 0
+    dialogue_last_pos = None
+    dialogue_blocked_until = 0.0
+    prev_dialogue_active = False
     escape_x = 0
     escape_toggle_timer = 0.0
     escape_buffer = EscapeEventBuffer()
@@ -424,13 +430,35 @@ async def run(args) -> None:
 
             # ---- Dialogue mode override (HIGHEST priority) ----
             # A dialogue box is up: stop moving entirely; pulse A (jump) every
-            # 1.5s to advance text. All escape/reflex/avoid logic is skipped
-            # until the box disappears.
-            if getattr(model, "dialogue_active", False):
-                control.x = 0
-                control.y = 0
-                _dlg_t = getattr(model, "_dialogue_pulse", 0.0)
-                control.jump = _dlg_t < 0.25   # brief A press at pulse start
+            # 1.5s to advance text. After 3 unrewarded engagements at the same
+            # spot (e.g. "you need a key"), habituate: block interaction 2min
+            # and back away — the neural analogue of learned non-association.
+            dlg_now = getattr(model, "dialogue_active", False)
+            if dlg_now and not prev_dialogue_active:
+                px, pz = pose_ev[0], pose_ev[2]
+                if (dialogue_last_pos is not None
+                        and abs(px - dialogue_last_pos[0]) < 150
+                        and abs(pz - dialogue_last_pos[1]) < 150):
+                    dialogue_engagements += 1
+                else:
+                    dialogue_engagements = 1
+                    dialogue_last_pos = (px, pz)
+                if dialogue_engagements >= 3:
+                    dialogue_blocked_until = time.monotonic() + 120.0
+                    dialogue_engagements = 0
+            prev_dialogue_active = dlg_now
+
+            if dlg_now:
+                if time.monotonic() < dialogue_blocked_until:
+                    # Unrewarded stimulus — withdraw and turn away
+                    control.x = int(60 * (1 if (model.step_count // 20) % 2 else -1))
+                    control.y = -60
+                    control.jump = False
+                else:
+                    control.x = 0
+                    control.y = 0
+                    _dlg_t = getattr(model, "_dialogue_pulse", 0.0)
+                    control.jump = _dlg_t < 0.25   # brief A press at pulse start
                 bridge.write_control(control.x, control.y, control.jump)
                 pending_jump |= control.jump
                 continue
