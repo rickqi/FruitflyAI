@@ -9,6 +9,7 @@ import numpy as np
 from scipy import sparse
 from .retina import SphericalRetina
 from .mushroom_body import MushroomBody
+from .gain_modulation import DopamineGainController
 
 
 @dataclass
@@ -379,6 +380,22 @@ class FlyModel:
         self.ou_theta = 2.0   # mean reversion rate (higher = faster decay)
         self.ou_sigma = 0.12  # noise amplitude
         self.ou_mu = 0.0      # mean
+
+        # ---- Passive propagation enhancement ----  # t6: improve LIF utilisation
+        # Synaptic current buffer: slow temporal integration modelling
+        # neurotransmitter persistence and passive cable spread.  Improves
+        # signal propagation through deeper network layers without task-
+        # specific gating or shunting.
+        self.synaptic_buf_decay = 0.65           # per-frame decay (tau ~ 3 frames)
+        self._synaptic_buf = np.zeros(self.n, dtype=np.float32)
+
+        # Global OU noise for all neurons (replaces sparse Bernoulli kicks).
+        # Continuous correlated subthreshold fluctuations improve utilisation
+        # of every neuron in the connectome, not just motor populations.
+        self.ou_global_theta = 2.0               # mean reversion rate
+        self.ou_global_sigma = 0.10              # noise amplitude
+        self.ou_global_state = np.zeros(self.n, dtype=np.float32)
+
         # Novelty-driven modulation and escape
         self.escape_mode = False
         self.escape_current = 0.15  # extra depolarisation during escape
@@ -471,6 +488,26 @@ class FlyModel:
         self.mbon_gain_turn = 0.12
         self.mbon_gain_jump = 0.20
         self.mbon_gain_explore = 0.10
+
+        # ---- Dopamine-gated gain modulation (plasticity proxy) ----
+        # Per-pathway gains modulate connectome current injection without
+        # modifying the fixed connectome weights self.w.
+        self.dopamine_gain = DopamineGainController()
+
+        # Pre-compute per-neuron pathway index for vectorised gain application
+        # 0=visual, 1=forward, 2=turn, 3=jump, 4=recurrent (default)
+        self._pathway_idx_map = np.full(self.n, 4, dtype=np.uint8)
+        if len(self.visual) > 0:
+            self._pathway_idx_map[self.visual] = 0
+        if len(self.forward) > 0:
+            self._pathway_idx_map[self.forward] = 1
+        self._turn_all = np.concatenate((self.turn_left, self.turn_right))
+        if len(self._turn_all) > 0:
+            self._pathway_idx_map[self._turn_all] = 2
+        if len(self.jump_nodes) > 0:
+            self._pathway_idx_map[self.jump_nodes] = 3
+        # Pre-allocated gain lookup array (updated each step)
+        self._pathway_gains_np = np.ones(5, dtype=np.float32)
 
         # ---- Small target tracking (LPLC/LC11 equivalent) ----
         self.target_tracker = TargetTracker(dt=self.dt)
@@ -906,6 +943,25 @@ class FlyModel:
         self.mushroom.set_dopamine(dop)
         n_syn = self.mushroom.update_weights()
 
+        # ---- Dopamine-gated gain modulation (plasticity proxy) ----
+        # Feed the same dopamine signal to the gain controller for
+        # pathway-specific gain updates.  Track pathway activity from the
+        # current (pre-reset) spike vector for eligibility computation.
+        self.dopamine_gain.set_dopamine(dop)
+        pathway_activity = {
+            "visual": float(self.spikes[self.visual].mean()),
+            "forward": float(self.spikes[self.forward].mean()),
+            "turn": float(self.spikes[self._turn_all].mean()),
+            "jump": float(self.spikes[self.jump_nodes].mean()),
+        }
+        # All other neurons are "recurrent" (interneurons)
+        _other_mask = np.ones(self.n, dtype=bool)
+        _other_mask[self.visual] = False
+        _other_mask[self.motor_nodes] = False
+        pathway_activity["recurrent"] = float(self.spikes[_other_mask].mean())
+        self.dopamine_gain.update_eligibility(pathway_activity)
+        n_gain = self.dopamine_gain.apply_gain_update()
+
         # ---- MBON-to-motor current injection ----
         mbon = self.mushroom.mbon_outputs
         self.v[self.forward] += mbon[0] * self.mbon_gain_forward
@@ -918,10 +974,39 @@ class FlyModel:
             self.escape_current = max(0.05, self.escape_current * 0.98)
 
         current = np.asarray(self.w[:, np.flatnonzero(self.spikes)].sum(axis=1)).ravel()
-        current *= self.synaptic_gain
-        baseline = self.rng.random(self.n) < (1.2 * self.dt)
+        # Pathway-specific gain modulation (plasticity proxy)
+        # Instead of one scalar, each pathway gets its own gain from the
+        # dopamine-gated controller — this mimics plasticity without
+        # modifying the fixed connectome weights self.w.
+        self._pathway_gains_np[0] = self.dopamine_gain.get_gain("visual")
+        self._pathway_gains_np[1] = self.dopamine_gain.get_gain("forward")
+        self._pathway_gains_np[2] = self.dopamine_gain.get_gain("turn")
+        self._pathway_gains_np[3] = self.dopamine_gain.get_gain("jump")
+        self._pathway_gains_np[4] = self.dopamine_gain.get_gain("recurrent")
+        current *= self._pathway_gains_np[self._pathway_idx_map]
+
+        # ---- Passive propagation enhancement: synaptic current buffer ----
+        # Accumulate synaptic current with a slower decay, modelling temporal
+        # integration of post-synaptic potentials (passive cable spread) and
+        # neurotransmitter persistence.  Improves LIF neuron utilisation by
+        # allowing signals to propagate through deeper network layers without
+        # task-specific shunting.
+        self._synaptic_buf = (
+            self._synaptic_buf * self.synaptic_buf_decay + current
+        )
+
+        # ---- Global OU noise (replaces sparse Bernoulli kicks) ----
+        # Continuous correlated subthreshold fluctuations improve utilisation
+        # of every neuron in the connectome, not just motor populations.
+        dt = self.dt
+        self.ou_global_state += (
+            self.ou_global_theta * (-self.ou_global_state) * dt
+            + self.ou_global_sigma * np.sqrt(dt)
+            * self.rng.normal(size=self.n).astype(np.float32)
+        )
+
         self.v *= np.exp(-self.dt / self.tau_m)
-        self.v += current + baseline.astype(np.float32) * 0.22 + self.tonic_current
+        self.v += self._synaptic_buf + self.ou_global_state * 0.22 + self.tonic_current
         if self.visual_connected:
             self.v[self.visual] += sensory * 0.62 * novelty_gain
 

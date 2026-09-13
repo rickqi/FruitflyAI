@@ -36,7 +36,7 @@ from .scene_recognition import SceneRecognizer
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
 BRAIN_VERSION = "2.3.0"
-SKILL_VERSION = "2.5.0"   # must mirror fly64/skills/evolution_skill.py SKILL_VERSION
+SKILL_VERSION = "2.7.0"   # must mirror fly64/skills/evolution_skill.py SKILL_VERSION
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
 _evo_iter_counter = 0
