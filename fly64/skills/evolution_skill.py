@@ -162,6 +162,22 @@ class SensorSample:
     terrain: str = "?"
     reflex_active: bool = False
     forward_speed: float = 0.0
+    # ── Full-monitoring extension (v2.1): every dashboard signal ──
+    scene_name: str = "?"
+    scene_hash: str = ""
+    command_decoupled: bool = False
+    dialogue_active: bool = False
+    interactive_near: bool = False
+    local_motion_detected: bool = False
+    revisit_count: int = 0
+    scene_change_rate: float = 0.0
+    forced_bold_explore: bool = False
+    cliff_confirmed: bool = False
+    tau: Optional[float] = None
+    opening_score: float = 0.0
+    door_frame_score: float = 0.0
+    sky_score: float = 0.0
+    pos_y: float = 0.0
 
     def to_dict(self) -> dict: return asdict(self)
 
@@ -203,6 +219,8 @@ class CycleResult:
 class DataCollector:
     def __init__(self, window_seconds: int = 120):
         self.window_seconds = window_seconds
+        self.latest_snapshot: dict = {}
+        self._decoupled_run = 0
         self.samples: deque[SensorSample] = deque()
         self._positions: deque[tuple[float, float, float, float]] = deque()
         self._controls: deque[tuple[float, float, float]] = deque()
@@ -216,9 +234,28 @@ class DataCollector:
                 return json.loads(r.read())
         except Exception: return None
 
+    #: ALL monitoring endpoints served by the dashboard
+    ALL_ENDPOINTS = ("/bridge-status.json", "/memory.json", "/flow.json",
+                     "/events.json", "/history.json", "/metadata.json",
+                     "/trajectory-list.json")
+
     def fetch_all(self) -> tuple:
         return (self.fetch_json("/bridge-status.json"), self.fetch_json("/memory.json"),
                 self.fetch_json("/flow.json"), self.fetch_json("/events.json"))
+
+    def fetch_snapshot(self) -> dict:
+        """Fetch EVERY monitoring endpoint; the skill's understanding of the
+        motion state comes exclusively from this dashboard data."""
+        snap: dict = {}
+        for tag, ep in zip(("bridge", "memory", "flow", "events", "history",
+                            "metadata", "trajectory_list"), self.ALL_ENDPOINTS):
+            snap[tag] = self.fetch_json(ep)
+        h = snap.get("history")
+        if isinstance(h, dict):
+            pts = h.get("points") or h.get("rows") or []
+            snap["history_len"] = len(pts)
+        self.latest_snapshot = snap
+        return snap
 
     def sample(self, bridge: dict, memory: dict, flow: dict, t: float) -> SensorSample:
         pose = bridge.get("pose", [0, 0, 0])
@@ -235,7 +272,24 @@ class DataCollector:
             ramp_score=flow.get("ramp_score", 0.0),
             terrain=flow.get("terrain", "?"),
             reflex_active=memory.get("reflex_active", False),
-            forward_speed=bridge.get("y", 0))
+            forward_speed=bridge.get("y", 0),
+            scene_name=flow.get("scene_name", "?"),
+            scene_hash=flow.get("scene_hash", ""),
+            command_decoupled=bool(memory.get("command_decoupled", False)),
+            dialogue_active=bool(flow.get("dialogue_active", False)),
+            interactive_near=bool(flow.get("interactive_near", False)),
+            local_motion_detected=bool(flow.get("local_motion_detected", False)),
+            revisit_count=int(memory.get("revisit_count", 0)),
+            scene_change_rate=memory.get("scene_change_rate", 0.0),
+            forced_bold_explore=bool(memory.get("forced_bold_explore", False)),
+            cliff_confirmed=bool(flow.get("cliff_confirmed", False)),
+            tau=flow.get("tau"),
+            opening_score=flow.get("opening_score", 0.0),
+            door_frame_score=flow.get("door_frame_score", 0.0),
+            sky_score=flow.get("sky_score", 0.0),
+            pos_y=pose[1])
+        # Track consecutive motor-vs-motion mismatch frames (wall corners)
+        self._decoupled_run = self._decoupled_run + 1 if s.command_decoupled else 0
         self.samples.append(s)
         self._positions.append((t, pose[0], pose[2], pose[1]))
         self._controls.append((t, s.control[0], s.control[1]))
@@ -283,7 +337,24 @@ class DataCollector:
                 ground_angle=s.ground_angle, ramp_score=s.ramp_score,
                 terrain=s.terrain, anomaly_state=s.anomaly_state,
                 reflex_active=s.reflex_active,
-                anomaly_state_not_idle=s.anomaly_state != "idle")
+                anomaly_state_not_idle=s.anomaly_state != "idle",
+                # ── full-monitoring metrics (v2.1) ──
+                scene_name=s.scene_name, scene_hash=s.scene_hash,
+                command_decoupled=s.command_decoupled,
+                command_effect_mismatch=s.command_decoupled,
+                mismatch_duration=self._decoupled_run,
+                dialogue_active=s.dialogue_active,
+                interactive_near=s.interactive_near,
+                local_motion_detected=s.local_motion_detected,
+                revisit_count=s.revisit_count,
+                scene_change_rate=s.scene_change_rate,
+                forced_bold_explore=s.forced_bold_explore,
+                cliff_confirmed=s.cliff_confirmed,
+                tau=s.tau,
+                opening_score=s.opening_score,
+                door_frame_score=s.door_frame_score,
+                sky_score=s.sky_score,
+                pos_y=s.pos_y)
         vals["position_unchanged_60s"] = self.position_unchanged_60s()
         vals["coverage_stagnant_120s"] = self.coverage_stagnant_120s()
         vals["motion_entropy"] = self.motion_entropy()
