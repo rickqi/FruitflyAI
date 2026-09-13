@@ -81,10 +81,18 @@
 │   │ L4 行动   x/y 阶梯线 + jump 标记 + ack 虚标               │  │
 │   │      ────── scrub 手柄 + 因果连线(信号峰→响应点) ──────   │  │
 │   └──────────────────────────────────────────────────────┘  │
-├─ Activity map / Spatial memory / Escape Events（不变）        │
+├─ Activity map / Spatial memory（不变）                        │
+├─ Escape Events & Coverage（布局不变，但区头已含 Health 仪表环 + │
+│   Health/Repulsion/Anomaly pills + Coverage Trend 图；时间轴    │
+│   section 插入本区之前，勿覆盖这些元素）                       │
 │   [~] Escape 表行点击 → 时间轴跳到该事件 t-2s 并暂停          │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+> **2026 更新（布局审核后差异修正）**：
+> 1. Escape Events 区已新增 Health 环形仪表、三个状态 pills 与 Coverage Trend，原文"不变"声明过时——时间轴插入位置调整为本区之前。
+> 2. 决策解释卡（C 卡）与现有 `#decision` 单行状态**共存而非替换**：`#decision` 保留原位原样式，C 卡作为新增 section（class 含 `causal-ui`）插入其后；noviz 模式下仅折叠 C 卡，`#decision` 不受影响。
+> 3. 前置约束（见 causal-chain-final-review-t8.md）：CSS `section:nth-child(2)` 已改为 `section.motor-section` 类选择器（G1 已落码）；retina overlay 必须置于 `.eyes figure{position:relative}` 锚点内；所有因果元素携带 `causal-ui` 类以支持 `?noviz=1` 降级。
 
 因果卡 5 段横向布局在窄屏 (<900px) 折叠为纵向栈（flex-direction: column，箭头旋转 90°）。
 

@@ -159,6 +159,12 @@ function renderCausal(r) {
 
 ### 2.3 D3 · 视网膜扇区叠加（P2，纯 canvas 2D）
 
+> **前置约束（布局审核 V1/G1 修正，2026）**：
+> ① `.eyes figure` 需加 `position:relative`（CSS 前置），`retinaOverlay` 用 `position:absolute;inset:0` 叠放，否则相对 body 定位会叠错位；
+> ② overlay 的 CSS 显示尺寸必须与 `#retina` 完全一致（同走 `.eyes canvas` 的 `object-fit:contain` 拉伸规则），否则扇区网格与眼图错位；
+> ③ overlay canvas 与所有因果 section 均须携带 `causal-ui` 类（`?noviz=1`/`localStorage['fly64.causal']='off'` 降级契约，见 causal-chain-rollback-plan.md §3）；
+> ④ 插入新 section 前确认使用类选择器（`section.motor-section` 已替代 `section:nth-child(2)`，css L5/L12 已落码修正 G1）。
+
 `image('retina', packet.eyes)` 之后追加 overlay 层（独立 canvas `retinaOverlay` 叠放，避免每帧重画基图）：
 
 ```js

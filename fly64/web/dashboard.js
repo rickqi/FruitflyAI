@@ -1,5 +1,20 @@
 const $ = id => document.getElementById(id);
 const CYAN = '#6cdaed', GOLD = '#ffca72', INK = '#f0f4f8', MUTED = '#b0bdcc';
+// --- Causal-viz kill-switch (rollback plan §3) ---
+// Priority: URL ?noviz=1 > localStorage['fly64.causal']. When disabled, every
+// causal-chain section/overlay/control MUST carry class "causal-ui" so
+// body.causal-off collapses them back to the pre-causal layout. Existing
+// panels (health gauge, pills, #decision, etc.) are never tagged causal-ui
+// and are unaffected.
+const causalParam = (typeof location === 'object' && location.search)
+  ? new URLSearchParams(location.search).get('noviz') : null;
+const causalOff = causalParam === '1'
+  || (causalParam === null && typeof localStorage === 'object'
+      && localStorage.getItem('fly64.causal') === 'off');
+if (typeof window === 'object') {
+  window.__CAUSAL_ENABLED = !causalOff;
+  if (causalOff) document.body.classList.add('causal-off');
+}
 const states = ['off · F8', 'receiving', 'stale · released', 'torn · released', 'disconnected'];
 let meta, latest, displayed, history = [], frozen = false, receivedAt = 0, lastSeq = 0, brainRenderer, measuredLocations, streamError = '';
 const number = (n, digits=1) => Number.isFinite(n) ? n.toFixed(digits) : '—';
