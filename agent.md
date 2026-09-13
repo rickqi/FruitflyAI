@@ -386,6 +386,25 @@ D:\codes\flygym\
 
 ---
 
+### EVO Round 5 — Brain v1.3.0（交互习惯化制度化 + 双区提示框检测）
+
+**提交**: `25ea329` / `ef962e9` / `f6de494`
+
+**触发原因**: 马里奥卡在钥匙门前——提示框"You need a key to open this door."位于屏幕**上方**，单下视野检测漏检；文字语义（2-4°/字母 vs 5.6°小眼）物理不可读。
+
+**闭环过程**:
+1. **Monitor** — skill 执行发现 dialogue 误报（亮墙判为对话）
+2. **Diagnose** — SM64 对话框为暗色底白字 → 改判据为亮度骤降（lum<0.30 + Δ>0.12）
+3. **Fix** — 双区检测（上/下视野独立判定，上置 key-sign 框可检出）
+4. **Learn** — 交互习惯化：同位置 3 次无奖励对话 → 封锁 2min + 后退（果蝇 learned non-association）
+5. **PIN** — 回归测试 13→**16 用例**（新增 TestDualZoneDialogue：上置框✅/下置框✅/亮坡❌）
+6. **CONSOLIDATE** — BRAIN_VERSION 1.2.0→**1.3.0**，重启脑模型
+7. **RECORD** — 本记录 + skills.md 自进化章节（制度化 EXECUTE→DETECT→LEARN→PIN→VERSION→CONSOLIDATE→RECORD 七步循环）
+
+**能力增益**: 上置提示框检测 0→1；交互习惯化记忆；skills.md 具备自我更新迭代的制度化描述
+
+---
+
 ## 早期变更
 
 ### 基础设施

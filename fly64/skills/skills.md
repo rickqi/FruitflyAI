@@ -10,6 +10,32 @@ A complete closed-loop pipeline for autonomous motion diagnosis and self-improve
 
 **v2.2.0 新增 — 神经因果链路诊断**：接入仪表板因果归因遥测（`decision_source` / `cliff_conf` / gate 门控 / 16 扇区活跃度，`causal_schema=1`）。目的：把"马里奥为什么这样动"从黑盒变为**逐 tick 可审计的因果链**——在线由仪表板决策解释卡/因果时间轴直观展示（视觉信号→神经元→判断→行动），离线由 `neural_viz_skill` 量化 cliff 误报、门控抖动、preempt 风暴与信号→行动延迟，为进化修复提供证据基础。
 
+**v2.3.0 新增 — 自进化闭环制度化**（EVO Round 5，Brain v1.3.0）：
+
+skill 具备**自我更新迭代**能力，通过受控进化循环固定能力：
+
+```
+1. EXECUTE      run_one_cycle() 实时仪表板数据
+2. DETECT       目录未覆盖的新失败模式
+3. LEARN        新 pattern 写入 default_patterns.json + 代码修复
+4. PIN          回归测试固化（tests/test_evolution_capability.py，16 用例）
+5. VERSION      强制递增 BRAIN_VERSION（main.py）
+6. CONSOLIDATE  重启脑模型（"睡一觉"——新能力重启后才加载）
+7. RECORD       agent.md 闭环总结 + 推送；仪表板 /evolution.json 实时展示
+```
+
+**已完成的进化轮次**：
+
+| 轮 | Brain v | 获得能力 | 触发场景 |
+|:--:|:-------:|:---------|:---------|
+| 1 | 1.0.0 | circle_loop 地形门控 | 无障碍转圈 |
+| 2 | 1.0.x | 斜坡脱困覆盖 | 斜坡卡死 |
+| 3 | 1.1.0 | 伴发放电比较器（视觉盲区）| 墙角卡死 |
+| 4 | 1.2.0 | 双区对话检测 + 交互习惯化 + 场景命名 v2 + 全监控 | 钥匙门提示 |
+| 5 | 1.3.0 | 交互习惯化 + 上置框双区检测制度化 | 钥匙门上置提示框 |
+
+进化迭代历史在仪表板实时可见（`/evolution.json`：Brain 版本徽章、EVO 计数、每轮能力列表）。
+
 ## When to Use
 
 Use this skill when:

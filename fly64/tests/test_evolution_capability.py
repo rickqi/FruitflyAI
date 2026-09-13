@@ -144,6 +144,49 @@ class TestDialogueDiscrimination:
         assert self._model_dialogue(0.70, 0.005, 0.71) is False
 
 
+# ── 3b. dual-zone dialogue detection (EVO Round 5) ───────────────────
+
+class TestDualZoneDialogue:
+    """EVO Round 5: top-positioned boxes (key-sign) now detected."""
+
+    def _zone(self, lum, var, prev_lum, frames):
+        drop = (prev_lum - lum) > 0.12
+        dark = lum < 0.30 and var < 0.08
+        if dark and (frames > 0 or drop):
+            frames += 1
+        else:
+            frames = 0
+        return frames
+
+    def _dialogue(self, lo, hi):
+        """lo/hi = (lum, var, prev_lum) for lower/upper fields."""
+        lo_f = hi_f = 0
+        lo_prev, hi_prev = lo[2], hi[2]
+        total, active = 0.0, False
+        for _ in range(20):
+            lo_f = self._zone(lo[0], lo[1], lo_prev, lo_f)
+            hi_f = self._zone(hi[0], hi[1], hi_prev, hi_f)
+            lo_prev, hi_prev = lo[0], hi[0]
+            if lo_f >= 12 or hi_f >= 12:
+                total += 0.02
+            else:
+                total = 0.0
+            active = (lo_f >= 12 or hi_f >= 12) and total < 20.0
+        return active
+
+    def test_top_box_detected(self):
+        # key-sign: dark box UPPER field with sudden drop
+        assert self._dialogue((0.55, 0.05, 0.55), (0.12, 0.03, 0.55)) is True
+
+    def test_bottom_box_detected(self):
+        # standard dialogue: dark box LOWER field
+        assert self._dialogue((0.12, 0.03, 0.55), (0.60, 0.02, 0.60)) is True
+
+    def test_bright_slope_no_dialogue(self):
+        # bright slope + open sky — no box anywhere
+        assert self._dialogue((0.55, 0.01, 0.55), (0.70, 0.005, 0.70)) is False
+
+
 # ── 4. scene naming: relative-dominance top-2 ────────────────────────
 
 class TestSceneNamingCapability:
