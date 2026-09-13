@@ -1,8 +1,8 @@
 # EvolutionSkill — Self-Evolving Motion Diagnosis
 
-**Version**: 2.2.0
+**Version**: 2.4.0
 **Status**: Active
-**Category**: Autonomous Agent / Self-Improvement + Causal Diagnostics
+**Category**: Autonomous Agent / Self-Improvement + Causal Diagnostics + Social Capability
 
 ## Description
 
@@ -35,6 +35,23 @@ skill 具备**自我更新迭代**能力，通过受控进化循环固定能力�
 | 5 | 1.3.0 | 交互习惯化 + 上置框双区检测制度化 | 钥匙门上置提示框 |
 
 进化迭代历史在仪表板实时可见（`/evolution.json`：Brain 版本徽章、EVO 计数、每轮能力列表）。
+
+**v2.4.0 新增 — 社交能力（寻助）维度，可自我训练**：
+
+进化闭环的第 0 步是**能力边界判定**：DETECT 发现的失败模式若属训练教官层能力（语义理解/任务规划/道具获取——果蝇自身能力群之外），不得硬解，应转入 `SEEK-HELP` 分支：
+
+```
+0. BOUNDARY     失败模式属内生能力群？否 → SEEK-HELP
+   SEEK-HELP     生成结构化求助单四要素：
+                 能力缺口(需要什么) / 证据(decision_source+因果链+指标) /
+                 已试方案(内生尝试及失败原因) / 期望交付(明确能力/参数/知识)
+   TRAIN-SOCIAL  每次求助作为社交样本进入进化循环，量化三指标：
+                 时机(该问才问，避免过早求助/硬解延误) /
+                 请求质量(结构完整度、证据充分性、教官一次响应率) /
+                 成果转化(获得能力是否真正修复问题)
+```
+
+社交能力与其他能力一样在 patterns 进化循环中被训练——训练目标：**求助更少但更准**（内生能力边界随教学成果外推，社交调用频率下降而单次价值上升）。求助单写入 `seek_help/` 目录，响应结果回填评分；因果可视化（`decision_source` 分布异常）即"超出内生能力"的客观触发信号。
 
 ## When to Use
 
