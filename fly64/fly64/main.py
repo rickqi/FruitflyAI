@@ -527,15 +527,19 @@ async def run(args) -> None:
                 memory_ctrl.reflex.set_aggressive_mode(False)
 
             # ---- Pre-emptive collision avoidance (fires when NOT escaping/reflex) ----
+            collision_bias = False
             if not memory_ctrl.escape_behavior and not cliff_triggered:
                 # 1. Strong asymmetry > 0.3: bias turn AWAY from obstacle
                 if model.flow_asymmetry > 0.3:
                     control.x = min(control.x if control.x < 0 else -max(abs(control.x), 8) - 10, -8)
+                    collision_bias = True
                 elif model.flow_asymmetry < -0.3:
                     control.x = max(control.x if control.x > 0 else max(abs(control.x), 8) + 10, 8)
+                    collision_bias = True
                 # 2. Looming > 0.4: reduce forward speed
                 if model.flow_looming > 0.4:
                     control.y = int(control.y * 0.3)
+                    collision_bias = True
 
             # ---- Scene-change suppression: new area, give it time before escaping ----
             if model.scene_change and memory_ctrl.stuck_score < 0.5:
@@ -692,8 +696,30 @@ async def run(args) -> None:
                     _dlg_t = getattr(model, "_dialogue_pulse", 0.0)
                     control.jump = _dlg_t < 0.25   # brief A press at pulse start
             bridge.write_control(control.x, control.y, control.jump)
+            # ---- Decision attribution audit (read-only, telemetry only) ----
+            # Priority mirrors the control cascade (t8 review R2: includes
+            # collision + dialogue branches so decision_source always matches
+            # the control actually written this tick).
+            if dlg_now:
+                decision_source = "dialogue"
+            elif cliff_triggered:
+                decision_source = "cliff_reflex"
+            elif reflex_override:
+                decision_source = "anomaly_reflex"
+            elif memory_ctrl.escape_behavior:
+                decision_source = "escape"
+            elif collision_bias:
+                decision_source = "collision"
+            elif control.jump:
+                decision_source = "jump"
+            else:
+                decision_source = "steering"
             replay.add((model.step_count - 1) * model.dt, frame, control, spikes, bridge.frame_metadata)
-            observatory.observe(frame, seq, control, spikes, bridge.game_status())
+            observatory.observe(frame, seq, control, spikes, bridge.game_status(),
+                                causal=dict(cliff_conf=round(memory_ctrl.cliff_confidence, 3),
+                                            stuck_conf=round(memory_ctrl.stuck_score, 3),
+                                            cliff_confirmed=bool(model.cliff_confirmed),
+                                            decision_source=decision_source))
             pending_jump |= control.jump
             latency_ms = (time.monotonic() - tick_start) * 1000
             rtf = model.step_count * model.dt / max(time.monotonic() - started, .02)

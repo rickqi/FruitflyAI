@@ -25,8 +25,9 @@ class Observatory:
         self.groups = dict(visual=model.visual, forward=model.forward,
                            left=model.turn_left, right=model.turn_right, jump=model.jump_nodes)
 
-    def observe(self, frame, seq, control, spikes, game):
+    def observe(self, frame, seq, control, spikes, game, causal=None):
         m = self.model
+        causal = causal or {}
         t = (m.step_count - 1) * m.dt
         if seq != self.frame_seq:
             self.preview = m.retina.preview(frame)
@@ -57,14 +58,20 @@ class Observatory:
                    frame_age=t-self.frame_time,
                    flow_asymmetry=m.flow_asymmetry,
                    flow_looming=m.flow_looming,
-                   flow_cliff=m.flow_cliff)
+                   flow_cliff=m.flow_cliff,
+                   cliff_conf=causal.get("cliff_conf"),
+                   stuck_conf=causal.get("stuck_conf"),
+                   cliff_confirmed=bool(causal.get("cliff_confirmed", False)),
+                   gate_forward=bool(rates["forward"] is not None and rates["forward"] > .4),
+                   gate_jump=bool(rates["jump"] is not None and rates["jump"] > 2.),
+                   decision_source=causal.get("decision_source", "steering"))
         self.rows.append(row)
         return row
 
     def packet(self, seq, **performance):
         denom = min(self.ticks, WINDOW)
         activity = np.rint(self.counts.astype(np.float32)/max(denom, 1)*255).astype(np.uint8)
-        meta = dict(schema=3, seq=seq, n=self.model.n, width=256, height=128,
+        meta = dict(schema=3, causal_schema=1, seq=seq, n=self.model.n, width=256, height=128,
                     dt=self.model.dt, window_ticks=denom, rate_max=1/self.model.dt,
                     has_comparison=self.has_comparison, visual_connected=self.model.visual_connected,
                     rows=self.rows, **performance)

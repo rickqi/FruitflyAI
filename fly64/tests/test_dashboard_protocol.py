@@ -84,3 +84,36 @@ def test_map_rate_quantization_has_fixed_scale():
     assert meta["window_ticks"] == 13
     assert payload[0] == 255
     assert payload[1:m.n] == bytes(m.n-1)
+
+
+CAUSAL_SOURCES = {"steering", "jump", "escape", "anomaly_reflex", "cliff_reflex",
+                  "collision", "dialogue"}
+
+
+def test_causal_fields_present_json_safe_and_degrade():
+    m = FlyModel(demo=True)
+    obs = Observatory(m)
+    frame = np.zeros((256, 384, 3), np.uint8)
+    # 1) No causal dict (legacy callers): fields degrade, never NaN/None crash.
+    control, spikes = m.step(frame)
+    row = obs.observe(frame, 1, control, spikes, GAME)
+    assert row["decision_source"] == "steering"
+    assert row["cliff_conf"] is None and row["stuck_conf"] is None
+    assert row["cliff_confirmed"] is False
+    assert row["gate_forward"] == (row["forward"] > .4)
+    assert row["gate_jump"] == (row["jump"] > 2.)
+    meta, _ = unpack(obs.packet(1))
+    assert meta["causal_schema"] == 1
+    json.dumps(meta, allow_nan=False)  # must stay JSON-safe
+    # 2) With causal dict: values pass through, enum validated, still JSON-safe.
+    for i in range(3):
+        control, spikes = m.step(frame)
+        obs.observe(frame, 2, control, spikes, GAME,
+                    causal=dict(cliff_conf=.91, stuck_conf=.42,
+                                cliff_confirmed=True, decision_source="cliff_reflex"))
+    meta, _ = unpack(obs.packet(2))
+    row = meta["rows"][-1]
+    assert row["cliff_conf"] == .91 and row["stuck_conf"] == .42
+    assert row["cliff_confirmed"] is True
+    assert row["decision_source"] in CAUSAL_SOURCES
+    json.dumps(meta, allow_nan=False)
