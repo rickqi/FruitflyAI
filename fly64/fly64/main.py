@@ -373,6 +373,12 @@ async def run(args) -> None:
         _evo_pipe = None
     _evo_last_run = 0.0
     _evo_findings = []
+    # Corollary-discharge comparator: expected vs actual displacement.
+    # Wall corners are invisible to texture-based vision (static frame,
+    # symmetric walls, zero transients) — but motor-vs-motion mismatch
+    # catches them regardless of what the eye sees.
+    _cmd_fail_frames = 0
+    _last_cmp_pose = None
     escape_x = 0
     escape_toggle_timer = 0.0
     escape_buffer = EscapeEventBuffer()
@@ -434,6 +440,21 @@ async def run(args) -> None:
             control, spikes = model.step(frame, model.step_count * model.dt,
                                          novelty=memory_ctrl.novelty,
                                          heading=heading)
+
+            # ---- Corollary discharge: action-effect comparator ----
+            # Forward command issued but position static = pushing into
+            # geometry (wall corner). Vision cannot see this; the motor
+            # vs measured displacement mismatch can.
+            _cur_cmp = (pose_ev[0], pose_ev[2])
+            if _last_cmp_pose is not None:
+                _moved = ((pose_ev[0] - _last_cmp_pose[0]) ** 2
+                          + (pose_ev[2] - _last_cmp_pose[1]) ** 2) ** 0.5
+                if max(0, control.y) * 0.6 > 25 and _moved < 3:
+                    _cmd_fail_frames += 1
+                else:
+                    _cmd_fail_frames = 0
+            _last_cmp_pose = _cur_cmp
+            command_decoupled = _cmd_fail_frames > 15
 
             # ---- Dialogue episode tracking (habituation counter) ----
             # Final dialogue control override happens just before
@@ -705,6 +726,13 @@ async def run(args) -> None:
                     event_counters["total_flow_avoid"] += 1
 
             latest_control = control
+            # ---- Corollary-discharge un-corner reflex ----
+            # ~1.2s of "commanding forward but not moving" = wedged in
+            # geometry. Reverse out + turn, then normal logic resumes.
+            if not dlg_now and _cmd_fail_frames > 60:
+                control.x = int(60 * (1 if (model.step_count // 30) % 2 else -1))
+                control.y = -50
+                control.jump = False
             # ---- Dialogue final override (after all other logic, so telemetry
             # still publishes every tick — no continue/skip) ----
             if dlg_now:
@@ -861,6 +889,7 @@ async def run(args) -> None:
                     "dialogue_active": getattr(model, "dialogue_active", False),
                     "interactive_near": getattr(model, "interactive_near", False),
                     "evo_findings": _evo_findings,
+                    "command_decoupled": command_decoupled,
                     "wall_score": round(model.wall_score, 4),
                     "ramp_score": round(model.ramp_score, 4),
                     "opening_score": round(model.opening_score, 4),

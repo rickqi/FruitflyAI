@@ -128,6 +128,24 @@
       "tags": ["control", "dead_state", "disconnected", "bridge"],
       "rollback_strategy": "investigate",
       "threshold_justification": "control_x/y both zero=no movement, stuck>15s=not just startup transient, jump=False=no escape attempt; combined with seq advancing indicates brain is running but outputting zero"
+    },
+    {
+      "id": "wall_corner_command_decoupled",
+      "name": "Wall corner — 视觉盲区：动作-效果失配卡角",
+      "version": "1.0.0",
+      "description": "Mario wedged in wall corner. Invisible to texture-based vision (static frame, symmetric walls, zero transients) — detected only via motor-vs-motion mismatch (corollary discharge comparator).",
+      "conditions": {
+        "command_effect_mismatch": true,
+        "mismatch_duration": {"min": 15}
+      },
+      "contradiction": "visual signals (temporal=0, ON/OFF=0, asymmetry=0) are identical to standing still in open field",
+      "diagnosis": "Visual causal chain has no action-effect comparator: 'stuck' is defined by commanded vs measured displacement (proprioception), which texture-based vision cannot supply. Fix: corollary-discharge comparator + reverse-out reflex.",
+      "fix_template": "# Fix: corollary discharge comparator (action-effect mismatch)\n# File: fly64/fly64/main.py\n# expected = control.y * 0.6; actual = pose displacement\n# mismatch if expected>25 && moved<3 for >15 frames\n# Reflex: reverse y=-50 + alternating turn to un-wedge",
+      "fix_files": ["fly64/fly64/main.py"],
+      "severity": "high",
+      "tags": ["corner", "proprioception", "corollary_discharge", "blind_spot"],
+      "rollback_strategy": "revert_added_block",
+      "threshold_justification": "expected>25 units/tick = meaningful forward command, moved<3 = static, >15 frames = not transient; reverse+turn physically un-wedges from 90-degree corners where asymmetry guidance is zero"
     }
   ]
 }
