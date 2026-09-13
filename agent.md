@@ -68,6 +68,21 @@ D:\codes\flygym\
 
 # 变更日志
 
+## 2026-09-13: EVO Round 10 — Brain v2.3.0（局部突围机制 local_breakout）
+
+**触发**：转圈分析发现 497.9s micro_loop 事件位移 0u。根因：forced_bold_explore 突围门控用**全局** visited_cells<20（已 400 格，永不触发）——检测用局部窗口、解药却用全局计数器，制度性死锁。
+
+**变更**（LEARN）：
+- `memory.py`：突围门控新增 `micro_loop 异常持续>60s` 条件（`_latest_anomaly_state/_latest_anomaly_dur` 透传）
+- `main.py`：①bold 期间覆盖活跃反射（`not reflex_override or bold_override`——micro_loop 反射本身就是转圈，覆盖才能突围）；②低置信悬崖转向分支加 `not forced_bold_explore` 门控（转圈主贡献者）；③decision_source 新增 `bold_explore`（优先于 anomaly_reflex）
+- BRAIN_VERSION 2.2.0→2.3.0；SKILL_VERSION 2.6.0→2.7.0
+
+**PIN**：test_evolution_capability.py 新增 4 用例（突围门控含 micro_loop 持久条件/原路径保留、bold 覆盖反射、悬崖分支门控、独立归因通道），31→35 用例全绿（含修复 re 未导入）。
+
+**CONSOLIDATE**：consolidate.sh 自动检测到**新游戏实例**（PID 10539，桥 /tmp/f64b_traj）→ 正确接新桥 → `brain_version=2.3.0` 在线。智能重启在游戏桥变化场景下再次验证有效。
+
+---
+
 ## 2026-09-13: EVO Round 9 — Brain v2.2.0（室内围闭度检测 + 天空蓝色度门控）
 
 **触发**：实测在建筑物内（蓝地毯/深色格纹天花板/立柱）场景被识别为"天空·山坡"。根因：sky_score 仅测上视野亮度（天花板灯/亮格纹误判为天空 0.46-0.82），ramp_score 把墙面明暗渐变当斜坡（0.41），classify_terrain 无室内类别。

@@ -30,11 +30,12 @@ from .model import FlyModel
 from .retina import BASES, CALIBRATION
 from .telemetry import Observatory
 from .memory import MemoryController
+from .scene_recognition import SceneRecognizer
 
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.2.0"
+BRAIN_VERSION = "2.3.0"
 SKILL_VERSION = "2.5.0"   # must mirror fly64/skills/evolution_skill.py SKILL_VERSION
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
@@ -314,19 +315,38 @@ def open_dashboard(url: str, project: Path):
         return None
 
 
-def _scene_name(model, memory_ctrl) -> str:
-    """Human-readable scene identification via relative feature dominance.
+def _scene_name(model, memory_ctrl, recognizer=None) -> str:
+    """Human-readable scene identification via profile matching + feature dominance.
 
-    Instead of absolute thresholds (which rarely pass on real signals —
-    measured features hover 0.3-0.5), rank features and name the top-2
-    above a floor of 0.25. Terrain classifier types map fully (8 types).
+    Pipeline:
+      1. If a ``SceneRecognizer`` is provided and its confidence exceeds 0.4,
+         return the SM64 level name with the short scene hash.
+      2. If a custom label exists for this scene hash, return that.
+      3. Fall back to the existing feature-based naming (top-2 dominant features).
     """
     t = getattr(model, "terrain", "mixed")
-    # Indoor/enclosed detection takes priority (EVO R9): blue-gated sky and
-    # structured non-blue upper field mean "inside", not "slope+sky".
+
+    # Step 1: SM64 profile-based recognition (highest priority)
+    if recognizer is not None:
+        level_id, confidence, tags = recognizer.recognize(model)
+        if confidence > 0.35 and level_id:
+            profile = recognizer.profiles.get(level_id)
+            level_name = profile["name"] if profile else level_id
+            h = (memory_ctrl.scene_id or "")[:4]
+            return f"{level_name} #{h}" if h else level_name
+
+    # Step 2: Custom label (if user assigned one for this scene hash)
+    h = (memory_ctrl.scene_id or "")[:4]
+    if recognizer and h:
+        custom = recognizer.get_label(h)
+        if custom:
+            return f"{custom} #{h}" if h else custom
+
+    # Step 3: Indoor/enclosed detection (EVO R9 override)
     if getattr(model, "enclosure_score", 0.0) > 0.5:
-        h = (memory_ctrl.scene_id or "")[:4]
         return f"室内 #{h}" if h else "室内"
+
+    # Step 4: Feature-based naming (existing logic)
     feats = {
         "墙体": getattr(model, "wall_score", 0.0),
         "山坡": getattr(model, "ramp_score", 0.0),
@@ -334,7 +354,6 @@ def _scene_name(model, memory_ctrl) -> str:
         "门洞": getattr(model, "door_frame_score", 0.0),
         "天空": getattr(model, "sky_score", 0.0),
     }
-    # Special terrain types from the classifier take priority
     ground = getattr(model, "ground_angle", 1.0)
     if t == "water":
         base = "水域"
@@ -347,11 +366,9 @@ def _scene_name(model, memory_ctrl) -> str:
     elif t == "forest_edge":
         base = "密林边缘"
     else:
-        # Relative dominance: top-2 features above floor, joined
         ranked = sorted(feats.items(), key=lambda kv: kv[1], reverse=True)
         parts = [name for name, v in ranked if v >= 0.25][:2]
         base = "·".join(parts) if parts else "混合地形"
-    h = (memory_ctrl.scene_id or "")[:4]
     return f"{base} #{h}" if h else base
 
 
@@ -442,6 +459,10 @@ async def run(args) -> None:
     _loaded_sigs = memory_ctrl.load_scene_db()
     if _loaded_sigs:
         print(f"Scene database restored: {_loaded_sigs} signatures")
+    # Initialise SM64 scene recogniser with persistent custom labels
+    _labels_path = project / "artifacts" / "scene_labels.json"
+    _labels_path.parent.mkdir(parents=True, exist_ok=True)
+    scene_recognizer = SceneRecognizer(profiles_path=_labels_path)
     scene_save_counter = 0
     # Interaction loop breaker: a prompt that keeps re-appearing despite
     # A-presses (e.g. locked door) is an unrewarded stimulus — habituate.
@@ -571,7 +592,7 @@ async def run(args) -> None:
                     dialogue_help_sent = True
                     event_counters["total_help_requests"] += 1
                     DashboardHTTP.help_json = json.dumps(build_help_snapshot(
-                        _scene_name(model, memory_ctrl),
+                        _scene_name(model, memory_ctrl, scene_recognizer),
                         {"x": round(pose_ev[0], 1), "y": round(pose_ev[1], 1),
                          "z": round(pose_ev[2], 1)},
                         (f"interaction habituated: dialogue re-engaged >=3x near "
@@ -605,8 +626,12 @@ async def run(args) -> None:
                     cliff_triggered = True
                     cliff_turn_bias = float(turn_dir)
                     cliff_recovery_timer = 0.0
-                # 2. Low-confidence cliff: raw cliff low but no rapid drop (suppressed on ramps)
-                elif (not is_ramp or ramp_stuck_override) and model.flow_cliff < 0.25:
+                # 2. Low-confidence cliff: raw cliff low but no rapid drop
+                #    (suppressed on ramps).  EVO R10: also suppressed during
+                #    forced bold explore — this branch's per-tick turning is a
+                #    main contributor to the circling dead-loop.
+                elif ((not is_ramp or ramp_stuck_override) and model.flow_cliff < 0.25
+                      and not memory_ctrl.forced_bold_explore):
                     control.x = int(control.x * 1.5)
                     control.y = max(0, control.y - 20)
                     cliff_triggered = True
@@ -700,9 +725,14 @@ async def run(args) -> None:
                 memory_ctrl.escape_behavior = False
                 escape_toggle_timer = 0.0
 
-            # Escape control: override when stuck & looping (skip when reflex active)
+            # Escape control: override when stuck & looping (skip when reflex
+            # active).  EVO R10: forced_bold_explore overrides even an active
+            # reflex — the reflex response to a persistent micro_loop is the
+            # circling itself; bold displacement is the only way out.
             pose_ev = bridge.frame_metadata.get("pose", [0, 0, 0, 0])
-            if memory_ctrl.escape_behavior and not reflex_override:
+            bold_override = (memory_ctrl.escape_behavior
+                             and memory_ctrl.forced_bold_explore)
+            if memory_ctrl.escape_behavior and (not reflex_override or bold_override):
                 escape_toggle_timer += model.dt
                 model.escape_mode = True
                 if memory_ctrl.fallen:
@@ -906,6 +936,8 @@ async def run(args) -> None:
                 decision_source = "dialogue"
             elif cliff_triggered:
                 decision_source = "cliff_reflex"
+            elif bold_override:
+                decision_source = "bold_explore"
             elif reflex_override:
                 decision_source = "anomaly_reflex"
             elif memory_ctrl.escape_behavior:
@@ -988,6 +1020,7 @@ async def run(args) -> None:
                 if scene_save_counter >= 600:
                     scene_save_counter = 0
                     memory_ctrl.save_scene_db()
+                    scene_recognizer.save(_labels_path)
                 xs, zs, heats = memory_ctrl.spatial.get_heatmap()
                 DashboardHTTP.memory_json = json.dumps({
                     "stuck_score": round(memory_ctrl.stuck_score, 3),
@@ -1042,7 +1075,7 @@ async def run(args) -> None:
                     "blue_dom": round(getattr(model, "blue_dom", 0.0), 4),
                     "underwater": getattr(model, "underwater", False),
                     # Scene naming: human-readable scene identification
-                    "scene_name": _scene_name(model, memory_ctrl),
+                    "scene_name": _scene_name(model, memory_ctrl, scene_recognizer),
                     "scene_hash": (memory_ctrl.scene_id or "")[:6],
                     "skill_version": SKILL_VERSION,
                     "brain_version": BRAIN_VERSION,

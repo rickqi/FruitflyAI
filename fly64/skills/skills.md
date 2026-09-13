@@ -41,8 +41,13 @@ skill 具备**自我更新迭代**能力，通过受控进化循环固定能力�
 | **7** | **2.0.0** | **🎨 颜色/UV 视觉 + 🌀 4方向 EMD + 🎯 小目标追踪 + 🧠 多巴胺学习**（35 新信号，覆盖 38%→90%）| FlyWire 差距分析 → AgentTeams 方案 |
 | **8** | **2.1.0** | **🧭 T4/T5 式 HRC 方向选择运动检测（真运动真值）+ LC4 looming 种群化**（`hrc_asymmetry`/`hrc_right/left/up/down`/`true_hrc_asymmetry` + 16扇区×上下×左右 32键 `sector_loom`，escape 决策优先 HRC motion-truth）| MaleCNS-TrackMania 参照：亮度差分光流无方向选择性，真果蝇 T4/T5 经 Hassenstein-Reichardt 相关器实现方向选择 |
 | **9** | **2.2.0** | **🏠 室内围闭度检测 + 天空蓝色度门控**（`enclosure_score`/`upper_blue` 新字段，terrain 新增 `indoor` 类，场景名新增"室内"标签，sky_score 蓝色主导门控）| 实测在建筑物内被误识别为"天空·山坡"（天花板亮度误判为天空、墙面渐变误判为斜坡）|
+| **10** | **2.3.0** | **🚪 局部突围机制（local_breakout）**：micro_loop 持续 >60s → 强制 forced_bold_explore（原门控用全局 visited_cells<20 永不触发）+ bold 期间覆盖反射级联 + 门控低置信悬崖转向 + 新增 `decision_source=bold_explore` 归因 | 转圈死循环分析：497.9s micro_loop 位移 0u，突围被全局计数器锁死 |
 
 进化迭代历史在仪表板实时可见（`/evolution.json`：Brain 版本徽章、EVO 计数、每轮能力列表）。
+
+**v2.7.0 新增 — 局部突围机制 local_breakout**（EVO Round 10，Brain v2.3.0）：
+
+memory.py forced_bold_explore 门控新增条件：`micro_loop 异常持续 >60s` 即触发突围（原条件 `全局 visited_cells<20` 在有探索史的地图上永不成立，导致死循环无解）。main.py 级联：bold 期间可覆盖活跃反射（`not reflex_override or bold_override`）、门控低置信悬崖转向分支（转圈主要贡献者）、决策归因新增 `bold_explore` 通道（优先于 anomaly_reflex）。
 
 **v2.6.0 新增 — 室内围闭度检测**（EVO Round 9，Brain v2.2.0）：
 

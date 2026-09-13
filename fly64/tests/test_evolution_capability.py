@@ -7,6 +7,7 @@ refactors cannot silently regress it.  Run:
 """
 import importlib.util
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -356,3 +357,42 @@ class TestStrategyHotReload:
         assert "active_strategy.json" in src
         assert "_last_strategy_tick" in src
         assert '>= 600' in src, "strategy must reload every 600 ticks"
+
+
+# ── EVO Round 10: local breakout from persistent micro_loop ──────────────
+
+class TestEvoRound10:
+    """Pins Brain v2.3.0: persistent micro_loop (>60 s) triggers forced bold
+    explore that overrides the reflex cascade, bypasses the low-confidence
+    cliff turn branch, and is attributed as decision_source=bold_explore."""
+
+    def _src(self, name):
+        return (Path(__file__).resolve().parent.parent / "fly64" / name).read_text(encoding="utf-8")
+
+    def test_breakout_gate_includes_micro_loop_persistence(self):
+        src = self._src("memory.py")
+        assert "micro_loop_stuck" in src
+        assert '_latest_anomaly_state == "micro_loop"' in src
+        assert "_latest_anomaly_dur > 60.0" in src, \
+            "breakout must trigger after 60 s of persistent micro_loop"
+        # original confined-area path preserved (backward compatible)
+        assert "visited_cells < 20" in src
+
+    def test_bold_explore_overrides_reflex_in_cascade(self):
+        src = self._src("main.py")
+        assert "bold_override" in src
+        assert re.search(r"not reflex_override or bold_override", src), \
+            "bold explore must be able to override an active reflex"
+
+    def test_cliff_low_conf_branch_gated_during_bold(self):
+        src = self._src("main.py")
+        m = re.search(r"model\.flow_cliff < 0\.25[^:]*", src)
+        assert m and "forced_bold_explore" in m.group(0), \
+            "low-confidence cliff turn branch must be gated during bold explore"
+
+    def test_bold_explore_has_own_decision_source(self):
+        src = self._src("main.py")
+        assert 'decision_source = "bold_explore"' in src
+        # attribution must precede anomaly_reflex (bold overrides reflex)
+        assert src.index('decision_source = "bold_explore"') < \
+               src.index('decision_source = "anomaly_reflex"')

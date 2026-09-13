@@ -1425,6 +1425,7 @@ class MemoryController:
         )
         self._latest_anomaly_conf = anomaly_result["confidence"]
         self._latest_anomaly_dur = anomaly_result["duration_in_state"]
+        self._latest_anomaly_state = anomaly_result["state"]
 
         # ---- Scene signature matching (landmark memory) ----
         if scene_sig is not None and scene_sig.size == 128:
@@ -1453,9 +1454,17 @@ class MemoryController:
             self.failures.record_dead_end(x, z, heading)
 
         # ---- Forced bold explore detection ----
-        # When scene_change_rate < 0.05 (visually stagnant) AND visited_cells < 20
-        # (confined to a tiny area) for >10 seconds → nested loop breakout needed
-        if scene_change_rate < 0.05 and self.spatial.visited_cells < 20:
+        # (a) Original: scene_change_rate < 0.05 AND global visited_cells < 20
+        #     (confined to a tiny area) for >10 seconds.
+        # (b) EVO R10 local-breakout: a micro_loop anomaly persisting > 60 s is
+        #     a local deadlock regardless of global exploration history — the
+        #     original gate could never fire on an experienced map (global
+        #     visited_cells already in the hundreds), leaving the fly circling
+        #     forever in a dead-end.
+        micro_loop_stuck = (self._latest_anomaly_state == "micro_loop"
+                            and self._latest_anomaly_dur > 60.0)
+        if ((scene_change_rate < 0.05 and self.spatial.visited_cells < 20)
+                or micro_loop_stuck):
             self._scene_low_duration += self._bold_explore_dt
         else:
             self._scene_low_duration = 0.0
