@@ -1,12 +1,14 @@
 # EvolutionSkill — Self-Evolving Motion Diagnosis
 
-**Version**: 2.0.0
+**Version**: 2.2.0
 **Status**: Active
-**Category**: Autonomous Agent / Self-Improvement
+**Category**: Autonomous Agent / Self-Improvement + Causal Diagnostics
 
 ## Description
 
 A complete closed-loop pipeline for autonomous motion diagnosis and self-improvement in the Fly64 fruit fly brain-controlled SM64 system. Monitors Mario's motion in real-time, detects behavioral anomaly patterns (circle loops, ramp traps, coverage stagnation), diagnoses root causes, applies code fixes, verifies effectiveness, and auto-updates documentation.
+
+**v2.2.0 新增 — 神经因果链路诊断**：接入仪表板因果归因遥测（`decision_source` / `cliff_conf` / gate 门控 / 16 扇区活跃度，`causal_schema=1`）。目的：把"马里奥为什么这样动"从黑盒变为**逐 tick 可审计的因果链**——在线由仪表板决策解释卡/因果时间轴直观展示（视觉信号→神经元→判断→行动），离线由 `neural_viz_skill` 量化 cliff 误报、门控抖动、preempt 风暴与信号→行动延迟，为进化修复提供证据基础。
 
 ## When to Use
 
@@ -143,33 +145,34 @@ SM64 Game → Shared Memory Bridge → Fly64 Brain Model
 
 ---
 
-# 附：神经因果链路遥测扩展（v2.1.0，基于 t3 实施方案）
+# 附：神经因果链路遥测扩展（v2.2.0，P0–P3 已全量上线）
 
-> 来源：`fly64/docs/causal-chain-implementation.md`。telemetry row 新增字段为 **schema=3 加法演进**，对现有 `DataCollector` / `evolution_agent.py` 完全透明（旧代码用 `.get()` 只取自己关心的键，新增键不破坏任何既有断言）。
+> 来源：`fly64/docs/causal-chain-implementation.md` + `docs/causal-chain-final-review-t8.md`（GO 评审）。**当前状态：已部署生效**（commits 6bbf5be P0 / 7d5eba0 P1 / 813b74a P2 / 4e4cd00 P3，基线 tag `causal-baseline`）。telemetry row 新增字段为 **schema=3 加法演进**（meta 携带 `causal_schema=1` 哨兵），对现有 `DataCollector` / `evolution_agent.py` 完全透明（旧代码用 `.get()` 只取自己关心的键，新增键不破坏任何既有断言）。
 
-## 新增遥测字段（P1 上线后）
+## 已上线的遥测字段（实测验证）
 
-### /history.json 行新增（每 tick）
+### WebSocket packet rows（每 tick 行，仪表板主数据通道）
 | 字段 | 类型 | 含义 |
 |---|---|---|
-| `decision_source` | str | 控制级联胜出者：`cliff_reflex > anomaly_reflex > escape > jump > steering` |
+| `decision_source` | str | 控制级联胜出者，与当 tick 实际下发的 control 严格一致：`dialogue > cliff_reflex > anomaly_reflex > escape > collision > jump > steering` |
 | `cliff_conf` / `stuck_conf` | float 0–1 | cliff/stuck 判断置信度（透传 `memory_ctrl`） |
 | `cliff_confirmed` | bool | 多帧悬崖确认（`model.cliff_confirmed`） |
-| `gate_forward` / `gate_jump` | bool | 门控判定（0.4 Hz / 2.0 Hz） |
-| `escape_behavior` | bool | 逃脱行为激活 |
+| `gate_forward` / `gate_jump` | bool | 门控判定（0.4 Hz / 2.0 Hz，与渲染阈值同源） |
 
-### WebSocket packet rows 新增（仅新帧行，10Hz）
-`sector_contrast` (int[16] 0–100)、`sector_active` (uint16 bitmask)、`edge_dir`、`tau_sustained`、`tau_transient`；meta 新增 `causal_schema=1` 哨兵键（特性检测用）。
+### WebSocket packet rows（仅新帧行，10Hz 帧沿）
+`sector_contrast` (int[16] 0–100，显示空间 8 方位×上下分带)、`sector_active` (uint16 bitmask，阈值 >2/255)；meta 新增 `causal_schema=1` 哨兵键（特性检测用）。
+
+> 注意：`/history.json` 端点是独立的 1Hz 内存端点，**不携带**上述因果字段；因果数据在 WS packet（`ws://127.0.0.1:8766/`，F643 二进制）中。实时探针：`python3 tests/ws_probe.py 8766 /`。
 
 ## DataCollector 采集配置示例（Monitor Phase 增强）
 
 ```python
-# evolution_skill.DataCollector.fetch_all 建议追加（加法，不改动既有 tuple 顺序时可不改签名）：
-causal = self.fetch_json("/history.json")          # 已有端点，行内新增字段自动带入
-# 在 sample() 中容错透传（缺字段默认值保证 P0 未上线时不抛错）：
+# evolution_skill.DataCollector：因果字段走 WS packet rows（不走 /history.json）。
+# 容错透传（缺字段默认值保证旧 packet 不抛错）：
 s = SensorSample(...,
-    decision_source=(causal or {}).get("decision_source", "steering") if causal else "steering",
-    cliff_conf=((causal or [{}])[-1].get("cliff_conf", 0.0) if causal else 0.0))
+    decision_source=row.get("decision_source", "steering"),
+    cliff_conf=row.get("cliff_conf", 0.0))
+# 特性检测：meta.get("causal_schema") >= 1 即因果字段可用
 ```
 
 新技能 `neural_viz_skill` 的采集配置（独立运行，不侵入 EvolutionPipeline）：
@@ -214,9 +217,17 @@ python3 -m fly64.skills.neural_viz_skill --input mock_causal.jsonl --report /tmp
 #    回归跑一轮 evolution 管线确认 findings 数量与 fix_log 行为不变
 python3 -m fly64.skills.evolution_skill --max-iterations 1
 
-# 3. 字段契约：追加 pytest（tests/test_dashboard_protocol.py 风格）断言
-#    decision_source ∈ 枚举 / sector_active < 2**16 / 仅新帧行携带 sector_* / 行可 json 序列化无 NaN
+# 3. 字段契约（已落地的 pytest）：
+#    tests/test_dashboard_protocol.py::test_causal_fields_present_json_safe_and_degrade
+#    断言 decision_source ∈ 枚举(含 collision/dialogue) / 仅帧行携带 sector_* / allow_nan=False JSON 安全
+
+# 4. 在线探针（仪表板运行时）：
+python3 tests/ws_probe.py 8766 /      # 打印 causal_schema / decision_source / sector_active
 ```
+
+## 仪表板因果组件降级开关（回滚保障）
+
+全部因果组件携带 `causal-ui` CSS 类。`?noviz=1`（或 `localStorage['fly64.causal']='off'`）一键隐藏决策解释卡/时间轴/扇区叠加/回放控件，恢复基础布局；`dashboard.js` 渲染入口 try/catch 隔离，因果异常不短路既有 render() 管线。详见 `docs/causal-chain-rollback-plan.md`（7 症状→嫌疑文件→回退命令）。
 
 ## Files（更新）
 
@@ -228,10 +239,12 @@ python3 -m fly64.skills.evolution_skill --max-iterations 1
 | `fly64/skills/__init__.py` | Package exports (13 symbols) |
 | `fly64/skills/evolution_agent.py` | v1 legacy agent |
 | `fly64/skills/neural_viz_skill.py` | **新增**：离线神经因果链路分析与报告（CausalRecorder / CausalAnalyzer / Markdown 报告） |
+| `fly64/web/dashboard.js` | 因果链前端：explain()/judgeText() 决策解释卡、drawSectors 扇区叠加、drawTimeline 四泳道时间轴 + ringBuffer、因果弧线、`?noviz=1` 降级开关 |
+| `fly64/tests/ws_probe.py` | WS packet 实时探针（验证 causal_schema/decision_source/sector 字段上线） |
 
 ## Trigger Keywords（追加）
 
-- neural viz, causal chain, decision source, preempt, cliff false positive, 因果链路, 神经可视化, 离线分析, 决策溯源
+- neural viz, causal chain, decision source, preempt, cliff false positive, causal timeline, noviz, 因果链路, 神经可视化, 离线分析, 决策溯源, 因果时间轴, 回放
 
 ---
 

@@ -153,14 +153,23 @@ FLY64_BRIDGE=../runtime/fly64_bridge.bin ./build/us_pc/sm64.us.f3dex2e --skip-in
 
 | 面板 | 功能 |
 |------|------|
-| **Vision** | 果蝇 270° 复眼视野预览 + 帧差异 |
+| **Vision** | 果蝇 270° 复眼视野预览 + 帧差异 + **16 扇区活跃度叠加**（活跃扇区青色描边） |
+| **Causal Chain · why this action** | **决策解释卡**：五段因果链 RAW→SIGNAL→NEURAL→JUDGE→ACTION，实时归因当前动作由哪级控制级联生效（`decision_source`），悬停看判据、点选下钻 |
 | **Neurons → controls** | 神经活动实时图表（前进/转向/跳跃） |
 | **Brain** | 全脑 WebGL 热力图 |
+| **Spatial memory** | 空间记忆热力图 + Stuck/Loop/Novelty 状态 |
+| **Causal Timeline · 120 s** | **四泳道因果时间轴**（光流/池率+门控/判断条带+cliff▲/动作 x 线+jump 标记），悬停回看历史因果卡，点击跳转冻结回放，紫色弧线标注 cliff→转向响应的 **+ms 延迟** |
+| **Escape Events & Coverage** | 逃逸事件表（行可点击 → 时间轴跳到事件前 2s 回放）+ 健康仪表 + 覆盖率趋势 |
 | **Trajectory** | 马里奥运动轨迹回放（`/trajectory.html`） |
+
+**降级开关**：`http://127.0.0.1:8765/?noviz=1`（或 `localStorage['fly64.causal']='off'`）一键隐藏全部因果组件，恢复基础布局；因果组件异常不会影响既有面板渲染（try/catch 隔离）。
 
 API 端点：
 - `http://127.0.0.1:8765/trajectory.json` — 实时运动轨迹数据
 - `http://127.0.0.1:8765/bridge-status.json` — 桥接状态
+- `ws://127.0.0.1:8766/` — F643 二进制 packet（`causal_schema=1`；每 tick 行含 `decision_source`/`cliff_conf`/`stuck_conf`/`gate_forward`/`gate_jump`，帧行含 `sector_active`/`sector_contrast`）
+
+详见 [`docs/causal-chain-ui-design.md`](docs/causal-chain-ui-design.md)（设计）、[`docs/causal-chain-implementation.md`](docs/causal-chain-implementation.md)（实施）、[`docs/causal-chain-rollback-plan.md`](docs/causal-chain-rollback-plan.md)（回滚手册）。
 
 ## 🧠 技术架构
 
@@ -175,8 +184,10 @@ API 端点：
        ▼                     │                     ▼
 ┌──────────────────────────────────────────────────────────┐
 │  Web Dashboard (http://127.0.0.1:8765)                   │
-│  • 果蝇复眼视图 (270°) • 神经活动图表 • 全脑热力图      │
-│  • 轨迹回放 • 实时数据 WebSocket                         │
+│  • 果蝇复眼视图 (270°) + 16扇区活跃叠加                  │
+│  • 神经活动图表 • 全脑热力图 • 轨迹回放                  │
+│  • 决策解释卡 (decision_source 实时归因)                 │
+│  • 四泳道因果时间轴 (120s 回放 + 因果弧线)               │
 │  • Escape 事件表 • 覆盖率趋势 • 健康评分仪表盘           │
 └──────────────────────────────────────────────────────────┘
 ```
@@ -191,6 +202,9 @@ API 端点：
 | `fly64/retina.py` | 球面复眼采样（270° 视野） |
 | `fly64/memory.py` | 空间记忆 + 异常检测 + 反射回路 + 健康评分 |
 | `fly64/data.py` | MaleCNS 脑数据下载与预处理 |
+| `fly64/telemetry.py` | 只读观测仪：F643 packet 发布（池率/流信号/扇区叠加/因果归因字段，`causal_schema=1`） |
+| `web/dashboard.js` | 仪表板前端：渲染 + `explain()` 因果链派生 + 四泳道时间轴 + `?noviz=1` 降级开关 |
+| `skills/neural_viz_skill.py` | 离线因果链路分析技能（cliff 误报/门控抖动/preempt 风暴/信号→行动延迟检测 + Markdown 报告） |
 | `web/trajectory.html` | 马里奥运动轨迹回放页面 |
 
 ## 🧠 视觉→运动控制机制详解
@@ -408,6 +422,40 @@ Unlocated: 26,062 (15.6%)
   其他: ≈501 (1.9% of unlocated)
 ```
 
+## 🔍 决策级联与因果归因（Neural Causal Chain）
+
+马里奥的每一步动作由六级控制级联按优先级覆盖产生。仪表板新增的因果链组件让这条链路**全程可解释**：
+
+### 控制级联优先级（每 tick，高→低）
+
+| 优先级 | `decision_source` | 触发条件 | 动作 |
+|:----:|:------------------|:---------|:-----|
+| 1 | `dialogue` | 对话框激活（受限刺激） | 停止/交互/回避 |
+| 2 | `cliff_reflex` | `cliff_confirmed` + 快速绿幕跌落 | 急转 ±60 + 短暂后退 |
+| 3 | `anomaly_reflex` | 异常运动态（stuck_ramp/oscillating/wall_stuck/micro_loop） | 反射动作 |
+| 4 | `escape` | 卡住/循环/坠落 | 相位式转向+前冲爆发 |
+| 5 | `collision` | 光流不对称>±0.3 或 looming>0.4 | 转离障碍/减速 |
+| 6 | `jump` | tau 接近/sky 触发跳跃池 | A 键 |
+| 7 | `steering` | 其余 | 纯神经解码转向/前进 |
+
+`main.py` 在级联末端写入 `decision_source`（与实际下发的 control 严格一致），`telemetry.py` 将其连同 `cliff_conf`/`stuck_conf`/`gate_forward`/`gate_jump` 注入每个 WS packet tick 行（`causal_schema=1`）。
+
+### 仪表板因果组件
+
+- **决策解释卡**：五段链 RAW(视觉帧)→SIGNAL(光流)→NEURAL(池率+门控)→JUDGE(判断文本)→ACTION(x/y/ack)。被高优先级抢占的段显示删除线降饱和——直观回答"**为什么现在这个动作**"
+- **16 扇区叠加**：眼图上活跃扇区描边（帧间对比度 bit 掩码），显示视觉信号的空间来源
+- **因果时间轴**：120s 四泳道（光流/池率+gate 虚线/判断条带+cliff▲/动作），悬停回看、点击冻结回放、Escape 表行点击跳转事件前 2s
+- **因果弧线**：cliff 确认 → 转向响应的紫色弧线 + `+ms` 延迟标注——量化"**看到→反应**"用时
+- **离线分析**：`python3 -m fly64.skills.neural_viz_skill`（cliff 误报/门控抖动/preempt 风暴/延迟分布报告）
+
+### 兼容性与回滚
+
+- 协议为 **schema=3 加法演进**（`causal_schema=1` 哨兵），旧客户端 `.get()` 取键不受影响；发布增量 <4KB/s
+- 全部因果组件携带 `causal-ui` 类，`?noviz=1` 一键隐藏；渲染 try/catch 隔离，因果异常不拖垮既有面板
+- git 逐阶段提交（P0→P3），可独立 revert；基线 tag `causal-baseline`
+
+
+
 ## 🗺️ 导航能力分析 & 实施路线图
 
 基于对 Fly64 当前控制能力的全面分析（详见 `fly64-control/final-report.md`），以下为分阶段实施计划：
@@ -418,13 +466,14 @@ Unlocated: 26,062 (15.6%)
 |------|:----:|------|
 | 前进控制 | ✅ | y∈[0,70]，无反向后撤 |
 | 转向 | ✅ | x∈[-70,70]，左右竞争编码 |
-| 跳跃 | ✅ | jump_rate > 0.04Hz 触发 |
-| 场景识别 | ⚠️ 局部 | 仅时域对比检测逼近物体，无深度/物体识别 |
-| 光流计算 | ❌ 缺失 | temporal_energy 是全局标量，无方向运动检测 |
-| 卡住检测 | ❌ 未使用 | temporal_energy + game_frame 信号存在但无逻辑使用 |
-| 路线重复检测 | ❌ 缺失 | 仅 260ms 神经记忆窗口 |
-| 路线记忆 | ❌ 缺失 | 无空间表征 |
-| 路径规划 | ❌ 缺失 | 无目标/奖励/地图 |
+| 跳跃 | ✅ | jump_rate 门控 + 800ms 冷却 |
+| 光流计算 | ✅ | 8 方位不对称/looming/cliff/tau + 地形 8 类分类（Phase 2 已落地） |
+| 卡住检测 | ✅ | StuckDetector 三信号融合 + 坠落检测（Phase 1 已落地） |
+| 路线重复检测 | ✅ | loop_score + 50×50 空间记忆网格 + 场景签名数据库 |
+| 失败记忆避让 | ✅ | FailureMemory 死端/坠落格避让方向 |
+| 六级决策级联 | ✅ | 悬崖→反射→攻击→碰撞→逃脱 + decision_source 归因审计 |
+| 因果链路可视化 | ✅ | 决策解释卡/扇区叠加/时间轴/回放（本变更） |
+| 路径规划 | ❌ 缺失 | 无目标/奖励规划（远期） |
 
 ### 视觉处理瓶颈
 
