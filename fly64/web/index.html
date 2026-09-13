@@ -10,13 +10,17 @@
 <figure><figcaption>Frame difference <span>0–100%</span></figcaption><canvas id="change" width="256" height="128" aria-label="Absolute brightness change between successive frames"></canvas></figure>
 <div class="eye-note"><p id="sceneName" style="font-size:15px;font-weight:600;color:#6cdaed;margin-bottom:6px">Scene: …</p><p id="contrast">Waiting for two frames.</p><p id="visualRate">Eye-cell activity: —</p><p id="localMotion" style="font-size:12px;color:#b0bdcc">Local motion: —</p><p class="muted">First person · RGB · 270°<br>Difference = brightness, not flow.</p></div>
 </div></section>
+<section id="causal" class="causal-ui" aria-labelledby="causal-title">
+<div class="section-head"><h2 id="causal-title">Causal Chain · why this action</h2><span id="causalSource">—</span></div>
+<div id="causalChain" class="chain"><span class="chain-empty muted">Waiting for neural samples…</span></div>
+</section>
 <section class="motor-section" aria-labelledby="motor-title">
 <div class="section-head"><h2 id="motor-title">Neurons → controls</h2><span>10 s · Hz = spikes / cell / s · 260 ms window</span></div>
 <div id="decision" class="decision">Waiting for neural samples…</div>
-<div class="chart-row"><div class="chart-label"><strong>Forward pool</strong><span>DNg100 · spikes / cell / s</span><output id="forwardValue">—</output></div><canvas id="forwardChart" role="img" aria-label="Forward firing rate, zero to ten hertz, gate at point four hertz; triangles mark overflow"></canvas></div>
-<div class="chart-row"><div class="chart-label"><strong>Steering pools</strong><span>DNa02 + DNg13 · Hz</span><output id="steeringValue">—</output></div><canvas id="steeringChart" role="img" aria-label="Left and right pool rates, zero to ten hertz; triangles mark overflow"></canvas></div>
-<div class="chart-row"><div class="chart-label"><strong>Jump pool</strong><span>DNp01 + DNp10 · Hz</span><output id="jumpValue">—</output></div><canvas id="jumpChart" role="img" aria-label="Jump rate, two hertz gate, jump request and observed A marks"></canvas></div>
-<div class="chart-row"><div class="chart-label"><strong>Stick sent → received</strong><span>solid: sent · dashed: game</span><output id="stickValue">—</output></div><canvas id="stickChart" role="img" aria-label="Requested and observed game stick axes, minus seventy to plus seventy"></canvas></div>
+<div class="chart-row" id="row-forward"><div class="chart-label"><strong>Forward pool</strong><span>DNg100 · spikes / cell / s</span><output id="forwardValue">—</output></div><canvas id="forwardChart" role="img" aria-label="Forward firing rate, zero to ten hertz, gate at point four hertz; triangles mark overflow"></canvas></div>
+<div class="chart-row" id="row-steering"><div class="chart-label"><strong>Steering pools</strong><span>DNa02 + DNg13 · Hz</span><output id="steeringValue">—</output></div><canvas id="steeringChart" role="img" aria-label="Left and right pool rates, zero to ten hertz; triangles mark overflow"></canvas></div>
+<div class="chart-row" id="row-jump"><div class="chart-label"><strong>Jump pool</strong><span>DNp01 + DNp10 · Hz</span><output id="jumpValue">—</output></div><canvas id="jumpChart" role="img" aria-label="Jump rate, two hertz gate, jump request and observed A marks"></canvas></div>
+<div class="chart-row" id="row-stick"><div class="chart-label"><strong>Stick sent → received</strong><span>solid: sent · dashed: game</span><output id="stickValue">—</output></div><canvas id="stickChart" role="img" aria-label="Requested and observed game stick axes, minus seventy to plus seventy"></canvas></div>
 <div class="ack"><strong id="gameState">Game: waiting</strong><span id="jumpState">A request is not proof Mario left the ground.</span></div>
 </section>
 <section aria-labelledby="brain-title">

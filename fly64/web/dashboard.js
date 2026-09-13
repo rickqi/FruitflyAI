@@ -119,6 +119,67 @@ function render(packet) {
   $('populationRate').textContent=`Mean ${number(rate)} Hz${key==='all'?' ≈':''} · ${d.window_ticks*20} ms`;
   brainRenderer?.(packet.activity);
   $('performance').textContent=`${number(r.t,1)} s · ${number(d.rtf,2)}× real time · step ${number(d.latency_ms)} ms · ${number(d.rss_mb,0)} MB · ${d.dropped} dropped`;
+  renderCausal(r);
+}
+
+// ── Causal chain card (P0 · pure-frontend derivation, degrades to '—') ──
+const PURPLE = '#9d7bff', GREEN = '#7dff9d', RED = '#ff3c3c';
+const hz = v => Number.isFinite(v) ? v.toFixed(1) : '—';
+const pct = v => Number.isFinite(v) ? `${Math.round(v * 100)}%` : '—';
+const PRIORITY = { cliff_reflex: 4, anomaly_reflex: 3, escape: 2, jump: 1, steering: 0 };
+const CAUSAL_TARGET = { raw: null, signal: 'row-forward', neural: 'row-forward', judge: '#memory-title', action: 'row-stick' };
+
+export function judgeText(r) {
+  if (!Number.isFinite(r.cliff_conf)) return 'awaiting causal fields (P1 telemetry)';
+  if (r.decision_source === 'cliff_reflex')
+    return `CLIFF REFLEX preempts steering (conf ${number(r.cliff_conf, 2)}${r.cliff_confirmed ? ' · confirmed' : ''})`;
+  if (r.decision_source === 'escape')
+    return `escape (stuck ${number(r.stuck_conf, 2)}) preempts forward gate ${r.gate_forward ? '✓' : '✗'}`;
+  const gate = r.gate_forward ? 'gate 0.4 Hz ✓' : 'gate 0.4 Hz ✗';
+  const turn = Math.abs(r.right - r.left) > .1 ? `R-turn ${hz(r.right)} vs L ${hz(r.left)}` : 'neutral';
+  return `${turn} · forward ${hz(r.forward)} ${gate}`;
+}
+
+export function explain(r) {
+  return [
+    { stage: 'raw',    cls: '',    detail: `t=${number(r.t, 2)}s · ΔL ${pct(r.contrast_left)} / ΔR ${pct(r.contrast_right)}` },
+    { stage: 'signal', cls: 'sig', detail: `flow asym ${number(r.flow_asymmetry, 2)} · loom ${number(r.flow_looming, 2)} · cliff ${number(r.flow_cliff, 2)}${Number.isFinite(r.cliff_conf) ? ` (conf ${number(r.cliff_conf, 2)})` : ''}` },
+    { stage: 'neural', cls: 'neu', detail: `fwd ${hz(r.forward)}${r.gate_forward ? ' ✓gate' : r.gate_forward === undefined ? '' : ' ✗'} · L ${hz(r.left)} · R ${hz(r.right)} · jump ${hz(r.jump)}${r.gate_jump ? ' ✓' : ''}` },
+    { stage: 'judge',  cls: 'jud', detail: judgeText(r) },
+    { stage: 'action', cls: 'act', detail: `x=${r.x ?? '—'} y=${r.y ?? '—'}${r.jump_event ? ' +JUMP' : ''} → ack ${Number.isFinite(r.game_age) ? number(r.game_age, 0) : '—'}ms` },
+  ].map(seg => PRIORITY[r.decision_source] > 1 && seg.stage === 'neural'
+    ? { ...seg, preempted: true } : seg);
+}
+
+let lastCausal = 0;
+function renderCausal(r) {
+  if (typeof window === 'object' && window.__CAUSAL_ENABLED === false) return;
+  const now = performance.now();
+  if (now - lastCausal < 200) return;
+  lastCausal = now;
+  try {
+    const host = $('causalChain'); if (!host) return;
+    const src = $('causalSource');
+    if (src) src.textContent = r.decision_source ? `decision_source: ${r.decision_source}` : 'decision_source: — (P1)';
+    host.innerHTML = explain(r).map(s =>
+      `<div class="chain-seg ${s.cls}${s.preempted ? ' preempted' : ''}" data-stage="${s.stage}" tabindex="0" role="button" aria-label="${s.stage}: ${s.detail}">
+         <span class="chain-label">${s.stage.toUpperCase()}</span><span class="chain-detail">${s.detail}</span>
+         <span class="chain-tip" hidden>${s.detail}</span></div>`).join('<span class="chain-arrow">←</span>');
+  } catch (error) { /* causal card must never break the render pipeline (rollback plan §4) */ }
+}
+
+// Drill-down: click a chain segment → scroll to its panel + 1.5s flash (event delegation)
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', event => {
+    const seg = event.target.closest?.('.chain-seg');
+    if (!seg) return;
+    const targetId = CAUSAL_TARGET[seg.dataset.stage];
+    const target = targetId ? (targetId.startsWith('#') ? document.getElementById(targetId.slice(1)) : document.getElementById(targetId)) : null;
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    target.classList.add('causal-flash');
+    setTimeout(() => target.classList.remove('causal-flash'), 1500);
+  });
 }
 
 async function start() {
