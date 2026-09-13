@@ -6,6 +6,7 @@ refactors cannot silently regress it.  Run:
     python3 -m pytest fly64/tests/test_evolution_capability.py -v
 """
 import importlib.util
+import json
 import sys
 import time
 from pathlib import Path
@@ -263,3 +264,95 @@ class TestEvoRound6:
         assert m, "fallen recovery initial direction not found"
         expr = m.group(1).strip()
         assert "rng" in expr, f"initial direction must be random, got: {expr}"
+
+
+# ── 7. L2/L3 coach-help: /help.json snapshot + strategy hot-reload ────
+
+def _main_module():
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    try:
+        import fly64.main as m
+        return m
+    finally:
+        sys.path.pop(0)
+
+
+class TestCoachHelpSnapshot:
+    """L2: /help.json snapshot structure (mock data, no game needed)."""
+
+    def test_snapshot_structure(self):
+        import base64
+        import numpy as np
+        m = _main_module()
+        frame = np.zeros((4, 6, 3), np.uint8)
+        frame[0, 0] = 200
+        snap = m.build_help_snapshot(
+            "墙体 #abcd", {"x": 1.0, "y": 2.0, "z": 3.0},
+            "interaction habituated", frame)
+        assert set(snap) == {"scene_name", "position", "diagnosis",
+                             "frame_b64", "help_reason", "ts"}
+        assert snap["help_reason"] == "interaction_blocked"
+        assert snap["scene_name"] == "墙体 #abcd"
+        assert snap["position"] == {"x": 1.0, "y": 2.0, "z": 3.0}
+        raw = base64.b64decode(snap["frame_b64"])
+        assert raw == frame.tobytes()
+        assert snap["ts"] > 0
+
+    def test_snapshot_handles_missing_frame(self):
+        m = _main_module()
+        snap = m.build_help_snapshot(None, None, None, None)
+        assert snap["frame_b64"] == ""
+        assert snap["position"] == {}
+
+    def test_help_endpoint_registered_in_http_handler(self):
+        m = _main_module()
+        assert m.DashboardHTTP.help_json == b"{}"
+        src = (Path(__file__).resolve().parent.parent / "fly64" / "main.py").read_text(encoding="utf-8")
+        assert '"/help.json"' in src
+        assert "total_help_requests" in src
+
+
+class TestStrategyHotReload:
+    """L3: active_strategy.json parse — valid / invalid / missing."""
+
+    def _write(self, tmp_path, content):
+        p = tmp_path / "active_strategy.json"
+        p.write_text(content, encoding="utf-8")
+        return p
+
+    def test_valid_json_applies_fallen_recovery(self, tmp_path):
+        m = _main_module()
+        p = self._write(tmp_path, json.dumps(
+            {"fallen_recovery": {"mode": "directional_climb",
+                                 "climb_period": 3.5,
+                                 "persist_seconds": 1.5}}))
+        s = m.load_active_strategy(p)
+        assert s["mode"] == "directional_climb"
+        assert s["climb_period"] == pytest.approx(3.5)
+        assert s["persist_seconds"] == pytest.approx(1.5)
+
+    def test_invalid_json_falls_back_to_defaults(self, tmp_path):
+        m = _main_module()
+        p = self._write(tmp_path, "{not json!!")
+        s = m.load_active_strategy(p)
+        assert s == m.ACTIVE_STRATEGY_DEFAULTS
+
+    def test_missing_file_falls_back_to_defaults(self, tmp_path):
+        m = _main_module()
+        s = m.load_active_strategy(tmp_path / "does_not_exist.json")
+        assert s["mode"] == "mirror"
+        assert s["climb_period"] > 0
+
+    def test_unknown_mode_and_bad_numbers_rejected(self, tmp_path):
+        m = _main_module()
+        p = self._write(tmp_path, json.dumps(
+            {"fallen_recovery": {"mode": "teleport", "climb_period": "abc"}}))
+        s = m.load_active_strategy(p)
+        assert s["mode"] == "mirror"
+        assert s["climb_period"] == m.ACTIVE_STRATEGY_DEFAULTS["climb_period"]
+
+    def test_hot_reload_wired_into_main_loop(self):
+        src = (Path(__file__).resolve().parent.parent / "fly64" / "main.py").read_text(encoding="utf-8")
+        assert "active_strategy.json" in src
+        assert "_last_strategy_tick" in src
+        assert '>= 600' in src, "strategy must reload every 600 ticks"

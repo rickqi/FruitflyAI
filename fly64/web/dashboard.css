@@ -27,3 +27,12 @@ footer{font-size:12px;color:var(--muted);padding:3px 0}footer p{margin:0 0 3px}#
 @media(min-width:1100px){main{grid-template-rows:180px minmax(64px,auto) minmax(330px,1fr) 175px 275px minmax(150px,auto) 275px 50px}.eyes{grid-template-columns:260px 260px 1fr;height:138px}.eyes canvas{height:110px}.brain-row{grid-template-columns:420px 1fr;height:132px}.map{height:128px}.brain-row canvas{height:108px}.memory-row{height:150px}.memory-map{height:146px}.memory-row canvas{height:98px}.escape-table-scroll{max-height:120px}}
 @media(max-width:900px){#causal .chain{flex-direction:column;height:auto}.chain-arrow{transform:rotate(90deg);align-self:flex-start;margin-left:20px}}
 @media(max-width:650px){body{height:auto;min-height:100svh}header{height:auto;min-height:60px;flex-wrap:wrap;padding:8px 12px}h1 span{display:block;margin-left:0}.session{gap:8px}main{height:auto;padding:0 12px;display:block}.eyes{grid-template-columns:1fr 1fr;height:auto}.eye-note{grid-column:1/-1}.section-head{height:auto;min-height:28px;flex-wrap:wrap}section.motor-section{grid-template-rows:auto 40px repeat(4,85px) auto}.chart-row{grid-template-columns:145px minmax(0,1fr);gap:6px}.ack{flex-wrap:wrap}.brain-row{height:auto;grid-template-columns:1fr 1fr;gap:12px}.brain-note{font-size:13px}.memory-row{height:auto;grid-template-columns:1fr 1fr;gap:12px}.memory-note{font-size:13px}.interactive-row{grid-template-columns:1fr;gap:8px}.escape-table-wrap{grid-template-columns:1fr}.escape-table-scroll{max-height:90px}footer{padding-bottom:10px}}
+/* ── L2 coach-help: SOS badge + snapshot panel ─────────────────────── */
+@keyframes helpPulse{0%,100%{opacity:1}50%{opacity:.35}}
+.help-pill{padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700;white-space:nowrap;background:#8b2020;color:#fff;cursor:pointer;animation:helpPulse 1s ease-in-out infinite}
+.help-panel{margin-top:6px;padding:6px 8px;background:#0d1520;border:1px solid #8b2020;border-radius:3px;font-size:11px}
+.help-body{display:flex;gap:10px;align-items:flex-start;margin-top:4px}
+.help-body img{border:1px solid #1a2430;border-radius:3px;image-rendering:pixelated;max-width:160px;height:auto}
+.help-fields{flex:1;min-width:0;display:grid;grid-template-columns:auto 1fr;gap:1px 8px;font-variant-numeric:tabular-nums}
+.help-fields dt{color:var(--muted)}
+.help-fields dd{margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

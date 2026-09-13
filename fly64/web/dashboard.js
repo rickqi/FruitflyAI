@@ -894,3 +894,56 @@ if (typeof document !== 'undefined') {
   updateEvolutionDisplay();
   setInterval(updateEvolutionDisplay, 3000);
 }
+
+// ── L2 coach-help: SOS badge + snapshot panel ────────────────────────
+
+let lastHelpB64 = '';
+
+export function renderHelpSnapshot(d) {
+  const pill = $('helpPill');
+  const panel = $('helpPanel');
+  if (!pill || !panel) return !!d && d.help_reason != null;
+  const active = !!d && d.help_reason != null;
+  pill.hidden = !active;
+  panel.hidden = !active;
+  if (!active) return false;
+  const pos = d.position || {};
+  const posTxt = (pos.x !== undefined ? `x=${pos.x} ` : '') +
+    (pos.y !== undefined ? `y=${pos.y} ` : '') + (pos.z !== undefined ? `z=${pos.z}` : '');
+  const fields = [
+    ['scene', d.scene_name || '—'],
+    ['position', posTxt || '—'],
+    ['reason', d.help_reason],
+    ['diagnosis', d.diagnosis || '—'],
+    ['ts', d.ts != null ? new Date(d.ts * 1000).toLocaleTimeString() : '—'],
+  ];
+  const dl = $('helpFields');
+  if (dl) dl.innerHTML = fields.map(([k, v]) =>
+    `<dt>${k}</dt><dd title="${String(v).replace(/"/g, '&quot;')}">${v}</dd>`).join('');
+  const img = $('helpFrame');
+  if (img && d.frame_b64 && d.frame_b64 !== lastHelpB64) {
+    lastHelpB64 = d.frame_b64;
+    img.src = 'data:image/png;base64,' + d.frame_b64;
+  }
+  const rl = $('helpReasonLabel');
+  if (rl) rl.textContent = d.help_reason || '';
+  return true;
+}
+
+async function updateHelpDisplay() {
+  try {
+    const r = await fetch('/help.json');
+    if (!r.ok) { renderHelpSnapshot(null); return; }
+    renderHelpSnapshot(await r.json());
+  } catch (_) {}
+}
+
+if (typeof document !== 'undefined') {
+  updateHelpDisplay();
+  setInterval(updateHelpDisplay, 2000);
+  const hp = $('helpPill');
+  if (hp) hp.onclick = () => {
+    const p = $('helpPanel');
+    if (p) p.hidden = !p.hidden;
+  };
+}

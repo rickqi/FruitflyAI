@@ -11,7 +11,10 @@ import webbrowser
 import json
 import math
 import signal
-import resource
+try:
+    import resource
+except ImportError:  # POSIX-only; Windows lacks it
+    resource = None
 import sys
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
@@ -31,8 +34,8 @@ from .memory import MemoryController
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "1.4.0"
-SKILL_VERSION = "2.3.0"   # must mirror fly64/skills/evolution_skill.py SKILL_VERSION
+BRAIN_VERSION = "2.0.0"
+SKILL_VERSION = "2.4.0"   # must mirror fly64/skills/evolution_skill.py SKILL_VERSION
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
 _evo_iter_counter = 0
@@ -93,6 +96,7 @@ class DashboardHTTP(BaseHTTPRequestHandler):
     events_json = b"{}"
     history_json = b"[]"
     evolution_json = b"{}"
+    help_json = b"{}"   # L2 coach-help snapshot (see /help.json)
     signal_history = deque(maxlen=600)
 
     def do_GET(self):
@@ -105,6 +109,8 @@ class DashboardHTTP(BaseHTTPRequestHandler):
             body, mime = self.metadata, "application/json"
         elif path == "/evolution.json":
             body, mime = self.evolution_json, "application/json"
+        elif path == "/help.json":
+            body, mime = self.help_json, "application/json"
         elif path in self.assets:
             body, mime = self.assets[path]
         elif path == "/bridge-status.json" and self.bridge is not None:
@@ -344,6 +350,68 @@ def _scene_name(model, memory_ctrl) -> str:
     return f"{base} #{h}" if h else base
 
 
+# ── L2 coach-help snapshot ───────────────────────────────────────────
+
+def build_help_snapshot(scene_name, position, diagnosis, frame,
+                        help_reason="interaction_blocked") -> dict:
+    """Build the /help.json payload: full context for a human coach.
+
+    frame is an HxWxC uint8 array; it is base64-encoded raw (channel-last,
+    row-major) so no imaging dependency is required.
+    """
+    import base64
+    frame_b64 = ""
+    if frame is not None:
+        arr = np.ascontiguousarray(np.asarray(frame, np.uint8))
+        frame_b64 = base64.b64encode(arr.tobytes()).decode("ascii")
+    return {
+        "scene_name": scene_name or "",
+        "position": position or {},
+        "diagnosis": diagnosis or "",
+        "frame_b64": frame_b64,
+        "help_reason": help_reason,
+        "ts": round(time.time(), 2),
+    }
+
+
+# ── L3 operator strategy (active_strategy.json hot-reload) ───────────
+
+ACTIVE_STRATEGY_DEFAULTS = {
+    "mode": "mirror",          # mirror (alternate direction) | directional_climb
+    "climb_period": 2.0,       # seconds of forward burst after jump phase
+    "persist_seconds": 2.0,    # seconds of reduced-forward persistence phase
+}
+
+
+def load_active_strategy(path) -> dict:
+    """Read skills/active_strategy.json fallen_recovery section.
+
+    Missing file, invalid JSON, or malformed sections fall back to the
+    built-in defaults — a bad operator file can never brick recovery.
+    """
+    defaults = dict(ACTIVE_STRATEGY_DEFAULTS)
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return defaults
+    if not isinstance(data, dict):
+        return defaults
+    section = data.get("fallen_recovery", data)
+    if not isinstance(section, dict):
+        return defaults
+    strategy = dict(defaults)
+    mode = section.get("mode", defaults["mode"])
+    if mode in ("mirror", "directional_climb"):
+        strategy["mode"] = mode
+    for key in ("climb_period", "persist_seconds"):
+        try:
+            strategy[key] = max(0.1, float(section.get(key, defaults[key])))
+        except (TypeError, ValueError):
+            pass
+    return strategy
+
+
 async def run(args) -> None:
     project = Path(__file__).resolve().parent.parent
     cache = project / ".cache" / "malecns"
@@ -376,6 +444,11 @@ async def run(args) -> None:
     dialogue_last_pos = None
     dialogue_blocked_until = 0.0
     prev_dialogue_active = False
+    # L2 coach-help: one snapshot per habituation blocking episode
+    dialogue_help_sent = False
+    # L3 operator strategy, hot-reloaded every 600 ticks
+    _active_strategy = dict(ACTIVE_STRATEGY_DEFAULTS)
+    _last_strategy_tick = 0
     # EvolutionSkill: on-demand diagnosis when escape states trigger
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -395,7 +468,8 @@ async def run(args) -> None:
     escape_toggle_timer = 0.0
     escape_buffer = EscapeEventBuffer()
     event_counters = {"total_escapes": 0, "total_falls": 0,
-                      "total_flow_avoid": 0, "current_stuck_duration": 0.0}
+                      "total_flow_avoid": 0, "total_help_requests": 0,
+                      "current_stuck_duration": 0.0}
     current_escape_event = None
     previous_escape: bool = False
     event_last_pos = (0.0, 0.0)
@@ -486,6 +560,30 @@ async def run(args) -> None:
                     dialogue_engagements = 0
             prev_dialogue_active = dlg_now
 
+            # ---- L2 coach-help snapshot (while habituation blocks) ----
+            if time.monotonic() < dialogue_blocked_until:
+                if not dialogue_help_sent:
+                    dialogue_help_sent = True
+                    event_counters["total_help_requests"] += 1
+                    DashboardHTTP.help_json = json.dumps(build_help_snapshot(
+                        _scene_name(model, memory_ctrl),
+                        {"x": round(pose_ev[0], 1), "y": round(pose_ev[1], 1),
+                         "z": round(pose_ev[2], 1)},
+                        (f"interaction habituated: dialogue re-engaged >=3x near "
+                         f"{dialogue_last_pos}; anomaly="
+                         f"{memory_ctrl.anomaly_state_name}"),
+                        frame)).encode()
+            elif dialogue_help_sent:
+                dialogue_help_sent = False
+                DashboardHTTP.help_json = json.dumps(
+                    {"help_reason": None}).encode()
+
+            # ---- L3 strategy hot-reload (every 600 ticks) ----
+            if model.step_count - _last_strategy_tick >= 600:
+                _last_strategy_tick = model.step_count
+                _active_strategy = load_active_strategy(
+                    project / "skills" / "active_strategy.json")
+
             # ---- Pre-emptive cliff avoidance (fires BEFORE escape, highest priority) ----
             cliff_triggered = False
             if model.step_count > 10:
@@ -571,13 +669,20 @@ async def run(args) -> None:
                 memory_ctrl.reflex.set_aggressive_mode(False)
 
             # ---- Pre-emptive collision avoidance (fires when NOT escaping/reflex) ----
+            # EVO R7: prefer the HRC direction-selective motion truth
+            # (true_hrc_asymmetry) once the correlator is warmed up; fall
+            # back to brightness-difference flow (true_asymmetry) otherwise.
             collision_bias = False
+            if model.hrc_available:
+                motion_asym = model.true_hrc_asymmetry
+            else:
+                motion_asym = model.flow_asymmetry  # legacy fallback (RAW)
             if not memory_ctrl.escape_behavior and not cliff_triggered:
                 # 1. Strong asymmetry > 0.3: bias turn AWAY from obstacle
-                if model.flow_asymmetry > 0.3:
+                if motion_asym > 0.3:
                     control.x = min(control.x if control.x < 0 else -max(abs(control.x), 8) - 10, -8)
                     collision_bias = True
-                elif model.flow_asymmetry < -0.3:
+                elif motion_asym < -0.3:
                     control.x = max(control.x if control.x > 0 else max(abs(control.x), 8) + 10, 8)
                     collision_bias = True
                 # 2. Looming > 0.4: reduce forward speed
@@ -601,18 +706,26 @@ async def run(args) -> None:
                     # biased recovery loops leftward); mirror each cycle keeps
                     # left/right alternating so one bad direction can't trap
                     # the recovery loop.
+                    # L3: burst/persist timing + mirror mode come from
+                    # active_strategy.json (hot-reloaded every 600 ticks).
+                    _climb = _active_strategy.get("climb_period", 2.0)
+                    _persist = _active_strategy.get("persist_seconds", 2.0)
                     if escape_x == 0:
                         escape_x = 50 if model.rng.random() < 0.5 else -50
                     if escape_toggle_timer < 0.4:
                         # Phase 1: Jump, no movement
                         control.x = 0; control.y = 0; control.jump = True
-                    elif escape_toggle_timer < 2.4:
-                        # Phase 2: Extended forward burst (2s) with alternating turn direction
+                    elif escape_toggle_timer < 0.4 + _climb:
+                        # Phase 2: forward burst (strategy climb_period)
                         control.x = escape_x; control.y = 80; control.jump = True
+                    elif escape_toggle_timer < 0.4 + _climb + _persist:
+                        # Phase 3: persistence — reduced forward, same heading
+                        control.x = escape_x // 2; control.y = 40; control.jump = True
                     else:
                         escape_toggle_timer = 0.0
-                        # Mirror turn direction for next cycle
-                        escape_x = -escape_x
+                        # Mirror turn direction for next cycle (strategy mode)
+                        if _active_strategy.get("mode", "mirror") == "mirror":
+                            escape_x = -escape_x
                         # Reverse-before-jump when stuck-in-fall >30s
                         if memory_ctrl.stuck_duration > 30:
                             control.x = -escape_x  # reverse away from obstacle
@@ -818,10 +931,13 @@ async def run(args) -> None:
                     except asyncio.QueueEmpty:
                         pass
                 packet = observatory.packet(dash_seq, rtf=rtf, latency_ms=latency_ms, dropped=dropped,
-                    rss_mb=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1e6)
+                    rss_mb=(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1e6
+                            if resource else 0.0))
                 packet_queue.put_nowait(packet)
                 log.write(json.dumps(dict(wall_s=tick_start-started, steps=model.step_count, rtf=rtf,
-                    latency_ms=latency_ms, rss_mb=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1e6,
+                    latency_ms=latency_ms,
+                    rss_mb=(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1e6
+                            if resource else 0.0),
                     x=control.x, y=control.y, jump=pending_jump, frame_seq=int(last_frame_seq),
                     dropped=dropped, visual_contrast=float(model.temporal_energy),
                     camera=bridge.frame_metadata, game=bridge.game_status()), default=str) + "\n")
@@ -858,6 +974,10 @@ async def run(args) -> None:
                     heading_rate=model.heading_rate,
                     control_x=control.x,
                 )
+                # Mirror memory controller state onto model for dopamine computation
+                model.stuck_duration = memory_ctrl.stuck_duration
+                model.fallen = memory_ctrl._fallen
+                model._revisit_penalty = memory_ctrl.revisit_penalty
                 # Periodic scene-database persistence (every ~600 ticks ≈ 12s)
                 scene_save_counter += 1
                 if scene_save_counter >= 600:
