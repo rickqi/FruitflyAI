@@ -12,6 +12,12 @@
    - **必须重启脑模型**——这是技能进化生效的基础（相当于"睡一觉"后新能力才被加载）
    - **必须递增 `main.py` 的 `BRAIN_VERSION`**（skill/行为管线更新推送时强制）
    - **必须将本轮 skill 闭环执行总结**（触发原因、发现、修复、能力变化）**作为一次完整进化记录写入变更说明并推送**
+8. **版本三处同步（强制契约）**：每次进化更新 skill 或脑模型版本时，以下三处必须同步一致，否则仪表板版本显示错误：
+   - `main.py` 的 `BRAIN_VERSION`（仪表板徽章数据源，经 flow.json 显示为 "Brain vX.Y.Z"）
+   - `main.py` 的 `SKILL_VERSION` 镜像常量（必须镜像 `skills/evolution_skill.py` 的 `SKILL_VERSION`）
+   - `skills/skills.md` 的版本号与进化轮次表
+   - 校验：`python fly64/tests/check_version.py` 必须通过（镜像一致性守护）；CONSOLIDATE 统一使用 `scripts/consolidate.sh` 智能重启（自动检测游戏进程选择完整/合成模式，禁止手工无脑 `--synthetic`）
+9. **进化历史持久化待办**：`/evolution.json` 的迭代记录目前存于内存 deque（重启即清空，EVO 徽章旁历史列表会归零）——需将进化历史持久化到 `runtime/evolution_history.json` 并在启动时加载（列入下一轮进化待办）
 8. 每轮进化能力需配套**回归测试**（`tests/test_evolution_capability.py`），确保进化能力可重复验证、不退化
 
 ## 项目结构
