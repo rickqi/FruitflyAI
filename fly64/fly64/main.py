@@ -422,6 +422,19 @@ async def run(args) -> None:
                                          novelty=memory_ctrl.novelty,
                                          heading=heading)
 
+            # ---- Dialogue mode override (HIGHEST priority) ----
+            # A dialogue box is up: stop moving entirely; pulse A (jump) every
+            # 1.5s to advance text. All escape/reflex/avoid logic is skipped
+            # until the box disappears.
+            if getattr(model, "dialogue_active", False):
+                control.x = 0
+                control.y = 0
+                _dlg_t = getattr(model, "_dialogue_pulse", 0.0)
+                control.jump = _dlg_t < 0.25   # brief A press at pulse start
+                bridge.write_control(control.x, control.y, control.jump)
+                pending_jump |= control.jump
+                continue
+
             # ---- Pre-emptive cliff avoidance (fires BEFORE escape, highest priority) ----
             cliff_triggered = False
             if model.step_count > 10:
@@ -775,6 +788,8 @@ async def run(args) -> None:
                     "scene_hash": (memory_ctrl.scene_id or "")[:6],
                     "local_motion": round(model.local_motion_energy, 4),
                     "local_motion_detected": model.local_motion_detected,
+                    "dialogue_active": getattr(model, "dialogue_active", False),
+                    "interactive_near": getattr(model, "interactive_near", False),
                     "wall_score": round(model.wall_score, 4),
                     "ramp_score": round(model.ramp_score, 4),
                     "opening_score": round(model.opening_score, 4),

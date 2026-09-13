@@ -304,6 +304,22 @@ class FlyModel:
         self_motion_est = abs(self.heading_rate) * 0.5
         self.local_motion_energy = max(0.0, self.temporal_energy - self_motion_est)
         self.local_motion_detected = self.local_motion_energy > 0.30
+        # --- Dialogue box detection: lower visual field suddenly covered by a
+        # large bright uniform block (SM64 dialogue occupies bottom ~40%) ---
+        lower = frame[frame.shape[0] // 2:, ...]
+        lower_lum = float(lower[..., 1].mean()) if lower.ndim == 3 else float(lower.mean())
+        lower_var = float(lower[..., 1].var()) if lower.ndim == 3 else 0.0
+        prev_lower_lum = getattr(self, "_prev_lower_lum", lower_lum)
+        self._prev_lower_lum = lower_lum
+        # Box appears: brightness jumps up AND region is uniform AND stable
+        self.dialogue_active = (lower_lum > 0.45 and lower_var < 0.02
+                                and abs(lower_lum - prev_lower_lum) < 0.15)
+        # --- Interactive object proximity: isolated vertical structure being approached ---
+        self.interactive_near = (
+            (getattr(self, "door_frame_score", 0.0) > 0.5
+             or (float(flow.get("edge_90", 0.0)) > 0.15 and self.wall_score < 0.3))
+            and self.tau != float("inf") and self.tau < 2.0
+        )
         # --- Optic flow signals ---
         flow = self.retina.compute_flow(rgb)
         self.tau = float(flow.get("tau", float("inf")))
@@ -478,6 +494,24 @@ class FlyModel:
         _nv_turn = (_nv - 0.5) * 0.15  # [-0.075, 0.075]
         self.v[self.turn_left] -= _nv_turn
         self.v[self.turn_right] += _nv_turn
+
+        # ---- Dialogue mode: neural suppression of movement + A-press drive ----
+        # A dialogue box covering the lower field means SM64 wants interaction.
+        # Suppress forward pool (stop walking), pulse jump pool (A advances text).
+        if getattr(self, "dialogue_active", False):
+            self.v[self.forward] -= 0.30          # stop forward drive
+            self._dialogue_pulse = getattr(self, "_dialogue_pulse", 0.0) + self.dt
+            if self._dialogue_pulse > 1.5:        # A-press every 1.5s to advance
+                self._dialogue_pulse = 0.0
+                self.v[self.jump_nodes] += 0.50
+        else:
+            self._dialogue_pulse = 1.5            # ready immediately on next box
+        # ---- CX interactive-mode gating ----
+        # Interactive target near (door/sign) → CX enters interaction mode:
+        # suppress escape circuitry current so the agent approaches, not flees.
+        if getattr(self, "interactive_near", False) and not getattr(self, "dialogue_active", False):
+            self.escape_current *= 0.3
+            self.v[self.forward] += 0.10          # gentle approach bias
 
         fired = self.v >= self.threshold
         self.v[fired] = self.reset
