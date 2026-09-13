@@ -18,13 +18,18 @@ HEADER_SIZE = 128
 FILE_SIZE = HEADER_SIZE + FRAME_BYTES
 A_BUTTON = 0x8000
 # Explicit hardware fences for cross-process seqlocks on Apple Silicon.
+# On Linux x86_64 the TSO memory model makes an explicit fence unnecessary —
+# the barrier is a no-op there (WSL2 Ubuntu fix).
 if sys.platform == "darwin":
     _memory_barrier = ctypes.CDLL(None).OSMemoryBarrier
     _memory_barrier.argtypes = []
     _memory_barrier.restype = None
+elif sys.platform == "linux":
+    def _memory_barrier():
+        pass  # no-op: x86-64 TSO ordering suffices for the seqlock
 else:
     def _memory_barrier():
-        raise RuntimeError("Fly64 shared-memory bridge currently targets macOS")
+        raise RuntimeError("Fly64 shared-memory bridge targets macOS/Linux only")
 
 
 class SharedBridge:
