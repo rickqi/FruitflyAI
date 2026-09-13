@@ -12,6 +12,7 @@ import json
 import math
 import signal
 import resource
+import sys
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -363,6 +364,15 @@ async def run(args) -> None:
     dialogue_last_pos = None
     dialogue_blocked_until = 0.0
     prev_dialogue_active = False
+    # EvolutionSkill: on-demand diagnosis when escape states trigger
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from fly64.skills.evolution_skill import EvolutionPipeline
+        _evo_pipe = EvolutionPipeline(auto_fix=False, window_seconds=120)
+    except Exception:
+        _evo_pipe = None
+    _evo_last_run = 0.0
+    _evo_findings = []
     escape_x = 0
     escape_toggle_timer = 0.0
     escape_buffer = EscapeEventBuffer()

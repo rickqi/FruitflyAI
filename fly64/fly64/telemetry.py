@@ -22,6 +22,8 @@ class Observatory:
         self.frame_time = 0.
         self.contrast = [0., 0.]
         self.has_comparison = False
+        self.sector_contrast = None
+        self.sector_active = None
         self.groups = dict(visual=model.visual, forward=model.forward,
                            left=model.turn_left, right=model.turn_right, jump=model.jump_nodes)
 
@@ -39,6 +41,22 @@ class Observatory:
                 self.change = np.repeat(np.rint(delta)[..., None], 3, axis=2).astype(np.uint8)
                 self.contrast = [float(delta[:, s:s+128][m.retina.mask[:, s:s+128]].mean()/255)
                                  for s in (0, 128)]
+                # Sector aggregation reuses the same delta array (frame edge only).
+                # Geometry: preview grid (128x256) split into 8 azimuth bands
+                # x upper/lower halves — display space of the eye preview, so the
+                # frontend overlay bands align exactly with the rendered image.
+                self.sector_contrast = None
+                self.sector_active = None
+                h, w = delta.shape
+                bw = w // 8
+                vals = [float(delta[r*h//2:(r+1)*h//2, c*bw:(c+1)*bw].mean())
+                        for c in range(8) for r in range(2)]
+                self.sector_contrast = [min(100, int(round(v / 255 * 100))) for v in vals]
+                active = 0
+                for i, v in enumerate(vals):
+                    if v > 2.0:
+                        active |= 1 << i
+                self.sector_active = active
             self.previous_preview = self.preview.copy()
             self.frame_seq, self.frame_time = seq, t
         slot = self.ticks % WINDOW
@@ -65,6 +83,9 @@ class Observatory:
                    gate_forward=bool(rates["forward"] is not None and rates["forward"] > .4),
                    gate_jump=bool(rates["jump"] is not None and rates["jump"] > 2.),
                    decision_source=causal.get("decision_source", "steering"))
+        if self.sector_active is not None:
+            row["sector_contrast"] = self.sector_contrast
+            row["sector_active"] = self.sector_active
         self.rows.append(row)
         return row
 

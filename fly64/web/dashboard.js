@@ -119,6 +119,9 @@ function render(packet) {
   $('populationRate').textContent=`Mean ${number(rate)} Hz${key==='all'?' ≈':''} · ${d.window_ticks*20} ms`;
   brainRenderer?.(packet.activity);
   $('performance').textContent=`${number(r.t,1)} s · ${number(d.rtf,2)}× real time · step ${number(d.latency_ms)} ms · ${number(d.rss_mb,0)} MB · ${d.dropped} dropped`;
+  for (const row of d.rows) sampleRing(row);
+  drawSectors(r);
+  renderTimelineTick(r);
   renderCausal(r);
 }
 
@@ -155,7 +158,7 @@ let lastCausal = 0;
 function renderCausal(r) {
   if (typeof window === 'object' && window.__CAUSAL_ENABLED === false) return;
   const now = performance.now();
-  if (now - lastCausal < 200) return;
+  if (!r.force && now - lastCausal < 200) return;
   lastCausal = now;
   try {
     const host = $('causalChain'); if (!host) return;
@@ -182,6 +185,144 @@ if (typeof document !== 'undefined') {
   });
 }
 
+// ── P2 · Sector overlay + 4-lane causal timeline + jump-freeze replay ──
+
+// 16 sectors: 8 azimuth bands x upper/lower over the 256x128 preview.
+// Bit order matches backend: az0_upper, az0_lower, az1_upper, ...
+function drawSectors(row) {
+  const cv = $('retinaOverlay'); if (!cv) return;
+  const ctx = cv.getContext('2d');
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  if (!Number.isInteger(row?.sector_active)) return;
+  const bw = cv.width / 8, bh = cv.height / 2;
+  for (let i = 0; i < 16; i++) {
+    const x = Math.floor(i / 2) * bw, y = (i % 2) * bh;
+    ctx.strokeStyle = '#354250';
+    ctx.strokeRect(x + .5, y + .5, bw - 1, bh - 1);
+    if (row.sector_active >> i & 1) {
+      ctx.strokeStyle = CYAN; ctx.lineWidth = 2;
+      ctx.strokeRect(x + 1.5, y + 1.5, bw - 3, bh - 3);
+      ctx.lineWidth = 1;
+    }
+  }
+}
+
+// 120s ring buffer, 0.25s sampling, filled from every arriving row.
+let ringBuffer = [];
+function sampleRing(r) {
+  if (!ringBuffer.length || r.t - ringBuffer[ringBuffer.length - 1].t >= .25) {
+    ringBuffer.push(r);
+    while (ringBuffer.length && r.t - ringBuffer[0].t > 120) ringBuffer.shift();
+  }
+}
+
+let replayRow = null;   // set while inspecting/jumped to a past sample
+function drawTimeline() {
+  const cv = $('timeline'); if (!cv) return;
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth, h = 120;
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  const ctx = cv.getContext('2d'); ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+  const rows = ringBuffer;
+  if (rows.length < 2) { ctx.fillStyle = MUTED; ctx.font = '11px sans-serif'; ctx.fillText('waiting for samples…', 8, 16); return; }
+  const t1 = rows[rows.length - 1].t, t0 = t1 - Math.min(120, t1 - rows[0].t);
+  const X = t => (t - t0) / (t1 - t0) * (w - 8) + 4;
+  const lanes = [[4, 32], [36, 60], [64, 84], [88, 112]];
+  const laneLabels = ['flow', 'pools Hz', 'judge', 'action'];
+  ctx.font = '9px sans-serif'; ctx.fillStyle = MUTED;
+  lanes.forEach(([, y2], i) => {
+    ctx.strokeStyle = '#1a2430'; ctx.strokeRect(4.5, lanes[i][0] + .5, w - 10, y2 - lanes[i][0] - 1);
+    ctx.fillText(laneLabels[i], 7, lanes[i][0] + 10);
+  });
+  const line = (key, color, lo, hi, y1, y2) => {
+    ctx.strokeStyle = color; ctx.beginPath();
+    let started = false;
+    for (const r of rows) if (r.t >= t0 && Number.isFinite(r[key])) {
+      const y = y2 - Math.max(0, Math.min(1, (r[key] - lo) / (hi - lo))) * (y2 - y1 - 4) - 2;
+      started ? ctx.lineTo(X(r.t), y) : (ctx.moveTo(X(r.t), y), started = true);
+    }
+    ctx.stroke();
+  };
+  // Lane 1: flow signals (-1..1)
+  line('flow_asymmetry', CYAN, -1, 1, lanes[0][0], lanes[0][1]);
+  line('flow_looming', GOLD, -1, 1, lanes[0][0], lanes[0][1]);
+  line('flow_cliff', RED, -1, 1, lanes[0][0], lanes[0][1]);
+  // Lane 2: pool rates (0..10 Hz) with gates
+  line('forward', CYAN, 0, 10, lanes[1][0], lanes[1][1]);
+  line('left', '#3fa8bc', 0, 10, lanes[1][0], lanes[1][1]);
+  line('right', GOLD, 0, 10, lanes[1][0], lanes[1][1]);
+  ctx.strokeStyle = '#536170'; ctx.setLineDash([2, 3]);
+  for (const gate of [.4, 2]) {
+    const y = lanes[1][1] - (gate / 10) * (lanes[1][1] - lanes[1][0] - 4) - 2;
+    ctx.beginPath(); ctx.moveTo(4, y); ctx.lineTo(w - 6, y); ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  // Lane 3: judgement bands — purple where gate_forward, red ▲ where cliff_confirmed
+  ctx.fillStyle = 'rgba(157,123,255,.55)';
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (r.t >= t0 && r.gate_forward) ctx.fillRect(X(rows[i - 1].t), lanes[2][0] + 2, Math.max(1, X(r.t) - X(rows[i - 1].t)), lanes[2][1] - lanes[2][0] - 6);
+  }
+  ctx.fillStyle = RED; ctx.font = '8px sans-serif';
+  for (const r of rows) if (r.t >= t0 && r.cliff_confirmed) ctx.fillText('▲', X(r.t) - 3, lanes[2][0] + 10);
+  // Lane 4: action — x stepped line (-80..80) + gold jump ticks
+  ctx.strokeStyle = GREEN; ctx.beginPath();
+  let started = false;
+  for (const r of rows) if (r.t >= t0 && Number.isFinite(r.x)) {
+    const y = lanes[3][1] - ((r.x + 80) / 160) * (lanes[3][1] - lanes[3][0] - 4) - 2;
+    started ? ctx.lineTo(X(r.t), y) : (ctx.moveTo(X(r.t), y), started = true);
+  }
+  ctx.stroke();
+  ctx.fillStyle = GOLD;
+  for (const r of rows) if (r.t >= t0 && r.jump_event) ctx.fillRect(X(r.t) - 1, lanes[3][0] + 2, 2, 5);
+  // Replay cursor
+  if (replayRow && replayRow.t >= t0) {
+    ctx.strokeStyle = PURPLE; ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.moveTo(X(replayRow.t), 4); ctx.lineTo(X(replayRow.t), h - 6); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+}
+
+// Timeline interaction: hover = inspect causal card of nearest sample;
+// click = jump & freeze at that sample (reuses frozen semantics).
+function timelineTime(clientX, cv) {
+  const rect = cv.getBoundingClientRect();
+  const frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  const rows = ringBuffer; if (rows.length < 2) return null;
+  const t1 = rows[rows.length - 1].t, t0 = t1 - Math.min(120, t1 - rows[0].t);
+  const target = t0 + frac * (t1 - t0);
+  return rows.reduce((best, r) => Math.abs(r.t - target) < Math.abs(best.t - target) ? r : best, rows[0]);
+}
+
+let lastTimeline = 0;
+function renderTimelineTick(r) {
+  const now = performance.now();
+  if (now - lastTimeline < 1000) return;
+  lastTimeline = now;
+  try { drawTimeline(); } catch (error) { /* never break render pipeline */ }
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('mousemove', event => {
+    const cv = $('timeline');
+    if (!cv || !cv.matches(':hover') || window.__CAUSAL_ENABLED === false) return;
+    const r = timelineTime(event.clientX, cv);
+    if (r) { try { renderCausal({ ...r, force: true }); } catch {} }
+  });
+  document.addEventListener('click', event => {
+    const cv = $('timeline');
+    if (!cv || !cv.contains(event.target) || window.__CAUSAL_ENABLED === false) return;
+    const r = timelineTime(event.clientX, cv);
+    if (!r) return;
+    replayRow = r; frozen = true; $('freeze').textContent = 'Resume live';
+    renderCausal({ ...r, force: true });
+    drawTimeline();
+    const info = $('timelineInfo');
+    if (info) info.textContent = `inspecting t=${number(r.t, 2)}s · click Freeze/Resume to return live`;
+  });
+}
+
 async function start() {
   const response=await fetch('/metadata.json');if(!response.ok)throw Error('Cannot load model metadata');meta=await response.json();$('model').textContent=meta.label.startsWith('DEMO')?'Synthetic fixture':`MaleCNS · ${meta.n.toLocaleString()} neurons`;
   const [pos,mask]=await Promise.all(['/positions.bin','/measured.bin'].map(path=>fetch(path).then(r=>{if(!r.ok)throw Error('Cannot load anatomy');return r.arrayBuffer();})));
@@ -198,7 +339,7 @@ async function start() {
     ws.onclose=()=>{receivedAt=0;if(!streamError)setTimeout(connect,1500);};
   }
   connect();
-  $('freeze').onclick=()=>{frozen=!frozen;$('freeze').textContent=frozen?'Resume live':'Freeze display';if(!frozen&&latest){history=latest.data.rows.slice();render(latest);}};
+  $('freeze').onclick=()=>{frozen=!frozen;$('freeze').textContent=frozen?'Resume live':'Freeze display';if(!frozen){replayRow=null;const info=$('timelineInfo');if(info)info.textContent='hover = inspect · click = jump & freeze';}if(!frozen&&latest){history=latest.data.rows.slice();render(latest);}};
   $('population').onchange=()=>{if(displayed)render(displayed);};
   window.addEventListener('resize',()=>{if(displayed)render(displayed);});
   setInterval(()=>{const stale=!receivedAt||performance.now()-receivedAt>1000;$('status').textContent=streamError||(stale?'Disconnected / stale':frozen?'Display frozen · game runs':'Live');$('status').dataset.state=stale?'bad':'ok';},250);
