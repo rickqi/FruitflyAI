@@ -864,9 +864,13 @@ if (typeof document !== 'undefined') {
 
 async function updateEvolutionDisplay() {
   try {
-    const r = await fetch('/evolution.json');
-    if (!r.ok) return;
-    const d = await r.json();
+    let r = await fetch('/evolution.json');
+    let d = r.ok ? await r.json() : {};
+    if (!d.brain_version) {
+      // fallback: flow.json carries brain_version immediately after boot
+      const fr = await fetch('/flow.json');
+      if (fr.ok) d.brain_version = (await fr.json()).brain_version;
+    }
     const bv = $('brainVerPill');
     if (bv) bv.textContent = 'Brain v' + (d.brain_version || '—');
     const iters = d.iterations || [];
