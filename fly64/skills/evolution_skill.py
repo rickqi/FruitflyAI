@@ -171,6 +171,15 @@ DEFAULT_PATTERNS = {
          "fix_files": ["fly64/fly64/model.py", "fly64/fly64/mushroom_body.py"],
          "severity": "low", "tags": ["mushroom", "learning", "p3", "dopamine"], "rollback_strategy": "revert_value",
          "threshold_justification": "assoc_count=0=no learning events after extended run, stuck>120s=sufficient run time"},
+        # ── Plasticity monitoring patterns (t4, Brain v2.4.0) ──
+        {"id": "dopamine_plateau", "name": "Dopamine gain plateau — Learning saturation detected", "version": "1.0.0",
+         "description": "Dopamine-gated gain has reached a maximum plateau without further improvement in error gradient. The plasticity proxy may be saturated — suggests exploring a new strategy or resetting gains.",
+         "conditions": {"dopamine_gain_avg": {"min": 2.0}, "learning_progress": {"max": 0.05}, "stuck_duration": {"min": 60}},
+         "diagnosis": "Dopamine gain saturated at ceiling (>=2.0) while learning_progress (mean abs error gradient) stagnates below 0.05. The gain modulation cannot further improve motor adaptation — consider resetting gains or switching to a new exploration strategy.",
+         "fix_template": "# Reset dopamine gains to break plateau\n# File: fly64/fly64/model.py\n# In step(): if dopamine_gain plateau detected, reset pathway gains\n# model.dopamine_gain.reset_gains() to restart adaptation",
+         "fix_files": ["fly64/fly64/model.py"],
+         "severity": "medium", "tags": ["plasticity", "dopamine", "plateau", "t4"], "rollback_strategy": "revert_value",
+         "threshold_justification": "dopamine_gain_avg>=2.0=near ceiling (GAIN_MAX=2.5), learning_progress<0.05=minimal error gradient (converged), stuck>60s=sufficient run time"},
     ]
 }
 
@@ -211,6 +220,13 @@ class SensorSample:
     door_frame_score: float = 0.0
     sky_score: float = 0.0
     pos_y: float = 0.0
+    # ── Plasticity monitoring (t4) ──
+    dopamine_gain_avg: float = 1.5
+    learning_progress: float = 0.0
+    mushroom_weight_changes: int = 0
+    reward_trend: float = 0.0
+    error_gradient_mean: float = 0.0
+    gain_update_count: int = 0
 
     def to_dict(self) -> dict: return asdict(self)
 
@@ -320,7 +336,14 @@ class DataCollector:
             opening_score=flow.get("opening_score", 0.0),
             door_frame_score=flow.get("door_frame_score", 0.0),
             sky_score=flow.get("sky_score", 0.0),
-            pos_y=pose[1])
+            pos_y=pose[1],
+            # Plasticity monitoring (t4)
+            dopamine_gain_avg=flow.get("dopamine_gain_avg", 1.5),
+            learning_progress=flow.get("learning_progress", 0.0),
+            mushroom_weight_changes=flow.get("mushroom_weight_changes", 0),
+            reward_trend=flow.get("reward_trend", 0.0),
+            error_gradient_mean=flow.get("error_gradient_mean", 0.0),
+            gain_update_count=flow.get("gain_update_count", 0))
         # Track consecutive motor-vs-motion mismatch frames (wall corners)
         self._decoupled_run = self._decoupled_run + 1 if s.command_decoupled else 0
         self.samples.append(s)
@@ -387,7 +410,14 @@ class DataCollector:
                 opening_score=s.opening_score,
                 door_frame_score=s.door_frame_score,
                 sky_score=s.sky_score,
-                pos_y=s.pos_y)
+                pos_y=s.pos_y,
+                # ── Plasticity metrics (t4) ──
+                dopamine_gain_avg=s.dopamine_gain_avg,
+                learning_progress=s.learning_progress,
+                mushroom_weight_changes=s.mushroom_weight_changes,
+                reward_trend=s.reward_trend,
+                error_gradient_mean=s.error_gradient_mean,
+                gain_update_count=s.gain_update_count)
         vals["position_unchanged_60s"] = self.position_unchanged_60s()
         vals["coverage_stagnant_120s"] = self.coverage_stagnant_120s()
         vals["motion_entropy"] = self.motion_entropy()
@@ -587,16 +617,22 @@ class VerificationEngine:
 # ═══════════════════════════════════════════════════════════════════════
 
 class SelfDocumenter:
-    def __init__(self, catalog: FixCatalog, path: Path = SKILL_README_PATH, pattern_catalog: Optional[PatternCatalog] = None):
+    def __init__(self, catalog: FixCatalog, path: Path = SKILL_README_PATH,
+                 pattern_catalog: Optional[PatternCatalog] = None):
         self.catalog = catalog; self.path = path; self.pattern_catalog = pattern_catalog
+        self.latest_plasticity: dict = {}
 
-    def update(self, extra: Optional[str] = None) -> str:
-        content = self._generate(extra)
+    def update(self, extra: Optional[str] = None,
+               plasticity_metrics: Optional[dict] = None) -> str:
+        if plasticity_metrics:
+            self.latest_plasticity = plasticity_metrics
+        content = self._generate(extra, plasticity_metrics or self.latest_plasticity)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(content, "utf-8")
         return content
 
-    def _generate(self, extra: Optional[str] = None) -> str:
+    def _generate(self, extra: Optional[str] = None,
+                  plasticity_metrics: Optional[dict] = None) -> str:
         stats = self.catalog.get_statistics()
         fixes = self.catalog.fixes
         patterns = self.pattern_catalog.patterns if self.pattern_catalog else []
@@ -636,6 +672,20 @@ class SelfDocumenter:
             f"| Avg Score | {stats['average_effectiveness_score']} |",
             "",
         ]
+        if plasticity_metrics:
+            lines += [
+                "## Plasticity Metrics",
+                "",
+                "| Metric | Value |",
+                "|--------|-------|",
+                f"| Dopamine Gain Avg | {plasticity_metrics.get('dopamine_gain_avg', 'N/A')} |",
+                f"| Learning Progress (mean |error| over 100 ticks) | {plasticity_metrics.get('learning_progress', 'N/A')} |",
+                f"| Mushroom Weight Changes (assoc_count) | {plasticity_metrics.get('mushroom_weight_changes', 'N/A')} |",
+                f"| Reward Trend (cumulative) | {plasticity_metrics.get('reward_trend', 'N/A')} |",
+                f"| Error Gradient Mean | {plasticity_metrics.get('error_gradient_mean', 'N/A')} |",
+                f"| Gain Update Count | {plasticity_metrics.get('gain_update_count', 'N/A')} |",
+                "",
+            ]
         if patterns:
             lines += [
                 "## Pattern Catalog",
@@ -742,6 +792,90 @@ class PatternCatalog:
 
     def get_pattern_count(self) -> int: return len(self.patterns)
 
+
+# ═══════════════════════════════════════════════════════════════════════
+# Coach Consult — LLM visual analysis for unsolvable situations
+# ═══════════════════════════════════════════════════════════════════════
+
+class CoachConsult:
+    """When the brain model hits an unsolvable situation, capture the game
+    frame + context snapshot and escalate to the DSH LLM (GLM-5.3-flash
+    multimodal) for scene analysis and strategy recommendation.
+
+    The brain model marks help_needed in evolution.json; the skill (running
+    inside the DSH agent environment where GLM-5.3-flash is available) picks
+    it up, sends the screenshot via the subagent tool, and writes the
+    recommendation to active_strategy.json for hot-reload by the brain.
+    """
+
+    PROMPT_TEMPLATE = (
+        "你是 SM64 果蝇脑控制系统的教练。分析当前游戏截屏和状态，回答：\n"
+        "1. 场景中有什么元素（门/坡/敌人/金币/平台/水体）？\n"
+        "2. 马里奥当前面临什么障碍或问题？\n"
+        "3. 建议的下一步行动（转向方向、速度、是否跳跃、目标位置）？\n"
+        "以 JSON 回复: {\"scene_elements\": [...], \"problem\": \"...\", "
+        "\"action\": \"...\", \"strategy\": {\"mode\": \"...\", \"param\": ...}}"
+    )
+
+    def __init__(self, dashboard_base: str = DASHBOARD_BASE):
+        self.dashboard_base = dashboard_base
+
+    def check_help_needed(self) -> Optional[dict]:
+        """Check if the brain model flagged an unsolvable situation."""
+        evo = DataCollector.fetch_json("/evolution.json")
+        if not evo:
+            return None
+        mem = DataCollector.fetch_json("/memory.json")
+        if not mem:
+            return None
+        # Trigger conditions: habituation blocked, or stuck>120s with no
+        # reflex active and no findings from existing patterns
+        blocked = mem.get("stuck_duration", 0) > 120
+        no_reflex = not mem.get("reflex_active", False)
+        anomaly = mem.get("anomaly_state", "idle") != "idle"
+        if blocked and no_reflex and anomaly:
+            return {
+                "scene_name": mem.get("scene_name", "?"),
+                "position": mem.get("cell_x", 0),
+                "stuck_duration": mem.get("stuck_duration", 0),
+                "anomaly_state": mem.get("anomaly_state", "?"),
+                "health_score": mem.get("health_score", 1.0),
+                "help_reason": "unsolvable_stuck",
+            }
+        return None
+
+    def get_frame_b64(self) -> Optional[str]:
+        """Fetch current game frame as base64 for multimodal LLM input."""
+        frame = DataCollector.fetch_json("/frame.json")
+        if frame and frame.get("frame_b64"):
+            return frame["frame_b64"]
+        return None
+
+    def format_consult_request(self, context: dict, frame_b64: Optional[str]) -> str:
+        """Format the escalation request text for the DSH LLM subagent."""
+        lines = [
+            "🆘 Coach Help Request — Fly64 brain model is stuck",
+            f"Scene: {context.get('scene_name', '?')}",
+            f"Stuck duration: {context.get('stuck_duration', 0):.0f}s",
+            f"Anomaly: {context.get('anomaly_state', '?')}",
+            f"Health: {context.get('health_score', 1.0):.2f}",
+            "",
+            "Please analyze the game screenshot and recommend:",
+            "1. What scene elements are visible?",
+            "2. What is blocking Mario?",
+            "3. What action should the brain model take next?",
+            "4. Write a strategy for active_strategy.json",
+        ]
+        if frame_b64:
+            lines.append("[Screenshot attached]")
+        return "\n".join(lines)
+
+    def write_strategy(self, strategy: dict, path: Optional[Path] = None):
+        """Write the LLM's recommended strategy for brain model hot-reload."""
+        p = path or (SKILL_DIR / "active_strategy.json")
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(strategy, indent=2, ensure_ascii=False), "utf-8")
+
 # ═══════════════════════════════════════════════════════════════════════
 # EvolutionPipeline - 5-phase orchestrator
 # ═══════════════════════════════════════════════════════════════════════
@@ -782,7 +916,16 @@ class EvolutionPipeline:
         except Exception as e: result.errors.append(f"Verify: {e}")
         try:
             s = self.documenter.cycle_summary(result.findings, result.verifications)
-            self.documenter.update(extra=s); result.documented = True
+            # Extract plasticity metrics from flow data for documentation
+            _plasticity = {}
+            if flow:
+                for _k in ("dopamine_gain_avg", "learning_progress",
+                           "mushroom_weight_changes", "reward_trend",
+                           "error_gradient_mean", "gain_update_count"):
+                    if _k in flow:
+                        _plasticity[_k] = flow[_k]
+            self.documenter.update(extra=s, plasticity_metrics=_plasticity)
+            result.documented = True
         except Exception as e: result.errors.append(f"Document: {e}")
         return result
 

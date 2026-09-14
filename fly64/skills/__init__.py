@@ -1,7 +1,7 @@
-# Fly64 Skills package — self-evolving closed-loop pipeline
+﻿# Fly64 Skills package 鈥?self-evolving closed-loop pipeline
 #
 # Core skill: evolution_skill (v2.0.0)
-#   Monitor → Diagnose → Fix → Verify → Document
+#   Monitor 鈫?Diagnose 鈫?Fix 鈫?Verify 鈫?Document
 #
 # Usage:
 #   from fly64.skills.evolution_skill import (
@@ -39,5 +39,5 @@ __all__ = [
     "FixEntry",
     "VerificationResult",
     "SensorSample",
-    "SKILL_VERSION",
-]
+    "SKILL_VERSION",`n    "CoachConsult",
+    "CoachConsult",`n]
