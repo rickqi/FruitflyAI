@@ -35,7 +35,7 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.10.0"
+BRAIN_VERSION = "2.10.1"
 SKILL_VERSION = "3.0.0"   # must mirror fly64/skills/evolution_skill.py SKILL_VERSION
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
@@ -149,7 +149,17 @@ class DashboardHTTP(BaseHTTPRequestHandler):
             except OSError:
                 body, mime = b'{"mode": "mirror"}', "application/json"
         elif path in self.assets:
-            body, mime = self.assets[path]
+            # Hot-reload: web assets are read from disk per request, so
+            # publishing a page never requires restarting the main process.
+            # Plain bytes values (measured.bin snapshot) pass through as-is.
+            _src, mime = self.assets[path]
+            if isinstance(_src, bytes):
+                body = _src
+            else:
+                try:
+                    body = _src.read_bytes()
+                except OSError:
+                    body, mime = b"", "text/plain"
         elif path == "/bridge-status.json" and self.bridge is not None:
             body, mime = json.dumps(self.bridge.game_status()).encode(), "application/json"
         elif path == "/trajectory.json":
@@ -320,12 +330,14 @@ def start_http(project: Path, model, port: int, ws_port: int) -> ThreadingHTTPSe
     DashboardHTTP.html = (project / "web" / "index.html").read_bytes()
     DashboardHTTP.positions = model.positions.astype("<f4", copy=False).tobytes()
     DashboardHTTP.assets = {
-        "/dashboard.js": ((project / "web/dashboard.js").read_bytes(), "text/javascript"),
-        "/dashboard.css": ((project / "web/dashboard.css").read_bytes(), "text/css"),
-        "/memory-heatmap.js": ((project / "web/memory-heatmap.js").read_bytes(), "text/javascript"),
-        "/trajectory.html": ((project / "web/trajectory.html").read_bytes(), "text/html"),
-        "/monitor-preview.html": ((project / "web/monitor-preview.html").read_bytes(), "text/html; charset=utf-8"),
-        "/layout-wireframe.html": ((project / "web/layout-wireframe.html").read_bytes(), "text/html; charset=utf-8"),
+        # (source path, mime) — read from disk on every request (hot-reload);
+        # measured.bin stays an in-memory snapshot of the live model.
+        "/dashboard.js": (project / "web/dashboard.js", "text/javascript"),
+        "/dashboard.css": (project / "web/dashboard.css", "text/css"),
+        "/memory-heatmap.js": (project / "web/memory-heatmap.js", "text/javascript"),
+        "/trajectory.html": (project / "web/trajectory.html", "text/html"),
+        "/monitor-preview.html": (project / "web/monitor-preview.html", "text/html; charset=utf-8"),
+        "/layout-wireframe.html": (project / "web/layout-wireframe.html", "text/html; charset=utf-8"),
         "/measured.bin": (model.position_measured.astype(np.uint8).tobytes(), "application/octet-stream"),
     }
     DashboardHTTP.metadata = json.dumps(dict(n=model.n, ws=ws_port, label=model.label,
@@ -1294,6 +1306,13 @@ async def run(args) -> None:
                     # Python→neuron error gradient bridge (t3)
                     "error_gradient": getattr(model, "_last_error_gradient", {}),
                     "corrective_current": list(getattr(model, "_corrective_current_applied", (0.0, 0.0))),
+                    # EVO: plasticity summary fields (used by EvolutionSkill pattern matching)
+                    "dopamine_gain_avg": round(_plasticity_metrics["dopamine_gain_avg"], 4),
+                    "learning_progress": round(_plasticity_metrics["learning_progress"], 4),
+                    "mushroom_weight_changes": _plasticity_metrics["mushroom_weight_changes"],
+                    "reward_trend": round(_plasticity_metrics["reward_trend"], 4),
+                    "error_gradient_mean": round(_plasticity_metrics["error_gradient_mean"], 4),
+                    "gain_update_count": _plasticity_metrics["gain_update_count"],
                 }, separators=(",", ":")).encode()
                 # Log anomaly state transitions to events buffer
                 current_anomaly = memory_ctrl.anomaly_state_name
