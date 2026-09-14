@@ -325,10 +325,11 @@ class TurnAdaptation:
     """
 
     def __init__(self, tau: float = 3.0, saturation: float = 0.5,
-                 gain: float = 0.18):
+                 gain: float = 0.18, breakout_gain: float = 0.25):
         self.tau = tau                # fatigue integration window (s)
         self.saturation = saturation  # pool activity (fraction) at full fatigue
         self.gain = gain              # max counter-drive current (V)
+        self.breakout_gain = breakout_gain  # oscillation → forward breakthrough
         self.left = 0.0               # fatigue of left-turn circuit
         self.right = 0.0              # fatigue of right-turn circuit
 
@@ -339,10 +340,22 @@ class TurnAdaptation:
         self.right = self.right * decay + max(0.0, act_right) * dt
 
     def counter_drive(self) -> tuple[float, float]:
-        """Return (drive_left, drive_right) counter currents in [0, gain]."""
+        """Return (drive_right, drive_left) counter currents in [0, gain]."""
         nl = min(1.0, self.left / max(self.saturation, 1e-6))
         nr = min(1.0, self.right / max(self.saturation, 1e-6))
         return nl * self.gain, nr * self.gain
+
+    def breakout_drive(self) -> float:
+        """Oscillation-in-place detector → forward breakthrough current.
+
+        BOTH circuits fatigued ≈ left/right alternation with no net heading —
+        the weavi-in-place signature.  Returns a forward-pool current that
+        scales with the balanced fatigue level, so the network breaks out of
+        the weave with straight displacement instead of turning.
+        """
+        nl = min(1.0, self.left / max(self.saturation, 1e-6))
+        nr = min(1.0, self.right / max(self.saturation, 1e-6))
+        return self.breakout_gain * min(nl, nr)
 
     def reset(self) -> None:
         """Clear both fatigue states (scene change / new exploration)."""
@@ -1415,6 +1428,16 @@ class FlyModel:
             self.v[self.turn_right] += _ad_l      # left fatigue → drive right
         if _ad_r > 0.0:
             self.v[self.turn_left] += _ad_r       # right fatigue → drive left
+
+        # EVO R16 · oscillation → forward breakthrough.  BOTH turn circuits
+        # fatigued = the weave-in-place signature (alternation with no net
+        # heading).  A forward-pool current plus mild bilateral turn
+        # inhibition converts the weave into straight displacement.
+        _brk = self._turn_adapt.breakout_drive()
+        if _brk > 0.0:
+            self.v[self.forward] += _brk
+            self.v[self.turn_left] -= _brk * 0.5
+            self.v[self.turn_right] -= _brk * 0.5
 
         # EVO R15 · cliff-edge tangential detour (FailureMemory → CX pathway).
         # When parked at a CONFIRMED cliff edge and FailureMemory knows a

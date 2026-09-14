@@ -624,6 +624,10 @@ class SceneRecognizer:
         self._current_confidence: float = 0.0
         self._smooth_level: str | None = None
         self._smooth_alpha: float = 0.15  # EMA smoothing factor
+        # EVO R16: online profile calibration + unknown-scene accounting
+        self.adapt_enabled: bool = True
+        self.adapt_lr: float = 0.01       # P50 drift rate toward observation
+        self.unknown_scenes: dict[str, int] = {}   # scene_hash → tick count
 
         if profiles_path is not None:
             self.load(profiles_path)
@@ -739,11 +743,41 @@ class SceneRecognizer:
                 # Only update EMA when confidence is reasonable
                 if confidence > 0.35:
                     self._smooth_level = best_id
+            # EVO R16 · online profile calibration: drift the recognised
+            # level's feature P50s a hair toward the observation (slow EMA)
+            # so the profiles track real SM64 rendering over time.
+            if self.adapt_enabled and confidence >= 0.6:
+                self._adapt_profile(best_id, features)
             return (best_id, confidence, best_tags)
         else:
             self._current_level = None
             self._current_confidence = 0.0
             return ("", 0.0, [])
+
+    def _adapt_profile(self, level_id: str,
+                       features: dict[str, float]) -> None:
+        """Nudge the matched profile's P50s toward the observation (η=0.01).
+
+        Long-run effect: hand-tuned profiles converge to the true SM64
+        rendering statistics without losing their P05/P95 guard bands.
+        """
+        prof = self.profiles.get(level_id)
+        if prof is None:
+            return
+        for key, spec in prof["features"].items():
+            obs = features.get(key)
+            if obs is None:
+                continue
+            spec["p50"] = spec["p50"] * (1.0 - self.adapt_lr) + obs * self.adapt_lr
+            # keep the guard bands centred on the drifting P50
+            half = (spec["p95"] - spec["p05"]) / 2.0
+            spec["p05"] = spec["p50"] - half
+            spec["p95"] = spec["p50"] + half
+
+    def note_unknown_scene(self, scene_hash: str) -> None:
+        """Account for a scene hash that matched no profile (C3 telemetry)."""
+        if scene_hash:
+            self.unknown_scenes[scene_hash] = self.unknown_scenes.get(scene_hash, 0) + 1
 
     # ── Custom label management ───────────────────────────────────────
 

@@ -75,6 +75,23 @@ D:\codes\flygym\
 
 # 变更日志
 
+## 2026-09-14: EVO Round 16 — Brain v2.10.0（震荡突破电流 + skill 层复明 + 常驻 EVO 循环）
+
+**触发**：缺陷审计（R15 后）：① TurnAdaptation 交替把"恒向转圈"变为"原地编织"——loop_score 仍饱和 1.0，缺 forward 突破机制；② flow.json 缺 5 个因果键（decision_source/cliff_conf/gate_forward/hrc_asymmetry/emd_on_total）→ EvolutionSkill 新检测模式永不命中（0/876 因果行可分析）；③ DiagnosisEngine 对缺失字段静默跳过。
+
+**变更（脑优先，零新 Python 控制判断）**：
+- `model.py` TurnAdaptation：新增 `breakout_drive()`——双侧转向回路同时疲劳（原地编织特征）→ forward 池突破电流（gain 0.15）+ 双侧 turn 池轻度抑制；step 内 spike 前注入
+- `main.py` flow_json：新增 `decision_source/cliff_conf/gate_forward/gate_jump/hrc_asymmetry/emd_on_total/emd_off_total/mb_dopamine/mb_mbon_forward/mb_mbon_jump`（skill 层复明 + MB 可观测）
+- `evolution_skill.py`：SensorSample 新增 `loop_score` 字段并接入 get_metrics；`micro_loop_weave` 新模式（micro_loop + loop≥0.8 + stuck>60 → 加大 breakout_gain）；`DiagnosisEngine.evaluate` 显式 **telemetry_gap** finding（缺失条件字段不再静默跳过）；`--max-iterations 0` = 常驻模式
+- `main.py` `_scene_name`：未匹配场景计入 `note_unknown_scene`（C3 在线聚类种子）
+- `scene_recognition.py`：`adapt_enabled/adapt_lr/note_unknown_scene`——识别命中且 conf≥0.6 时画像 P50 以 η=0.01 向实测漂移（P2-C1 在线校准），P05/P95 护栏随中心平移
+
+**PIN**：`tests/test_brain_alternation.py` 9/9（含 alternation 涌现）、`test_cliff_standoff.py` 8/8、`test_spin_loop_fix.py` 7/7；全量 384 passed / 5 failed 均为既有问题，**零新增失败**。
+
+**常驻闭环**：WSL 常驻 `evolution_skill --auto-fix --max-iterations 0`（`/tmp/evo.log`）——Fix/Verify 阶段首次真实参与在线闭环。
+
+---
+
 ## 2026-09-14: t13 修复轮 — Brain v2.9.1（LLM Coach Advice 生效性：死键接线 + 触发放宽 + prompt 语义卡 + HTTP 400 根修）
 
 **触发**：本轮分析确认 Coach Advice"说了就算"承诺四处断点——GLM 建议四个环节中三个不生效。

@@ -35,7 +35,7 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.9.1"
+BRAIN_VERSION = "2.10.0"
 SKILL_VERSION = "3.0.0"   # must mirror fly64/skills/evolution_skill.py SKILL_VERSION
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
@@ -367,6 +367,9 @@ def _scene_name(model, memory_ctrl, recognizer=None) -> str:
             level_name = profile["name"] if profile else level_id
             h = (memory_ctrl.scene_id or "")[:4]
             return f"{level_name} #{h}" if h else level_name
+        # EVO R16 · C3: account for scenes that matched no profile (the
+        # unknown-scene counter seeds future online clustering).
+        recognizer.note_unknown_scene((memory_ctrl.scene_id or "")[:6])
 
     # Step 2: Custom label (if user assigned one for this scene hash)
     h = (memory_ctrl.scene_id or "")[:4]
@@ -1222,6 +1225,17 @@ async def run(args) -> None:
                     "target_count": model.target_count,
                     "mb_assoc_count": getattr(model.mushroom, "assoc_count", 0),
                     "cliff_standoff_s": round(getattr(model, "cliff_standoff_s", 0.0), 1),
+                    # EVO R16: causal + plasticity telemetry for the skill layer
+                    "decision_source": decision_source,
+                    "cliff_conf": round(memory_ctrl.cliff_confidence, 3),
+                    "gate_forward": getattr(control, "forward_rate", 0.0) > 0.4,
+                    "gate_jump": getattr(control, "jump_rate", 0.0) > 2.0,
+                    "hrc_asymmetry": round(getattr(model, "true_hrc_asymmetry", 0.0), 4),
+                    "emd_on_total": round(model.emd_on_total, 4),
+                    "emd_off_total": round(model.emd_off_total, 4),
+                    "mb_dopamine": round(getattr(model.mushroom, "dopamine", 0.0), 4),
+                    "mb_mbon_forward": round(float(model.mushroom.mbon_outputs[0]), 4),
+                    "mb_mbon_jump": round(float(model.mushroom.mbon_outputs[3]), 4),
                     "local_motion": round(model.local_motion_energy, 4),
                     "local_motion_detected": model.local_motion_detected,
                     "dialogue_active": getattr(model, "dialogue_active", False),

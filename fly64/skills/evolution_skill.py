@@ -101,8 +101,8 @@ DEFAULT_PATTERNS = {
         {"id": "reflex_cooldown_gap", "name": "Reflex cooldown - Ineffective escape during cooldown (adaptive)", "version": "2.0.0",
          "description": "Reflex correctly detects anomaly but fixed cooldown prevents re-trigger during prolonged stuck.",
          "conditions": {"anomaly_state_not_idle": True, "reflex_active": False, "stuck_duration": {"min": 60}},
-         "diagnosis": "Fixed reflex cooldown (10s) prevents re-trigger during prolonged stuck; cooldown should be adaptive — scale inversely with stuck_duration so longer stuck periods allow more frequent reflex attempts.",
-         "fix_template": "# Make reflex cooldown adaptive based on stuck_duration\n# File: fly64/fly64/memory.py\n# In ReflexController._start_reflex: cooldown = max(2.0, base_cooldown - stuck_duration * 0.05)\n# This ensures: at 60s stuck -> cooldown=7.0s, at 120s -> cooldown=4.0s, at 160s+ -> cooldown=2.0s (minimum)",
+         "diagnosis": "Adaptive cooldown already exists (memory.py _start_reflex, EVO R6). The finding means the reflex is NOT being (re)triggered at all during prolonged stuck: investigate the ReflexController trigger gate (hysteresis / cooldown map / aggressive factor), not the cooldown value.",
+         "fix_template": "# Fix: Investigate reflex re-trigger gate, not cooldown\n# File: fly64/fly64/memory.py\n# Log why a trigger candidate is rejected (cooldown remaining, hysteresis,\n# aggressive factor). If cooldown is the blocker, tune _aggressive_cooldown_factor\n# or the adaptive floor — do NOT reintroduce a fixed cooldown.",
          "fix_files": ["fly64/fly64/memory.py"],
          "severity": "medium", "tags": ["reflex", "cooldown", "adaptive"], "rollback_strategy": "revert_value",
          "threshold_justification": "anomaly_state_not_idle=anomaly active, reflex_active=False=cooldown period, stuck>60s=1min without effective escape; adaptive cooldown formula derived from stuck_duration to allow more frequent reflex firings as stuck persists"},
@@ -125,8 +125,8 @@ DEFAULT_PATTERNS = {
         {"id": "fallen_recovery_stuck", "name": "Fallen recovery stuck - Recovery cycles ineffective", "version": "1.0.0",
          "description": "Agent is in fallen anomaly state and recovery cycles (jump+burst+turn) are not making progress.",
          "conditions": {"anomaly_state": {"eq": "fallen"}, "stuck_duration": {"min": 30}},
-         "diagnosis": "Always turning -50 (left) fails. Fix: mirror turn, extend burst to 2s with y=80, reverse-before-jump when stuck>30s.",
-         "fix_template": "# Fix: Fallen recovery - mirror turn, extend burst, add reverse\n# File: fly64/fly64/main.py",
+         "diagnosis": "The escape 5-phase state machine was deleted (P1 audit A3); fallen recovery now runs via escape_jump_drive + reflex.bold_direction() alternation + TurnAdaptation counter-drive. If recovery stalls, audit those three paths, not symbolic control writes.",
+         "fix_template": "# Fix: Fallen recovery — audit jump drive + alternation paths\n# Files: fly64/fly64/main.py, fly64/fly64/memory.py, fly64/fly64/model.py\n# 1. main.py: verify escape_jump_drive is set and model.step injects jump-pool current.\n# 2. memory.py bold_direction(): verify _last_direction flips each cycle.\n# 3. model.py TurnAdaptation: verify counter/breakout currents reach turn pools.",
          "fix_files": ["fly64/fly64/main.py"],
          "severity": "high", "tags": ["fallen", "recovery", "stuck", "escape"], "rollback_strategy": "revert_block",
          "threshold_justification": "anomaly_state='fallen'=fall zone, stuck_duration>30s=persistent stuck despite recovery"},
@@ -179,6 +179,22 @@ DEFAULT_PATTERNS = {
          "fix_files": ["fly64/fly64/main.py", "fly64/fly64/model.py", "fly64/fly64/memory.py"],
          "severity": "medium", "tags": ["cliff", "standoff", "tangent", "detour", "brain_first"], "rollback_strategy": "revert_added_block",
          "threshold_justification": "cliff_confirmed=multi-frame edge confirmed, standoff>20s = protection plateau (retreat+re-approach cycles), escape active = brain wants to move but cannot"},
+        {"id": "micro_loop_weave", "name": "Micro-loop weave — 原地编织（交替未产生位移）", "version": "1.0.0",
+         "description": "TurnAdaptation alternation is active (heading oscillates) but the loop window is still near-fully revisits: the weave produces no net displacement. The forward breakthrough current is too weak or gated off.",
+         "conditions": {"anomaly_state": {"eq": "micro_loop"}, "loop_score": {"min": 0.8}, "stuck_duration": {"min": 60}},
+         "diagnosis": "Spontaneous alternation converts circling into weaving, but weave-in-place still means zero displacement. Check breakout_drive gain in TurnAdaptation and that the forward-pool current is applied pre-spike.",
+         "fix_template": "# Strengthen oscillation → forward breakthrough\n# File: fly64/fly64/model.py\n# TurnAdaptation.breakout_drive: raise breakout_gain (0.15 → 0.25)\n# and verify the forward-pool injection is applied before spike generation",
+         "fix_files": ["fly64/fly64/model.py"],
+         "severity": "high", "tags": ["loop", "weave", "alternation", "breakout", "brain_first"], "rollback_strategy": "revert_value",
+         "threshold_justification": "anomaly=micro_loop=detector-confirmed circling, loop_score>=0.8=window near-fully revisits, stuck>60s=sustained weave despite alternation"},
+        {"id": "micro_loop_weave_signal", "name": "Micro-loop weave (signal-only) — 原地编织（行为信号判定，绕过 anomaly 分类器）", "version": "1.0.0",
+         "description": "Same weave-in-place signature detected purely from behavioral signals (loop_score/escape/stuck), firing even when the anomaly classifier still reports idle.",
+         "conditions": {"loop_score": {"min": 0.95}, "escape_behavior": True, "stuck_duration": {"min": 45}},
+         "diagnosis": "Behavioral weave signature without a detector-confirmed micro_loop state: classifier and behavior disagree. The weave is real — check breakout_drive gain and forward-pool injection placement.",
+         "fix_template": "# Verify breakout current reaches forward pool pre-spike\n# File: fly64/fly64/model.py\n# TurnAdaptation.breakout_drive: verify breakout_gain (0.25 since EVO R17 sync) is loaded.",
+         "fix_files": ["fly64/fly64/model.py"],
+         "severity": "high", "tags": ["loop", "weave", "alternation", "breakout", "signal_only", "brain_first"], "rollback_strategy": "revert_value",
+         "threshold_justification": "loop_score>=0.95=window almost all revisits (weave is certain), escape_behavior=true=brain is trying to escape, stuck>45s=earlier than the detector-gated variant"},
         # ── Plasticity monitoring patterns (t4, Brain v2.4.0) ──
         {"id": "dopamine_plateau", "name": "Dopamine gain plateau — Learning saturation detected", "version": "1.0.0",
          "description": "Dopamine-gated gain has reached a maximum plateau without further improvement in error gradient. The plasticity proxy may be saturated — suggests exploring a new strategy or resetting gains.",
@@ -212,6 +228,8 @@ class SensorSample:
     terrain: str = "?"
     reflex_active: bool = False
     forward_speed: float = 0.0
+    # ── EVO R17: control-derived condition fields (closes telemetry_gap) ──
+    escape_behavior: bool = False
     # ── Full-monitoring extension (v2.1): every dashboard signal ──
     scene_name: str = "?"
     scene_hash: str = ""
@@ -227,6 +245,7 @@ class SensorSample:
     danger_red_index: float = 0.0
     target_count: int = 0
     assoc_count: int = 0
+    loop_score: float = 0.0
     emd_on_down: float = 0.0
     tau: Optional[float] = None
     opening_score: float = 0.0
@@ -335,6 +354,7 @@ class DataCollector:
             terrain=flow.get("terrain", "?"),
             reflex_active=memory.get("reflex_active", False),
             forward_speed=bridge.get("y", 0),
+            escape_behavior=bool(memory.get("escape_behavior", False)),
             scene_name=flow.get("scene_name", "?"),
             scene_hash=flow.get("scene_hash", ""),
             command_decoupled=bool(memory.get("command_decoupled", False)),
@@ -349,6 +369,7 @@ class DataCollector:
             emd_on_down=float(flow.get("emd_on_down", 0.0)),
             target_count=int(flow.get("target_count", 0) or 0),
             assoc_count=int(flow.get("mb_assoc_count", 0) or 0),
+            loop_score=float(memory.get("loop_score", 0.0)),
             cliff_confirmed=bool(flow.get("cliff_confirmed", False)),
             tau=flow.get("tau"),
             opening_score=flow.get("opening_score", 0.0),
@@ -435,7 +456,20 @@ class DataCollector:
                 mushroom_weight_changes=s.mushroom_weight_changes,
                 reward_trend=s.reward_trend,
                 error_gradient_mean=s.error_gradient_mean,
-                gain_update_count=s.gain_update_count)
+                gain_update_count=s.gain_update_count,
+                # ── EVO R16: loop/standoff/plasticity heads ──
+                loop_score=s.loop_score,
+                danger_red_index=s.danger_red_index,
+                emd_on_down=s.emd_on_down,
+                target_count=s.target_count,
+                assoc_count=s.assoc_count,
+                cliff_standoff_s=s.cliff_standoff_s,
+                # ── EVO R17: control-derived condition fields (closes telemetry_gap) ──
+                control_magnitude=abs(s.control[0]) + abs(s.control[1]),
+                control_x_zero=s.control[0] == 0,
+                control_y_zero=s.control[1] == 0,
+                jump_not_active=not s.control[2],
+                escape_behavior=s.escape_behavior)
         vals["position_unchanged_60s"] = self.position_unchanged_60s()
         vals["coverage_stagnant_120s"] = self.coverage_stagnant_120s()
         vals["motion_entropy"] = self.motion_entropy()
@@ -454,7 +488,15 @@ class DiagnosisEngine:
         metrics = self.collector.get_metrics()
         findings: list[Finding] = []
         t = time.time()
+        missing_by_pattern: dict[str, list[str]] = {}
         for pattern in self.catalog.patterns:
+            # EVO R16: explicit missing-condition-field accounting.  A pattern
+            # whose condition fields are absent from the telemetry must not
+            # silently never-fire — surface the gap as a finding instead.
+            missing = [k for k in pattern.get("conditions", {})
+                       if metrics.get(k) is None]
+            if missing:
+                missing_by_pattern[pattern["id"]] = missing
             result = self._check(pattern, metrics)
             if result:
                 values, conf = result
@@ -463,6 +505,21 @@ class DiagnosisEngine:
                     diagnosis=pattern["diagnosis"], contradiction=pattern.get("contradiction", ""),
                     fix_template=pattern["fix_template"], fix_files=pattern.get("fix_files", []),
                     current_values=values, confidence=conf, timestamp=t))
+        if missing_by_pattern:
+            all_missing = sorted({k for ks in missing_by_pattern.values() for k in ks})
+            findings.append(Finding(pattern_id="telemetry_gap",
+                pattern_name="Telemetry gap — 条件字段缺失",
+                pattern_version=SKILL_VERSION, severity="low",
+                diagnosis=("Patterns skipped because their condition fields are absent "
+                           f"from telemetry: {all_missing} (patterns: "
+                           f"{sorted(missing_by_pattern)}). Expose the keys in "
+                           "main.py flow_json so the patterns can evaluate."),
+                contradiction="",
+                fix_template="# Expose missing condition keys in main.py flow_json/memory_json",
+                fix_files=["fly64/fly64/main.py"],
+                current_values={"missing_fields": all_missing,
+                                 "patterns": sorted(missing_by_pattern)},
+                confidence=1.0, timestamp=t))
         sev_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
         findings.sort(key=lambda f: (sev_order.get(f.severity, 99), -f.confidence))
         return findings
@@ -975,13 +1032,16 @@ def main():
     p = argparse.ArgumentParser(description="Fly64 EvolutionSkill v" + SKILL_VERSION)
     p.add_argument("--interval", type=int, default=5)
     p.add_argument("--auto-fix", action="store_true")
-    p.add_argument("--max-iterations", type=int, default=10)
+    p.add_argument("--max-iterations", type=int, default=10,
+                   help="cycles to run; 0 = resident mode (run until killed)")
     p.add_argument("--window", type=int, default=120)
     p.add_argument("--verify-window", type=int, default=60)
     p.add_argument("--patterns", type=str)
     args = p.parse_args()
 
-    print(f"Fly64 EvolutionSkill v{SKILL_VERSION}")
+    resident = args.max_iterations <= 0
+    print(f"Fly64 EvolutionSkill v{SKILL_VERSION}"
+          + ("  [RESIDENT]" if resident else ""))
     print("5-Phase: Monitor -> Diagnose -> Fix -> Verify -> Document")
     print(f"Interval: {args.interval}s | Auto-fix: {args.auto_fix}\n")
 
@@ -989,7 +1049,9 @@ def main():
         verification_window=args.verify_window,
         patterns_path=Path(args.patterns) if args.patterns else None)
 
-    for i in range(args.max_iterations):
+    i = 0
+    while resident or i < args.max_iterations:
+        i += 1
         bridge, memory, flow, events = pipe.collector.fetch_all()
         if not all([bridge, memory, flow, events]):
             print(f"[{datetime.now().strftime('%H:%M:%S')}] Waiting for dashboard...")
@@ -1010,7 +1072,7 @@ def main():
         time.sleep(args.interval)
 
     stats = pipe.fix_statistics
-    print(f"\nCompleted {args.max_iterations} iterations.")
+    print(f"\nCompleted {i} iterations.")
     print(f"Fixes: {stats['total_fixes']} (effective: {stats['effective']}, pending: {stats['pending']})")
     print(f"Rate: {stats['effectiveness_rate']:.1%}")
 

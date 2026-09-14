@@ -964,9 +964,13 @@ class MotionStateDetector:
               escape_behavior: bool = False,
               visited_cells: int = 0,
               loop_score: float = 0.0,
-              pos_y: float = 0.0) -> str:
+              pos_y: float | None = None) -> str:
         """Return the per-frame state name, prioritised by severity."""
-        if self._detect_fallen(pos_y):
+        # EVO R16 · P1-A3: pos_y validity gate.  Unknown elevation (None or
+        # the historical 0.0 default) must not vote FALLEN — SM64 ground sits
+        # at Y≈120, so 0.0-as-default masqueraded every anomaly as fallen.
+        fallen_active = pos_y is not None and pos_y != 0.0 and self._detect_fallen(pos_y)
+        if fallen_active:
             return self.FALLEN
         if self._detect_micro_loop(visited_cells, loop_score, stuck_duration):
             return self.MICRO_LOOP
@@ -990,7 +994,7 @@ class MotionStateDetector:
         escape_behavior: bool = False,
         visited_cells: int = 0,
         loop_score: float = 0.0,
-        pos_y: float = 0.0,
+        pos_y: float | None = None,
         control_x: int = 0,
     ) -> dict:
         """Feed one tick; returns ``get_state()``."""
@@ -1498,10 +1502,9 @@ class MemoryController:
 
         # EVO R15: cliff-edge standoff timer — detector-confirmed cliff while
         # escape is active ("cliff_detected" IS the post-window confirm flag).
-        if self._cliff_state.get("cliff_detected") and self.escape_behavior:
-            self._cliff_standoff_s += self._bold_explore_dt
-        else:
-            self._cliff_standoff_s = 0.0
+        self.update_standoff(self._bold_explore_dt,
+                             confirmed=bool(self._cliff_state.get("cliff_detected")),
+                             escaping=self.escape_behavior)
 
         # Store scene_change_rate for health scoring
         self._stored_scene_change_rate = scene_change_rate
@@ -1795,6 +1798,18 @@ class MemoryController:
     def reflex_triggered_micro_loop(self) -> bool:
         """True for one tick when micro_loop reflex fires."""
         return self.reflex.triggered_micro_loop
+
+    def update_standoff(self, dt: float, confirmed: bool, escaping: bool) -> None:
+        """EVO R15: accumulate the cliff-edge standoff timer.
+
+        Confirmed cliff + active escape = parked at the edge.  Any frame
+        without that combination resets the timer (the state is a plateau
+        detector, not a lifetime counter).
+        """
+        if confirmed and escaping:
+            self._cliff_standoff_s += dt
+        else:
+            self._cliff_standoff_s = 0.0
 
     @property
     def cliff_standoff_s(self) -> float:
