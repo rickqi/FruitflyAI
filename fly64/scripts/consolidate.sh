@@ -68,6 +68,8 @@ echo "[consolidate] brain_version=$BV  dashboard ok"
 # Restart the 10s autonomy loop (plugin/service.py) together with the brain
 # so autonomy never outlives a brain restart with a stale dashboard view.
 # Watchdog (plugin/watchdog.sh, cron/systemd-timer) keeps it alive afterwards.
+# LLM consultant env (API key) — root-only file on WSL, never committed.
+[[ -f "$PROJECT/plugin/llm.env" ]] && source "$PROJECT/plugin/llm.env"
 AUTONOMY_PID_FILE="$PROJECT/plugin/fly64-service.pid"
 if [[ -f "$AUTONOMY_PID_FILE" ]]; then
   _apid=$(cat "$AUTONOMY_PID_FILE" 2>/dev/null || true)

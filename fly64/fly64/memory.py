@@ -274,6 +274,11 @@ class SpatialMemoryMap:
         self._current_cell: tuple[int, int] | None = None
         self._history: deque[tuple[int, int]] = deque(maxlen=loop_window)
         self._revisit_count = 0
+        # EVO R11 fix: exact rolling-window revisit counting.  The old code
+        # only incremented _revisit_count on revisit and never decremented on
+        # window eviction, so the score diverged unboundedly (observed 104.9).
+        self._window_counts: dict[tuple[int, int], int] = {}
+        self._window_flags: deque[bool] = deque()
         self._coverage_history: deque[tuple[int, float]] = deque(maxlen=6000)
         self._last_coverage_tick = 0
 
@@ -305,10 +310,23 @@ class SpatialMemoryMap:
         key = self._key(x, z)
         self._current_cell = key
 
-        # Track revisits in rolling window
-        if key in self._history:
-            self._revisit_count += 1
+        # Track revisits in rolling window — exact counting: a visit is a
+        # "revisit" when the same key already exists in the current window;
+        # evictions decrement, so the score stays within [0, 1] forever.
+        revisit = self._window_counts.get(key, 0) > 0
+        if self._history.maxlen is not None and len(self._history) >= self._history.maxlen:
+            old_key = self._history.popleft()
+            old_flag = self._window_flags.popleft()
+            if self._window_counts.get(old_key, 0) > 0:
+                self._window_counts[old_key] -= 1
+            if old_flag:
+                self._revisit_count -= 1
         self._history.append(key)
+        self._window_flags.append(revisit)
+        self._window_counts[key] = self._window_counts.get(key, 0) + 1
+        if revisit:
+            self._revisit_count += 1
+        self._revisit_count = max(0, self._revisit_count)
 
         if key not in self._cells:
             # new cell
@@ -1109,6 +1127,18 @@ class ReflexController:
 
         # Micro-loop trigger flag (consumed by main.py)
         self._triggered_micro_loop: bool = False
+
+        # EVO R11: spin-loop fix — progress gate + mirror alternation.
+        # The adaptive cooldown (EVO R6) shrank to its 0.25 s floor during
+        # long stuck periods, re-firing the micro_loop reflex every ~0.3 s;
+        # the reflex's turn bursts then locked the agent into continuous
+        # circling (observed: anomaly=micro_loop for 973 s, heading 29°/s).
+        # A biological refractory gate: the reflex re-arms with a MIRRORED
+        # turn direction unless the agent has moved progress_radius units
+        # since the last attempt (spontaneous-alternation behaviour).
+        self._last_fire_pos: tuple[float, float] | None = None
+        self._last_direction: int = 0
+        self.progress_radius: float = 30.0
 
     # ---- helpers -----------------------------------------------------------
 

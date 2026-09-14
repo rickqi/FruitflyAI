@@ -539,8 +539,21 @@ async def run(args) -> None:
         """Worker thread: screenshot -> GLM -> dialogue_decision, <=10 min."""
         nonlocal llm_decision, llm_decision_episode, llm_decision_status
         try:
+            # EVO R11/T1: pass live context so the LLM decision has the
+            # diagnostic data (was empty {} — request without context is
+            # unanswerable even for a perfect model).
+            _dlg_ctx = {
+                "kind": "dialogue_decision",
+                "episode": ep,
+                "scene_name": getattr(model, "scene_name", "") or "",
+                "stuck_duration": round(memory_ctrl.stuck_duration, 1),
+                "anomaly_state": memory_ctrl.anomaly_state_name,
+                "habituated": dialogue_engagements >= 3,
+                "terrain": model.terrain,
+            }
             parsed = _dialogue_consultant.consult_dialogue(
-                frame_to_b64(frame), timeout=DIALOGUE_LLM_WAIT_S)
+                frame_to_b64(frame), context=_dlg_ctx,
+                timeout=DIALOGUE_LLM_WAIT_S)
             llm_decision = {"action": parsed.get("action", "none"),
                             "reason": parsed.get("reason", ""),
                             "ts": round(time.time(), 2)}

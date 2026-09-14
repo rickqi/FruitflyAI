@@ -111,13 +111,26 @@ def local_diagnosis(context: dict) -> dict:
 
     Keeps autonomy alive when both LLM transports are unavailable (no
     FLY64_LLM_* env and no live DSH session for the file handshake).
+    EVO T1: advice now includes concrete, actionable suggestions derived
+    from the context instead of a bare "LLM unavailable" note.
     """
     stuck = float(context.get("stuck_duration", 0.0))
     anomaly = context.get("anomaly_state", "?")
     scene = context.get("scene_name", "?")
-    advice = (f"[local] scene={scene} stuck={stuck:.0f}s anomaly={anomaly}; "
-              "LLM unavailable — brain continues with local EvolutionSkill "
-              "diagnosis and default escape/exploration reflexes.")
+    disp = context.get("disp_60s")
+    actions: list[str] = []
+    if anomaly == "micro_loop" or (stuck > 90):
+        actions.append("保持 forced_bold_explore 突围（转向0.5s/直行2.5s 占空比），"
+                       "突围朝向取 opening_score 高的扇区方位")
+    if disp is not None and disp < 30.0:
+        actions.append("60s 位移 <30u：连续 2 个突围循环零位移后跳转+转向90°换面")
+    if str(scene).startswith("室内") or "室内" in str(scene):
+        actions.append("室内态：悬崖规避降敏（绿地缺失正常），改为沿墙缘直行")
+    if not actions:
+        actions.append("维持当前 steering/escape 级联，10s 后复诊")
+    advice = (f"[local] scene={scene} stuck={stuck:.0f}s anomaly={anomaly}"
+              + (f" disp60={disp}u" if disp is not None else "")
+              + f"; LLM 不可用，本地处置建议: " + "；".join(actions) + ".")
     return {"advice": advice, "strategy": {}}
 
 

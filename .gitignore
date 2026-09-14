@@ -41,3 +41,4 @@ rom/
 .DS_Store
 Thumbs.db
 SM64/
+fly64/plugin/llm.env

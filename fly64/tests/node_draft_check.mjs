@@ -170,7 +170,7 @@ const ctxStub = new Proxy({}, { get: (t, p) => {
   return undefined;
 }});
 globalThis.performance = { now: () => Date.now() };
-globalThis.$ = id => stubStore[id] ??= { innerHTML: '', width: 256, height: 128, getContext: () => ctxStub };
+globalThis.$ = id => stubStore[id] ??= { innerHTML: '', width: id === 'retinaUnwrap' ? 240 : 256, height: 128, getContext: () => ctxStub };
 
 let pass = 0, fail = 0;
 const check = (name, fn) => { try { fn(); pass++; console.log('PASS', name); } catch (e) { fail++; console.log('FAIL', name, '::', e.message); } };
@@ -249,23 +249,26 @@ check('sub-grid map uses all 32 sub-bands (8.4375° each)', () => {
   const seen = new Set(sub.filter(v => v > 0));
   if (seen.size !== 32) throw new Error('seen=' + seen.size);
 });
-check('strip LUT: every strip pixel has a valid fisheye source (768×144)', () => {
-  const lut = buildStripLUT(768, 144);
-  for (let i = 0; i < lut.length; i++) {
-    if (lut[i] < 0) throw new Error('unmapped strip pixel ' + i);
-    if (lut[i] + 2 >= 256 * 128 * 3) throw new Error('source out of range ' + lut[i]);
+check('strip LUT: every strip pixel has a valid fisheye source (240×128 and 768×144)', () => {
+  for (const [w, h] of [[240, 128], [768, 144]]) {
+    const lut = buildStripLUT(w, h);
+    for (let i = 0; i < lut.length; i++) {
+      if (lut[i] < 0) throw new Error(`unmapped strip pixel ${i} @${w}x${h}`);
+      if (lut[i] + 2 >= 256 * 128 * 3) throw new Error('source out of range ' + lut[i]);
+    }
   }
 });
-check('strip LUT: azimuth ordering monotonic (left edge = -135°, right = +135°)', () => {
+check('strip LUT: 240×128 aspect matches 270:144 column box (no distortion)', () => {
+  // internal canvas 240×128 has aspect 1.875 = 270/144 → CSS 240×128 displays 1:1
+  if (240 / 128 !== 270 / 144) throw new Error('aspect mismatch');
+});
+check('strip LUT: azimuth ordering (left column ← left eye, right column ← right eye)', () => {
   const W = 768, H = 144, lut = buildStripLUT(W, H);
-  // far-left strip column must sample the LEFT eye; far-right the RIGHT eye
-  if (lut[Math.floor(H / 2) * W] >= (fy => fy)(1 << 8) * 3 * 0 + (0 * 256 + 128) * 3 && lut[Math.floor(H / 2) * W] >= 128 * 3) {
-    // source eye encoded by pixel index range: left eye < 128, right >= 128
-  }
-  const srcL = lut[Math.floor(H / 2) * W] / 3;
-  const srcR = lut[Math.floor(H / 2) * W + (W - 1)] / 3;
-  if (Math.floor(srcL % 256 / 1) >= 128) throw new Error('left column not sampled from left eye');
-  if (Math.floor(srcR % 256 / 1) < 128) throw new Error('right column not sampled from right eye');
+  const srcL = lut[Math.floor(H / 2) * W] / 3;          // far-left strip pixel
+  const srcR = lut[Math.floor(H / 2) * W + (W - 1)] / 3; // far-right strip pixel
+  const eyeOf = src => Math.floor((src % 256) / 128);         // 0 = left, 1 = right
+  if (eyeOf(srcL) !== 0) throw new Error('left column not sampled from left eye');
+  if (eyeOf(srcR) !== 1) throw new Error('right column not sampled from right eye');
 });
 check('drawStrip reprojects eyes + sectors (stub ctx, no throw)', () => {
   const eyes = new Uint8Array(256 * 128 * 3).fill(90);
