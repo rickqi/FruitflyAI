@@ -73,3 +73,32 @@ body.layout-wide .area-events{display:grid;grid-template-rows:auto 1fr;align-con
 .help-fields{flex:1;min-width:0;display:grid;grid-template-columns:auto 1fr;gap:1px 8px;font-variant-numeric:tabular-nums}
 .help-fields dt{color:var(--muted)}
 .help-fields dd{margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ── t16: global status pills in header (P0-1/P1-1) ─────────────────── */
+.status-pills{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+
+/* ── t16 P1-2: terrain / environment chips in the scene line ────────── */
+#sceneName .chip{display:inline-block;padding:1px 6px;margin-left:4px;border:1px solid #2a6a78;border-radius:8px;font-size:11px;font-weight:400;color:var(--cyan);vertical-align:1px}
+#sceneName .chip-warn{border-color:#8a6a20;color:var(--gold)}
+
+/* ── t16 P1-3: collapsible bottom panels ────────────────────────────── */
+.fold-panel{margin-top:6px;border:1px solid #1a2430;border-radius:3px;background:#0d1520}
+.fold-panel>summary{cursor:pointer;font-size:11px;font-weight:600;padding:4px 8px;color:var(--muted);user-select:none}
+.fold-panel[open]>summary{border-bottom:1px solid #1a2430;color:var(--ink)}
+.fold-panel .help-panel{margin-top:0;border:none}
+#strategyPanel .help-fields{grid-template-columns:none;row-gap:3px}
+#strategyPanel .note-stat{margin-right:12px;font-size:11px;color:var(--ink)}
+#strategyPanel .note-stat b{color:var(--cyan);font-weight:500}
+
+/* ── t16 P1-4: ≤800px single-column usability ───────────────────────── */
+@media(max-width:800px){
+  body{height:auto}
+  main{display:block;height:auto;padding:0 10px}
+  section{min-height:0;padding:10px 0}
+  #timeline{height:90px}
+  .eyes{grid-template-columns:1fr 1fr}
+  .eye-note,#stripWrap{grid-column:1/-1}
+  .brain-row,.memory-row,.history-row{grid-template-columns:1fr;height:auto;gap:10px}
+  .interactive-row{grid-template-columns:1fr}
+  .status-pills{order:-1;width:100%;justify-content:flex-start}
+}

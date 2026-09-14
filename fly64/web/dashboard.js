@@ -1215,3 +1215,39 @@ if (typeof document !== 'undefined') {
   updateCoachAdviceDisplay();
   setInterval(updateCoachAdviceDisplay, 5000);
 }
+
+// ── Coach strategy consumption panel (t16 P0-2) ──────────────────────
+// Surfaces the operator keys from /active_strategy.json (served from
+// skills/active_strategy.json by the brain's HTTP endpoint): what the
+// coach last advised, when, and how it is being consumed — closing the
+// "coach said it → is it working?" visibility loop.
+
+async function updateCoachStrategy() {
+  const fields = $('strategyFields');
+  if (!fields) return;
+  try {
+    const r = await fetch('/active_strategy.json');
+    if (!r.ok) { fields.innerHTML = '<span class="muted">/active_strategy.json unavailable</span>'; return; }
+    const d = await r.json();
+    const ex = d.exploration || {};
+    const esc = d.escape || {};
+    const dd = d.dialogue_decision;
+    const row = (k, v, unit) => '<span class="note-stat"><b>' + k + '</b> ' + v +
+      (unit ? ' <span class="muted">' + unit + '</span>' : '') + '</span>';
+    const rows = [
+      row('bold_explore_stuck_s', ex.bold_explore_stuck_s != null ? ex.bold_explore_stuck_s : '—', 's · smaller = faster breakout'),
+      row('turn_bias', ex.turn_bias != null ? ex.turn_bias : '—', '0-1 strength'),
+      row('stuck_threshold_s', esc.stuck_threshold_s != null ? esc.stuck_threshold_s : '—', 's · smaller = faster escape'),
+    ];
+    if (dd) rows.push(row('dialogue_decision', dd.action + (dd.timed_out ? ' (timeout→A)' : ''), dd.reason || ''));
+    if (d.advice_ts) rows.push('<span class="note-stat muted">last write ' + new Date(d.advice_ts * 1000).toLocaleTimeString() + '</span>');
+    fields.innerHTML = rows.join('');
+    const src = $('strategySourceLabel');
+    if (src) src.textContent = d.source ? '· ' + d.source : '';
+  } catch (_) {}
+}
+
+if (typeof document !== 'undefined') {
+  updateCoachStrategy();
+  setInterval(updateCoachStrategy, 5000);
+}
