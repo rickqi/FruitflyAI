@@ -215,6 +215,11 @@ class SensorSample:
     scene_change_rate: float = 0.0
     forced_bold_explore: bool = False
     cliff_confirmed: bool = False
+    cliff_standoff_s: float = 0.0
+    danger_red_index: float = 0.0
+    target_count: int = 0
+    assoc_count: int = 0
+    emd_on_down: float = 0.0
     tau: Optional[float] = None
     opening_score: float = 0.0
     door_frame_score: float = 0.0
@@ -331,6 +336,7 @@ class DataCollector:
             revisit_count=int(memory.get("revisit_count", 0)),
             scene_change_rate=memory.get("scene_change_rate", 0.0),
             forced_bold_explore=bool(memory.get("forced_bold_explore", False)),
+            cliff_standoff_s=float(memory.get("cliff_standoff_s", 0.0)),
             cliff_confirmed=bool(flow.get("cliff_confirmed", False)),
             tau=flow.get("tau"),
             opening_score=flow.get("opening_score", 0.0),

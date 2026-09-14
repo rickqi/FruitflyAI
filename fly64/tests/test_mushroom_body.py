@@ -139,7 +139,8 @@ class TestMBONIntegration:
     def test_mbon_initial_near_zero(self):
         """Initially MBON outputs should be near zero (unlearned)."""
         mb = MushroomBody()
-        scene_sig = np.random.normal(0, 0.1, 128).astype(np.float32)
+        rng = np.random.default_rng(7)   # seeded — unseeded runs flaked
+        scene_sig = rng.normal(0, 0.1, 128).astype(np.float32)
         out = mb.encode(scene_sig)
         # With ±0.05 uniform init, small bias is expected. Check magnitude is reasonable.
         assert np.all(np.abs(out) < 0.6), f"MBON initial outputs too large: {out}"

@@ -455,6 +455,10 @@ class FlyModel:
         # EVO R14: anomaly-state mirror (sensory input for the DAN dopamine
         # signal; set by main.py each tick from the memory controller).
         self.anomaly_state_name = "idle"
+        # EVO R15: cliff-standoff sensory mirror (s from the memory
+        # controller; tangential detour bias from FailureMemory).
+        self.cliff_standoff_s = 0.0
+        self.cliff_tangent_bias = 0.0
         # Visual short-term memory (scene change detection)
         self.scene_memory = SceneMemory(buffer_size=30)
         self.scene_mean = 0.0
@@ -977,6 +981,9 @@ class FlyModel:
         self.scene_sig[:] = 0.0
         self.scene_sig_valid = False
         self.target_tracker.reset()
+        self._turn_adapt.reset()
+        self.cliff_standoff_s = 0.0
+        self.cliff_tangent_bias = 0.0
         if hasattr(self, "mushroom"):
             try:
                 self.mushroom.reset()
@@ -1159,6 +1166,11 @@ class FlyModel:
         if getattr(self, "anomaly_state_name", "idle") in (
                 "micro_loop", "stuck_ramp", "wall_stuck", "oscillating"):
             punishment = max(punishment, 0.35)
+        # EVO R15 · Negative: cliff-edge standoff (>20s parked at the edge).
+        # Teaches the mushroom body "this scene + forward → bad", biasing
+        # subsequent MBON output toward lateral exploration.
+        if getattr(self, "cliff_standoff_s", 0.0) > 20.0:
+            punishment = max(punishment, 0.45)
         return reward - punishment
 
     def step(self, rgb: np.ndarray, now: float | None = None,
@@ -1394,6 +1406,30 @@ class FlyModel:
             self.escape_current *= 0.3
             self.v[self.forward] += 0.10          # gentle approach bias
 
+        # EVO R14 · spontaneous alternation: turn-circuit fatigue counter-drive.
+        # Sustained one-sided turning fatigues that circuit (TurnAdaptation)
+        # and progressively recruits the competitor — pre-spike, so direction
+        # selection stays inside the LIF network dynamics.
+        _ad_l, _ad_r = self._turn_adapt.counter_drive()
+        if _ad_l > 0.0:
+            self.v[self.turn_right] += _ad_l      # left fatigue → drive right
+        if _ad_r > 0.0:
+            self.v[self.turn_left] += _ad_r       # right fatigue → drive left
+
+        # EVO R15 · cliff-edge tangential detour (FailureMemory → CX pathway).
+        # When parked at a CONFIRMED cliff edge and FailureMemory knows a
+        # failure cell ahead, inject an ALONG-EDGE turn current (sign chosen
+        # by ground freshness) and slightly suppress forward — head-on into a
+        # known cliff is replaced by edge-following.  The LIF network still
+        # decides the actual heading through its own competition.
+        if self.cliff_confirmed and self.cliff_tangent_bias:
+            _t = abs(self.cliff_tangent_bias) * 0.15
+            if self.cliff_tangent_bias > 0:
+                self.v[self.turn_right] += _t
+            else:
+                self.v[self.turn_left] += _t
+            self.v[self.forward] -= 0.08          # ease off head-on drive
+
         fired = self.v >= self.threshold
         self.v[fired] = self.reset
         self.spikes[:] = fired
@@ -1432,6 +1468,8 @@ class FlyModel:
         recent = np.stack(tuple(self.history), axis=0).mean(axis=0)
         forward_rate, left_rate, right_rate, jump_rate = [float(pool.mean()) for pool in np.split(recent, self.motor_splits)]
         turn_rate = right_rate - left_rate
+        # EVO R14 · integrate turn-circuit fatigue from the decoded pool rates
+        self._turn_adapt.update(left_rate, right_rate, self.dt)
 
         raw_y = np.clip((forward_rate - 0.008) * 2000.0, 0, 70)
         raw_x = np.clip(turn_rate * 1100.0, -70, 70)

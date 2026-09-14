@@ -35,7 +35,7 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.8.0"
+BRAIN_VERSION = "2.9.0"
 SKILL_VERSION = "3.0.0"   # must mirror fly64/skills/evolution_skill.py SKILL_VERSION
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
@@ -1124,6 +1124,15 @@ async def run(args) -> None:
                 model.stuck_duration = memory_ctrl.stuck_duration
                 model.fallen = memory_ctrl._fallen
                 model._revisit_penalty = memory_ctrl.revisit_penalty
+                # EVO R14: anomaly-state mirror — DAN dopamine input for the
+                # mushroom body's loop-suppression learning.
+                model.anomaly_state_name = memory_ctrl.anomaly_state
+                # EVO R15: cliff-standoff mirror — standoff duration + the
+                # FailureMemory tangential detour bias (sensory gate only;
+                # the LIF network decides the actual heading).
+                model.cliff_standoff_s = memory_ctrl.cliff_standoff_s
+                model.cliff_tangent_bias = memory_ctrl.cliff_tangent_bias(
+                    pose[0], pose[2], pose[3])
                 # Periodic scene-database persistence (every ~600 ticks ≈ 12s)
                 scene_save_counter += 1
                 if scene_save_counter >= 600:
@@ -1134,6 +1143,7 @@ async def run(args) -> None:
                 DashboardHTTP.memory_json = json.dumps({
                     "stuck_score": round(memory_ctrl.stuck_score, 3),
                     "stuck_duration": round(memory_ctrl.stuck_duration, 3),
+                    "cliff_standoff_s": round(memory_ctrl.cliff_standoff_s, 1),
                     "novelty": round(memory_ctrl.novelty, 3),
                     "escape_behavior": memory_ctrl.escape_behavior,
                     "loop_score": round(memory_ctrl.spatial.loop_score, 3),

@@ -655,6 +655,27 @@ class FailureMemory:
                int(math.floor(z / self.cell_size)))
         return key in self._failures
 
+    def nearest_failure_vector(self, x: float, z: float,
+                               radius_cells: float = 2.5) -> tuple[float, float] | None:
+        """Unit vector toward the nearest known failure cell within radius.
+
+        Returns None when no failure cell lies within *radius_cells* grid
+        steps of (x, z).
+        """
+        cx = int(math.floor(x / self.cell_size))
+        cz = int(math.floor(z / self.cell_size))
+        best, best_d = None, radius_cells
+        for (fx, fz) in self._failures:
+            d = math.hypot(fx - cx, fz - cz)
+            if d <= radius_cells and d < best_d:
+                best, best_d = (fx, fz), d
+        if best is None:
+            return None
+        wx = (best[0] + 0.5) * self.cell_size - x
+        wz = (best[1] + 0.5) * self.cell_size - z
+        n = math.hypot(wx, wz) or 1.0
+        return (wx / n, wz / n)
+
     def is_dead_end(self, x: float, z: float, heading: float) -> bool:
         """Check if heading is a known dead-end direction from (x,z)."""
         key = (int(math.floor(x / self.cell_size)),
@@ -1435,6 +1456,9 @@ class MemoryController:
         # Forced bold explore breakout — nested loop escape
         self._scene_low_duration: float = 0.0  # seconds with scene_change_rate < 0.05
         self._forced_bold_explore: bool = False
+        # EVO R15: cliff-edge standoff sensing — seconds spent confirmed at a
+        # cliff edge while escape is active (the "parked at the edge" state).
+        self._cliff_standoff_s: float = 0.0
         self._bold_explore_dt: float = 0.020  # tick interval, same as model.dt
 
         # Landmark memory state
@@ -1471,6 +1495,12 @@ class MemoryController:
 
         # Update cliff detector with multi-frame confirmation
         self._cliff_state = self.cliff.update(flow_cliff)
+
+        # EVO R15: cliff-edge standoff timer — confirmed cliff + active escape
+        if self._cliff_state.get("cliff_confirmed") and self.escape_behavior:
+            self._cliff_standoff_s += self._bold_explore_dt
+        else:
+            self._cliff_standoff_s = 0.0
 
         # Store scene_change_rate for health scoring
         self._stored_scene_change_rate = scene_change_rate
@@ -1757,6 +1787,48 @@ class MemoryController:
     def reflex_triggered_micro_loop(self) -> bool:
         """True for one tick when micro_loop reflex fires."""
         return self.reflex.triggered_micro_loop
+
+    @property
+    def cliff_standoff_s(self) -> float:
+        """Seconds spent confirmed at a cliff edge while escape is active."""
+        return self._cliff_standoff_s
+
+    def cliff_tangent_bias(self, x: float, z: float, heading: float) -> float:
+        """Tangential detour bias near known cliff/failure cells.
+
+        EVO R15 (brain-first): this is a SENSORY gate only — it tells the
+        model that a known cliff lies ahead and on which side the fresher
+        ground lies.  The turn current injection and the actual heading
+        decision stay with the LIF network.
+
+        Returns
+        -------
+        +1.0 / -1.0 : inject turn current of this sign (edge detour)
+        0.0         : not near a known failure cell, or not head-on
+        """
+        to_f = self.failures.nearest_failure_vector(x, z, radius_cells=2.5)
+        if to_f is None:
+            return 0.0
+        fx, fz = to_f
+        hx, hz = math.sin(heading), math.cos(heading)
+        head_on = hx * fx + hz * fz
+        if head_on < 0.25:
+            return 0.0                       # failure is behind/beside — fine
+        # tangential candidates (±90° rotation of the failure bearing)
+        t1x, t1z = -fz, fx
+        t2x, t2z = fz, -fx
+        cs = self.spatial.cell_size
+
+        def visits(px: float, pz: float) -> int:
+            k = self.spatial._key(x + px * cs, z + pz * cs)
+            return int(self.spatial._cells.get(k, 0))
+
+        v1, v2 = visits(t1x, t1z), visits(t2x, t2z)
+        if v1 < v2:
+            return 1.0                       # fresher ground on tangent 1
+        if v2 < v1:
+            return -1.0                      # fresher ground on tangent 2
+        return 0.0                           # equal visitation — no preference
 
     @property
     def reflex_cooldowns(self) -> dict[str, float]:

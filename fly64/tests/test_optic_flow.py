@@ -810,8 +810,14 @@ def test_preemptive_avoidance_order():
 
     finder = BlockFinder()
     finder.visit(tree)
-    assert finder.avoidance_line is not None, "Pre-emptive avoidance block not found"
-    assert finder.escape_line is not None, "Escape override block not found"
-    assert finder.avoidance_line < finder.escape_line, (
-        f"Avoidance (line {finder.avoidance_line}) must come before escape (line {finder.escape_line})"
+    # P1 audit A1: the Python pre-emptive collision override was deleted —
+    # avoidance flows through the model's current-injection pathway
+    # (self.v[motor_nodes] += escape_current in model.step).  The old
+    # 'if not escape_behavior' avoidance block must NOT come back.
+    assert finder.avoidance_line is None, (
+        "audit A1 deleted the pre-emptive avoidance override; "
+        "avoidance must stay in the model's current-injection pathway"
     )
+    assert finder.escape_line is not None, "Escape override block not found"
+    # The intentional deletion must remain documented at the deletion site.
+    assert "audit A1" in source

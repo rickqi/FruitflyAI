@@ -1,6 +1,6 @@
 # EvolutionSkill — Self-Evolving Motion Diagnosis
 
-**Version**: 2.9.0
+**Version**: 3.0.0
 **Status**: Active
 **Category**: Autonomous Agent / Self-Improvement + Causal Diagnostics + Social Capability
 
