@@ -74,6 +74,50 @@ D:\codes\flygym\
 
 # 变更日志
 
+## 2026-09-14: EVO Round 13 — Brain v2.6.1（转圈死循环修复：进度门控 + 镜像交替 + loop_score 感官卫生）
+
+**触发**：马里奥 stuck=1063s / anomaly=micro_loop conf=1.0 持续 973s / heading 29.5°/s 持续转向 / loop_score 病态值 104.976。EvolutionSkill Findings=0（模式目录盲区）+ neural_viz 因果字段缺失（0/876 行），由人工遥测快照定位根因。
+
+**根因（自增强反射风暴）**：EVO R6 自适应冷却 `max(0.25, 1-stuck/120)` 在 stuck>90s 后触底 0.25s → micro_loop 反射每 ~0.3s 重触发 → 转向爆发无前进时间窗 → 原地绕圈 → stuck 永不复位 ♻️
+
+**能力边界判定（本能不外包原则）**：
+- ✅ 进度门控 + 镜像交替 → 反射回路内部修缮（等价生物不应期 + 自发性交替），归果蝇能力群
+- ✅ loop_score 精确计数 → 感官卫生（喂给脑的输入正确性），归神经元侧
+- ✅ 破环方向由反射/LIF 执行，Python 仅做感知门控（传入 pose）——未新增非脑控制层
+- ❌ 拒绝方案：Python 计算上坡方向强制 control.x/y（教官层式干预下沉，违反分层原则）
+
+**变更**：
+- `memory.py` SpatialMemoryMap.update：loop_score 精确滚动窗口计数（窗口驱逐递减 `_revisit_count` + `_window_counts`/`_window_flags` 辅助结构，修复 104.9 → [0,1]）
+- `memory.py` ReflexController：新增 `_last_fire_pos`/`_last_direction`/`progress_radius=30u`——micro_loop 重触发时若位移<30u 则**镜像翻转转向**（自发性交替），有进展则保持随机；`update()`/`_start_reflex()` 新增 `pos` 感知参数
+- `main.py`：反射调用点传入 pose(x,z)
+- 版本：Brain 2.6.0→**2.6.1**，Skill 2.9.0→**2.9.1**
+
+**PIN**：`tests/test_spin_loop_fix.py` 7 用例（loop_score 有界/纯重访=1.0/界内新探索=0/无移动镜像/连续交替/有进展重随机/首触发随机），7/7 通过；全量回归 313 passed、16 failed 均为既有问题（15 Windows 兼容 + 1 过期版本断言），**零新增失败**。
+
+**待办（本轮发现的检测盲区）**：
+- 新增进化模式 `slope_micro_loop`（micro_loop + ramp>0.5 + visited>50 → 上坡方向偏置修复）
+- neural_viz 因果字段在部署链路缺失（WS 876 行均无 decision_source）——排查 telemetry.py 部署同步
+
+---
+
+## 2026-09-14: 清理轮 — 版本线收敛 2.6.1 + WSL 目录结构修复 + F1-F4 遗留项
+
+**说明**：任务书原定"收敛到 2.5.0（以 WSL 为准）"，执行时双侧（Windows 工作区与 WSL /root/fly64）均已演进至 **2.6.1**（EVO R13 转圈修复），遂按超集收敛于 2.6.1，不做版本回退。
+
+**变更**：
+- **F2' 版本收敛**：Windows `fly64/main.py` BRAIN_VERSION 2.6.1 = WSL 2.6.1（含 EVO R13 spin-loop 修复一并 commit），check_version.py 通过
+- **WSL `~/fly64/fly64/plugin/` 恢复**：此前 rsync `--delete`（排除规则只写 `.venv` 未写 `venv`/`__pycache__`）误删包内容仅剩 `__pycache__`；已从顶层 `/root/fly64/plugin/` 回填 `__init__.py / llm_consult.py / manifest.json / runner.py / strategy_writer.py / service.py / watchdog.sh` 并清 `__pycache__`；`python -c "import fly64.plugin.runner"` 验证通过（两种布局并存：顶层 `plugin.*` 供大脑 sys.path 导入，内层 `fly64.plugin.*` 供 `python3 -m fly64.plugin.runner`）
+- **F3**：`tests/test_dialogue_llm_decision.py` + 更新后的 `test_plugin_mhr.py` 同步至 WSL tests/
+- **F1**：WSL venv 补装 scipy 1.15.3
+- **版本断言前向化**：`test_plugin_mhr.py` 与 `test_dialogue_llm_decision.py` 中 `BRAIN_VERSION == "2.4.0"` 硬编码改为 ≥[2,4,0] 前向兼容断言（版本线只前进）
+- **WSL 测试**：venv pytest test_plugin_mhr.py + test_dialogue_llm_decision.py **59/59 通过**；Windows 侧 66/66（+spin_loop 7）
+
+**F4 结论（WSL git 化评估：不 git init）**：`/root/fly64` 是部署目标而非源码权威——含 venv、artifacts、runtime 状态、service 日志/pid 与 root-only 秘密 `plugin/llm.env`（git 化需精细 .gitignore 且有泄密风险），且唯一事实源已在 Windows `D:\codes\flygym`（git 管理）。维护方式维持：Windows commit → rsync 增量同步（**禁用 --delete**，或排除规则必须同时覆盖 `venv`、`__pycache__`、`runtime`、`artifacts`、`plugin/llm.env`）→ WSL 重启大脑。
+
+**部署证据**：大脑重启（setsid 常驻，PID 见本轮报告），flow.json brain_version=2.6.1、tick 持续递增。
+
+---
+
 ## 2026-09-14: EVO Round 12 — Brain v2.6.0（自治基底落成：WSL 常驻自治服务 + 存活监控，自治不依赖 DSH 会话）
 
 **背景**：AgentTeams 团队 autonomy-substrate 落地推荐架构 A——果蝇自身能力群自治 + 教官层（LLM/DSH）按需介入的分层原则。此前 10s 循环（plugin/runner.py）依赖 DSH 会话驱动，会话结束即停。

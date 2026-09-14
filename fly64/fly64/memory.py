@@ -1145,7 +1145,8 @@ class ReflexController:
     # ---- public API --------------------------------------------------------
 
     def update(self, dt: float, anomaly_state: dict,
-               rng_choice, stuck_duration: float = 0.0) -> str:
+               rng_choice, stuck_duration: float = 0.0,
+               pos: tuple[float, float] | None = None) -> str:
         """Tick the reflex controller.
 
         Parameters
@@ -1185,12 +1186,14 @@ class ReflexController:
         if state_name in self.REFLEX_TYPES and confidence >= self.confidence_threshold:
             if self._cooldowns[state_name] <= 0.0:
                 return self._start_reflex(state_name, rng_choice,
-                                          stuck_duration=stuck_duration)
+                                          stuck_duration=stuck_duration,
+                                          pos=pos)
 
         return ""
 
     def _start_reflex(self, reflex_type: str, rng_choice,
-                      stuck_duration: float = 0.0) -> str:
+                      stuck_duration: float = 0.0,
+                      pos: tuple[float, float] | None = None) -> str:
         """Begin a new reflex activation.
 
         Adaptive cooldown (EVO R6): the longer the fly has been stuck, the
@@ -1220,7 +1223,21 @@ class ReflexController:
 
         elif reflex_type == self.MICRO_LOOP:
             self._reflex_phase = "turn"
-            self._turn_direction = 69 if rng_choice(0, 2) == 0 else -69
+            # EVO R11 spin-loop fix: if the previous mirrored/random attempt
+            # produced no net displacement (≥ progress_radius), flip the turn
+            # direction instead of re-rolling — pure reflex-internal gating,
+            # direction execution stays with the LIF motor pools.
+            moved = False
+            if self._last_fire_pos is not None and pos is not None:
+                moved = ((pos[0] - self._last_fire_pos[0]) ** 2 +
+                         (pos[1] - self._last_fire_pos[1]) ** 2) ** 0.5 >= self.progress_radius
+            if self._last_direction != 0 and not moved:
+                self._turn_direction = -self._last_direction
+            else:
+                self._turn_direction = 69 if rng_choice(0, 2) == 0 else -69
+            self._last_direction = self._turn_direction
+            if pos is not None:
+                self._last_fire_pos = (pos[0], pos[1])
 
         return reflex_type
 

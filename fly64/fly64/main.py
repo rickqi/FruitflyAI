@@ -35,8 +35,8 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.6.0"
-SKILL_VERSION = "2.9.0"   # must mirror fly64/skills/evolution_skill.py SKILL_VERSION
+BRAIN_VERSION = "2.6.1"
+SKILL_VERSION = "2.9.1"   # must mirror fly64/skills/evolution_skill.py SKILL_VERSION
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
 _evo_iter_counter = 0
@@ -829,11 +829,13 @@ async def run(args) -> None:
 
             # ---- Reflex escape circuits (after cliff, before normal escape) ----
             reflex_override = False
+            _pose_r = bridge.frame_metadata.get("pose", [0, 0, 0, 0])
             reflex_active = memory_ctrl.reflex.update(
                 model.dt,
                 memory_ctrl.anomaly_state,
                 model.rng.integers,
                 stuck_duration=memory_ctrl.stuck_duration,
+                pos=(_pose_r[0], _pose_r[2]),
             )
             if reflex_active:
                 action = memory_ctrl.reflex_action

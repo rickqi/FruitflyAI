@@ -367,7 +367,10 @@ class TestTelemetryLlmDecision:
         assert 'if llm_decision_status == "waiting" else None' in src
 
     def test_brain_version_bumped(self):
-        assert _load_brain().BRAIN_VERSION == "2.4.0"
+        # Version line only moves forward (introduced at 2.4.0).
+        ver = _load_brain().BRAIN_VERSION
+        parts = [int(p) for p in ver.split(".")]
+        assert parts >= [2, 4, 0], ver
 
 
 # ── 6. worker thread integration (real threads, mocked LLM) ─────────────

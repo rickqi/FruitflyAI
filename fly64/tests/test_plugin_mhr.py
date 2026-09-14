@@ -359,7 +359,11 @@ class TestDialogueDecision:
         assert "write_dialogue_decision" in src
         assert "llm_decision" in src          # telemetry + control branch
         assert "autonomous" in src            # timeout fallback
-        assert 'BRAIN_VERSION = "2.4.0"' in src
+        # BRAIN_VERSION introduced the dialogue pause-wait mode at 2.4.0
+        # and only moves forward — pin semantics, not the exact number.
+        import re as _re
+        _m = _re.search(r'BRAIN_VERSION = "(\d+)\.(\d+)\.(\d+)"', src)
+        assert _m and [int(g) for g in _m.groups()] >= [2, 4, 0]
         bridge_src = (PROJECT / "fly64" / "bridge.py").read_text("utf-8")
         assert "B_BUTTON" in bridge_src       # press_b transport
         web_src = (PROJECT / "web" / "dashboard.js").read_text("utf-8")
