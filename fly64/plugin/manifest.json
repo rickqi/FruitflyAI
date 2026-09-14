@@ -1,0 +1,50 @@
+{
+  "$schema": "dsh-plugin/1.0",
+  "name": "fly64-mhr",
+  "display_name": "Fly64 MHR Coach Plugin",
+  "version": "1.0.0",
+  "description": "DSH dynamic plugin integrating EvolutionSkill + CoachConsult: periodic 10s skill cycle, GLM-5.3-flash multimodal consultation on unsolvable states, active_strategy.json hot-reload, dashboard display of LLM advice.",
+  "entry": "plugin.runner:PluginRunner",
+  "runtime": {
+    "kind": "periodic",
+    "interval_seconds": 10,
+    "workspace": "."
+  },
+  "capabilities": [
+    "evolution.cycle.monitor",
+    "llm.multimodal.consult",
+    "strategy.hot_reload",
+    "dashboard.advice_display"
+  ],
+  "integrations": {
+    "evolution_skill": "skills/evolution_skill.py#EvolutionPipeline",
+    "coach_consult": "skills/evolution_skill.py#CoachConsult",
+    "dashboard_base_env": "FLY64_DASHBOARD_BASE",
+    "dashboard_default": "http://127.0.0.1:8765",
+    "strategy_output": "skills/active_strategy.json",
+    "advice_output": "skills/coach_advice.json",
+    "dashboard_endpoint": "/coach_advice.json",
+    "brain_reload_ticks": 600
+  },
+  "llm": {
+    "model": "glm-5.3-flash",
+    "transport_env": "FLY64_LLM_TRANSPORT",
+    "transports": ["subagent", "http"],
+    "default_transport": "subagent",
+    "http": {
+      "base_url_env": "FLY64_LLM_BASE_URL",
+      "api_key_env": "FLY64_LLM_API_KEY",
+      "multimodal": true,
+      "frame_format": "image_data_uri"
+    },
+    "subagent": {
+      "request_file": "plugin/.consult_request.json",
+      "response_file": "plugin/.consult_response.json",
+      "note": "The DSH host agent (GLM-5.3-flash) picks up the request file (contains game frame b64 + context), analyzes it, and writes the JSON recommendation to the response file."
+    }
+  },
+  "hot_reload_files": [
+    "skills/active_strategy.json",
+    "skills/coach_advice.json"
+  ]
+}

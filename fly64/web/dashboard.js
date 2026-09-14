@@ -947,3 +947,40 @@ if (typeof document !== 'undefined') {
     if (p) p.hidden = !p.hidden;
   };
 }
+
+// ── LLM coach advice (fly64-mhr plugin /coach_advice.json) ───────────
+
+function renderCoachAdvice(d) {
+  const panel = $('coachPanel');
+  if (!panel) return;
+  const advice = (d && typeof d.advice === 'string') ? d.advice : '';
+  panel.hidden = !advice;
+  if (!advice) return;
+  const ml = $('coachModelLabel');
+  if (ml) ml.textContent = d.model ? ' · ' + d.model : '';
+  const txt = $('coachAdviceText');
+  if (txt) txt.textContent = advice;
+  const hist = $('coachHistory');
+  if (hist) {
+    const items = Array.isArray(d.history) ? d.history.slice().reverse() : [];
+    hist.innerHTML = items.map(h => {
+      const t = h.ts != null ? new Date(h.ts * 1000).toLocaleTimeString() : '';
+      const a = String(h.advice || '').slice(0, 140);
+      return '<div class="evo-item">' + t + '<br><span class="evo-cap">' +
+        a.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</span></div>';
+    }).join('') || '<div class="evo-item">no consultations yet</div>';
+  }
+}
+
+async function updateCoachAdviceDisplay() {
+  try {
+    const r = await fetch('/coach_advice.json');
+    if (!r.ok) { renderCoachAdvice(null); return; }
+    renderCoachAdvice(await r.json());
+  } catch (_) {}
+}
+
+if (typeof document !== 'undefined') {
+  updateCoachAdviceDisplay();
+  setInterval(updateCoachAdviceDisplay, 5000);
+}

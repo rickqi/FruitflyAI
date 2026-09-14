@@ -1,0 +1,272 @@
+#!/usr/bin/env python3
+"""GLM-5.3-flash multimodal consultation for Fly64 CoachConsult.
+
+Sends the current game frame (base64) plus a context snapshot to
+GLM-5.3-flash and parses the JSON recommendation into a strategy dict.
+
+Transports
+----------
+``subagent`` (default)
+    The plugin writes a consult request (frame b64 + context) to
+    ``plugin/.consult_request.json``.  The DSH host agent running
+    GLM-5.3-flash reads it, analyzes the screenshot and writes the raw
+    model reply to ``plugin/.consult_response.json``.  This keeps the
+    actual LLM call inside the DSH agent environment where the model and
+    its credentials live.
+
+``http``
+    Direct OpenAI-compatible chat-completions call with a multimodal
+    ``image_url`` data-URI part.  Configured via ``FLY64_LLM_BASE_URL``
+    and ``FLY64_LLM_API_KEY`` environment variables.
+
+Both transports return the raw assistant text; ``parse_response`` turns
+it into a strategy dict, tolerating fenced JSON or surrounding prose.
+"""
+
+from __future__ import annotations
+
+import base64
+import json
+import os
+import re
+import time
+import urllib.request
+from pathlib import Path
+from typing import Callable, Optional
+
+PLUGIN_DIR = Path(__file__).resolve().parent
+DEFAULT_MODEL = "glm-5.3-flash"
+DEFAULT_TRANSPORT = "subagent"
+REQUEST_PATH = PLUGIN_DIR / ".consult_request.json"
+RESPONSE_PATH = PLUGIN_DIR / ".consult_response.json"
+SUBAGENT_TIMEOUT_SECONDS = 120.0
+
+PROMPT_TEMPLATE = (
+    "你是 SM64 果蝇脑控制系统的教练。分析当前游戏截屏和状态，回答：\n"
+    "1. 场景中有什么元素（门/坡/敌人/金币/平台/水体）？\n"
+    "2. 马里奥当前面临什么障碍或问题？\n"
+    "3. 建议的下一步行动（转向方向、速度、是否跳跃、目标位置）？\n"
+    "只回复一个 JSON 对象，格式:\n"
+    '{"scene_elements": ["..."], "problem": "...", "action": "...", '
+    '"advice": "给马里奥的一句中文建议", '
+    '"strategy": {"fallen_recovery": {"mode": "mirror|directional_climb", '
+    '"climb_period": 2.0, "persist_seconds": 2.0}, '
+    '"exploration": {"bold_explore_stuck_s": 60.0, "turn_bias": 0}, '
+    '"escape": {"stuck_threshold_s": 30.0, "reverse_seconds": 0.5}}}'
+)
+
+# Keys allowed per strategy section (name -> (type, default))
+SECTION_SPECS = {
+    "fallen_recovery": {
+        "mode": (str, "mirror"),
+        "climb_period": (float, 2.0),
+        "persist_seconds": (float, 2.0),
+    },
+    "exploration": {
+        "bold_explore_stuck_s": (float, 60.0),
+        "turn_bias": (float, 0.0),
+    },
+    "escape": {
+        "stuck_threshold_s": (float, 30.0),
+        "reverse_seconds": (float, 0.5),
+    },
+}
+
+
+class ConsultError(RuntimeError):
+    """Raised when a consultation cannot be completed."""
+
+
+def build_consult_request(context: dict, frame_b64: Optional[str],
+                          prompt: str = PROMPT_TEMPLATE) -> dict:
+    """Build the multimodal consult request payload."""
+    req = {
+        "model": os.environ.get("FLY64_LLM_MODEL", DEFAULT_MODEL),
+        "prompt": prompt,
+        "context": context,
+        "ts": round(time.time(), 2),
+    }
+    if frame_b64:
+        req["frame_b64"] = frame_b64
+        req["image"] = "data:image/png;base64," + frame_b64
+    return req
+
+
+def frame_to_data_uri(frame_b64: Optional[str]) -> Optional[str]:
+    if not frame_b64:
+        return None
+    if frame_b64.startswith("data:"):
+        return frame_b64
+    return "data:image/png;base64," + frame_b64
+
+
+class GLMConsultant:
+    """Consult GLM-5.3-flash with the game frame + context snapshot."""
+
+    def __init__(self, transport: Optional[str] = None,
+                 base_url: Optional[str] = None, api_key: Optional[str] = None,
+                 model: Optional[str] = None,
+                 request_path: Path = REQUEST_PATH,
+                 response_path: Path = RESPONSE_PATH,
+                 subagent_fn: Optional[Callable[[dict], str]] = None,
+                 timeout: float = SUBAGENT_TIMEOUT_SECONDS):
+        env_transport = os.environ.get("FLY64_LLM_TRANSPORT", "").strip()
+        self.transport = transport or env_transport or DEFAULT_TRANSPORT
+        if self.transport not in ("subagent", "http"):
+            raise ValueError(f"unknown transport: {self.transport!r}")
+        self.base_url = base_url or os.environ.get("FLY64_LLM_BASE_URL", "")
+        self.api_key = api_key or os.environ.get("FLY64_LLM_API_KEY", "")
+        self.model = model or os.environ.get("FLY64_LLM_MODEL", DEFAULT_MODEL)
+        self.request_path = Path(request_path)
+        self.response_path = Path(response_path)
+        self.subagent_fn = subagent_fn
+        self.timeout = timeout
+        self.last_request: Optional[dict] = None
+        self.last_raw_response: Optional[str] = None
+
+    # ── public API ────────────────────────────────────────────────────
+    def consult(self, context: dict, frame_b64: Optional[str] = None) -> dict:
+        """Run one consultation; returns the parsed strategy dict.
+
+        The returned dict always contains ``advice`` (str) and, when the
+        model produced one, a ``strategy`` section dict.
+        """
+        request = build_consult_request(context, frame_b64)
+        request["model"] = self.model
+        self.last_request = request
+        self.request_path.parent.mkdir(parents=True, exist_ok=True)
+        self.request_path.write_text(
+            json.dumps(request, ensure_ascii=False), encoding="utf-8")
+        raw = self._dispatch(request)
+        self.last_raw_response = raw
+        parsed = parse_response(raw)
+        parsed.setdefault("advice", "")
+        if isinstance(parsed.get("strategy"), dict):
+            parsed["strategy"] = sanitize_strategy(parsed["strategy"])
+        return parsed
+
+    # ── transports ────────────────────────────────────────────────────
+    def _dispatch(self, request: dict) -> str:
+        if self.transport == "subagent":
+            return self._dispatch_subagent(request)
+        return self._dispatch_http(request)
+
+    def _dispatch_subagent(self, request: dict) -> str:
+        """Hand the request to the DSH host agent (GLM-5.3-flash)."""
+        if self.subagent_fn is not None:
+            return str(self.subagent_fn(request))
+        # File-based exchange with the DSH agent.
+        self.response_path.unlink(missing_ok=True)
+        deadline = time.time() + self.timeout
+        while time.time() < deadline:
+            if self.response_path.exists():
+                try:
+                    text = self.response_path.read_text(encoding="utf-8")
+                    if text.strip():
+                        return text
+                except OSError:
+                    pass
+            time.sleep(1.0)
+        raise ConsultError(
+            f"subagent response not produced within {self.timeout:.0f}s "
+            f"(request at {self.request_path})")
+
+    def _dispatch_http(self, request: dict) -> str:
+        """Direct OpenAI-compatible multimodal chat completion."""
+        if not self.base_url:
+            raise ConsultError("http transport requires FLY64_LLM_BASE_URL")
+        content: list[dict] = [{"type": "text", "text": request["prompt"]}]
+        ctx = json.dumps(request.get("context", {}), ensure_ascii=False)
+        content.append({"type": "text", "text": "状态上下文: " + ctx})
+        uri = frame_to_data_uri(request.get("frame_b64"))
+        if uri:
+            content.append({"type": "image_url", "image_url": {"url": uri}})
+        payload = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": content}],
+            "temperature": 0.2,
+        }
+        req = urllib.request.Request(
+            self.base_url.rstrip("/") + "/chat/completions",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.api_key}",
+            },
+            method="POST")
+        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            data = json.loads(resp.read())
+        return data["choices"][0]["message"]["content"]
+
+
+# ── response parsing ─────────────────────────────────────────────────────
+
+_JSON_BLOCK_RE = re.compile(r"\{.*\}", re.DOTALL)
+
+
+def extract_json_text(raw: str) -> Optional[str]:
+    """Extract the outermost JSON object from a raw LLM reply."""
+    if not raw:
+        return None
+    text = raw.strip()
+    # Prefer fenced code blocks when present.
+    fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    candidate = fence.group(1) if fence else None
+    for cand in filter(None, (candidate, text)):
+        try:
+            json.loads(cand)
+            return cand
+        except ValueError:
+            continue
+    m = _JSON_BLOCK_RE.search(text)
+    if m:
+        try:
+            json.loads(m.group(0))
+            return m.group(0)
+        except ValueError:
+            pass
+    return None
+
+
+def sanitize_strategy(strategy: dict) -> dict:
+    """Clamp the LLM's strategy to the known sections and safe values.
+
+    Mirrors the brain model's own defensive parsing (``load_active_strategy``):
+    unknown keys are dropped, bad numbers fall back to defaults, and
+    ``mode`` must be one of the supported recovery modes.
+    """
+    clean: dict = {}
+    for section, spec in SECTION_SPECS.items():
+        raw_section = strategy.get(section)
+        if not isinstance(raw_section, dict):
+            continue
+        out: dict = {}
+        for key, (typ, default) in spec.items():
+            val = raw_section.get(key, default)
+            try:
+                if typ is float:
+                    out[key] = max(0.1, float(val))
+                else:
+                    out[key] = typ(val)
+            except (TypeError, ValueError):
+                out[key] = default
+        if section == "fallen_recovery" and out.get("mode") not in (
+                "mirror", "directional_climb"):
+            out["mode"] = "mirror"
+        clean[section] = out
+    return clean
+
+
+def parse_response(raw: str) -> dict:
+    """Parse a GLM reply into ``{advice, strategy?, scene_elements?, ...}``."""
+    text = extract_json_text(raw)
+    if text is None:
+        # Free-form advice is still useful — keep it as the advice text.
+        return {"advice": (raw or "").strip()}
+    data = json.loads(text)
+    if not isinstance(data, dict):
+        return {"advice": str(data)}
+    out = dict(data)
+    advice = out.get("advice") or out.get("action") or ""
+    out["advice"] = str(advice)
+    return out

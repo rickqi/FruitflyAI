@@ -112,6 +112,13 @@ class DashboardHTTP(BaseHTTPRequestHandler):
             body, mime = self.evolution_json, "application/json"
         elif path == "/help.json":
             body, mime = self.help_json, "application/json"
+        elif path == "/coach_advice.json":
+            # LLM coach advice written by the fly64-mhr plugin
+            _coach = Path(__file__).resolve().parent.parent / "skills" / "coach_advice.json"
+            try:
+                body, mime = _coach.read_bytes(), "application/json"
+            except OSError:
+                body, mime = b'{"advice": "", "history": []}', "application/json"
         elif path in self.assets:
             body, mime = self.assets[path]
         elif path == "/bridge-status.json" and self.bridge is not None:
@@ -503,6 +510,17 @@ async def run(args) -> None:
     cliff_recovery_timer: float = 0.0
     cliff_turn_bias: float = 0.0
     previous_anomaly_state: str = ""
+    # ---- Plasticity monitoring buffer (t4) ----
+    _error_gradient_buffer = deque(maxlen=100)
+    _plasticity_metrics = {
+        "learning_progress": 0.0,
+        "dopamine_gain_avg": 0.0,
+        "mushroom_weight_changes": 0,
+        "reward_trend": 0.0,
+        "error_gradient_mean": 0.0,
+        "gain_update_count": 0,
+    }
+    _plasticity_tick = 0
 
     async def ws_handler(socket):
         clients.add(socket)
@@ -839,6 +857,14 @@ async def run(args) -> None:
             else:
                 escape_toggle_timer = 0.0
 
+            # ---- Python→neuron error gradient bridge (t3) ----
+            # When Python escape logic makes a turn decision, compare it with
+            # the neural network's preferred turn bias.  The error is fed back
+            # as corrective current injection into the underperforming motor
+            # pool, gated by the reward signal (strongest when reward is low).
+            if memory_ctrl.escape_behavior and abs(control.x) > 8:
+                model.set_python_correction(control.x, model.reward_signal)
+
             # ---- Escape event tracking ----
             currently_escaping = memory_ctrl.escape_behavior
             if currently_escaping and not previous_escape:
@@ -883,6 +909,7 @@ async def run(args) -> None:
                             "findings": _evo_findings,
                             "capabilities": sorted({
                                 _fid.split("(")[0] for _fid in _evo_findings}),
+                            "plasticity": dict(_plasticity_metrics),
                         })
                         DashboardHTTP.evolution_json = json.dumps({
                             "brain_version": BRAIN_VERSION,
@@ -1105,6 +1132,19 @@ async def run(args) -> None:
                     "edge_90": round(model.edge_90, 4),
                     "edge_135": round(model.edge_135, 4),
                     "scene_match": round(memory_ctrl.scene_match, 4),
+                    # Dopamine-gated gain modulation (plasticity proxy)
+                    "dopamine_gain": {
+                        "visual": round(model.dopamine_gain.get_gain("visual"), 4),
+                        "forward": round(model.dopamine_gain.get_gain("forward"), 4),
+                        "turn": round(model.dopamine_gain.get_gain("turn"), 4),
+                        "jump": round(model.dopamine_gain.get_gain("jump"), 4),
+                        "recurrent": round(model.dopamine_gain.get_gain("recurrent"), 4),
+                    },
+                    "reward_signal": round(getattr(model, "reward_signal", 0.0), 4),
+                    "cumulative_reward": round(getattr(model, "_cumulative_reward", 0.0), 4),
+                    # Python→neuron error gradient bridge (t3)
+                    "error_gradient": getattr(model, "_last_error_gradient", {}),
+                    "corrective_current": list(getattr(model, "_corrective_current_applied", (0.0, 0.0))),
                 }, separators=(",", ":")).encode()
                 # Log anomaly state transitions to events buffer
                 current_anomaly = memory_ctrl.anomaly_state_name
@@ -1166,6 +1206,27 @@ async def run(args) -> None:
                 DashboardHTTP.history_json = json.dumps(
                     list(DashboardHTTP.signal_history),
                     separators=(",", ":")).encode()
+
+                # ---- Plasticity monitoring (t4) ----
+                # Track error gradient over a rolling window of ~100 ticks
+                _err = getattr(model, "_last_error_gradient", {}).get("error", 0.0)
+                _error_gradient_buffer.append(abs(_err))
+                _plasticity_tick += 1
+                if _plasticity_tick % 100 == 0:
+                    gains = model.dopamine_gain.get_all_gains()
+                    avg_gain = sum(gains.values()) / max(len(gains), 1)
+                    _plasticity_metrics.update({
+                        "learning_progress": round(
+                            sum(_error_gradient_buffer) / max(len(_error_gradient_buffer), 1), 4),
+                        "dopamine_gain_avg": round(avg_gain, 4),
+                        "mushroom_weight_changes": getattr(
+                            model.mushroom, "assoc_count", 0),
+                        "reward_trend": round(
+                            getattr(model, "_cumulative_reward", 0.0), 4),
+                        "error_gradient_mean": round(
+                            sum(_error_gradient_buffer) / max(len(_error_gradient_buffer), 1), 4),
+                        "gain_update_count": model.dopamine_gain.gain_update_count,
+                    })
 
             next_tick += model.dt
             delay = next_tick - time.monotonic()
