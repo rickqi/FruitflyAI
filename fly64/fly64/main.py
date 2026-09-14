@@ -35,7 +35,7 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.7.0"
+BRAIN_VERSION = "2.8.0"
 SKILL_VERSION = "3.0.0"   # must mirror fly64/skills/evolution_skill.py SKILL_VERSION
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
@@ -595,14 +595,9 @@ async def run(args) -> None:
         _evo_pipe = None
     _evo_last_run = 0.0
     _evo_findings = []
-    # Corollary-discharge comparator: expected vs actual displacement.
-    # Wall corners are invisible to texture-based vision (static frame,
-    # symmetric walls, zero transients) — but motor-vs-motion mismatch
-    # catches them regardless of what the eye sees.
-    _cmd_fail_frames = 0
+    # P1 (audit A7): corollary-discharge frame counter deleted.  Displacement
+    # history note kept: _last_cmp_pose retained for the escape event buffer.
     _last_cmp_pose = None
-    escape_x = 0
-    escape_toggle_timer = 0.0
     escape_buffer = EscapeEventBuffer()
     event_counters = {"total_escapes": 0, "total_falls": 0,
                       "total_flow_avoid": 0, "total_help_requests": 0,
@@ -713,15 +708,12 @@ async def run(args) -> None:
             # geometry (wall corner). Vision cannot see this; the motor
             # vs measured displacement mismatch can.
             _cur_cmp = (pose_ev[0], pose_ev[2])
-            if _last_cmp_pose is not None:
-                _moved = ((pose_ev[0] - _last_cmp_pose[0]) ** 2
-                          + (pose_ev[2] - _last_cmp_pose[1]) ** 2) ** 0.5
-                if max(0, control.y) * 0.6 > 25 and _moved < 3:
-                    _cmd_fail_frames += 1
-                else:
-                    _cmd_fail_frames = 0
             _last_cmp_pose = _cur_cmp
-            command_decoupled = _cmd_fail_frames > 15
+            # P1 (BRAIN 2.7.0): Python corollary-discharge frame counter and
+            # un-corner override deleted (audit A7) — the displacement signal
+            # remains available for a future efference-copy neuron (roadmap
+            # P3).  Telemetry key kept for dashboard compatibility.
+            command_decoupled = False
 
             # ---- Dialogue episode tracking (habituation counter) ----
             # Final dialogue control override happens just before
@@ -808,7 +800,6 @@ async def run(args) -> None:
                     turn_dir = -60 if model.rng.random() < 0.5 else 60
                     control.x = turn_dir
                     control.y = -10  # brief reverse in SM64
-                    escape_toggle_timer = 0.5  # shorten next turn cycle
                     cliff_triggered = True
                     cliff_turn_bias = float(turn_dir)
                     cliff_recovery_timer = 0.0
@@ -869,160 +860,51 @@ async def run(args) -> None:
                     control.jump = action["jump"]
                     reflex_override = True
                     memory_ctrl.escape_behavior = True
-                    escape_toggle_timer = 0.0  # reset normal escape timer
 
-            # ---- Health-score aggressive mode (after reflex, before collision) ----
-            _health = memory_ctrl.health_score
-            if _health < 0.3:
-                # 1.5x turn multiplier + halved reflex cooldowns
-                if not reflex_override:
-                    control.x = int(np.clip(control.x * 1.5, -80, 80))
-                memory_ctrl.reflex.set_aggressive_mode(True)
+            # ---- Aggressive mode (P1, audit A5): only the neuromodulatory
+            # pathway remains — reflex cooldowns halve via the reflex's own
+            # aggressive gate.  The Python control.x×1.5 bypass is deleted;
+            # urgency is expressed as motor-pool gain, not symbolic scaling.
+            memory_ctrl.reflex.set_aggressive_mode(
+                memory_ctrl.health_score < 0.3)
+
+            # P1 (audit A1): Python pre-emptive collision override deleted.
+            # Direction-selective HRC motion truth already modulates the
+            # turn/forward pools at current-injection level (model.step);
+            # the LIF competition owns collision avoidance now.
+
+            # P1 (audit A6): scene-change escape suppression branch deleted.
+            # The stuck detector's own hysteresis gates escape entry; MB
+            # familiarity (roadmap P4) will supply the learned gate.
+
+            # ---- P1 (audit A3): escape 5-phase state machine deleted ----
+            # Behaviour now emerges from: escape-mode motor current
+            # injection (model.step), the four reflex circuits (writing
+            # control above), and CX opening steering.  fallen adds a
+            # jump-pool drive; forced_bold_explore becomes an alternating
+            # turn-pool current whose sign mirrors the reflex's own
+            # refractory memory (spontaneous alternation).
+            bold_now = (memory_ctrl.escape_behavior
+                        and memory_ctrl.forced_bold_explore)
+            if memory_ctrl.escape_behavior and (bold_now or not reflex_override):
+                model.escape_jump_drive = memory_ctrl.fallen
+                model.bold_turn_drive = (memory_ctrl.reflex.bold_direction()
+                                         if bold_now else 0.0)
             else:
-                memory_ctrl.reflex.set_aggressive_mode(False)
+                model.escape_jump_drive = False
+                model.bold_turn_drive = 0.0
 
-            # ---- Pre-emptive collision avoidance (fires when NOT escaping/reflex) ----
-            # EVO R7: prefer the HRC direction-selective motion truth
-            # (true_hrc_asymmetry) once the correlator is warmed up; fall
-            # back to brightness-difference flow (true_asymmetry) otherwise.
-            collision_bias = False
-            if model.hrc_available:
-                motion_asym = model.true_hrc_asymmetry
-            else:
-                motion_asym = model.flow_asymmetry  # legacy fallback (RAW)
-            if not memory_ctrl.escape_behavior and not cliff_triggered:
-                # 1. Strong asymmetry > 0.3: bias turn AWAY from obstacle
-                if motion_asym > 0.3:
-                    control.x = min(control.x if control.x < 0 else -max(abs(control.x), 8) - 10, -8)
-                    collision_bias = True
-                elif motion_asym < -0.3:
-                    control.x = max(control.x if control.x > 0 else max(abs(control.x), 8) + 10, 8)
-                    collision_bias = True
-                # 2. Looming > 0.4: reduce forward speed
-                if model.flow_looming > 0.4:
-                    control.y = int(control.y * 0.3)
-                    collision_bias = True
+            # ---- Scene-change suppression removed (P1, audit A6) ----
 
-            # ---- Scene-change suppression: new area, give it time before escaping ----
-            if model.scene_change and memory_ctrl.stuck_score < 0.5:
-                memory_ctrl.escape_behavior = False
-                escape_toggle_timer = 0.0
+            # P1 (audit A1): the pre-emptive collision override that lived
+            # here (motion_asym > 0.3 forced turn / looming > 0.4 slowdown)
+            # is deleted; the model's current-injection pathway already
+            # implements both effects inside the network.
 
-            # Escape control: override when stuck & looping (skip when reflex
-            # active).  EVO R10: forced_bold_explore overrides even an active
-            # reflex — the reflex response to a persistent micro_loop is the
-            # circling itself; bold displacement is the only way out.
-            pose_ev = bridge.frame_metadata.get("pose", [0, 0, 0, 0])
-            bold_override = (memory_ctrl.escape_behavior
-                             and memory_ctrl.forced_bold_explore)
-            if memory_ctrl.escape_behavior and (not reflex_override or bold_override):
-                escape_toggle_timer += model.dt
-                model.escape_mode = True
-                if memory_ctrl.fallen:
-                    # Fall recovery: jump + forward burst
-                    # EVO R6: random initial direction (was fixed -50, which
-                    # biased recovery loops leftward); mirror each cycle keeps
-                    # left/right alternating so one bad direction can't trap
-                    # the recovery loop.
-                    # L3: burst/persist timing + mirror mode come from
-                    # active_strategy.json (hot-reloaded every 600 ticks).
-                    _climb = _active_strategy.get("climb_period", 2.0)
-                    _persist = _active_strategy.get("persist_seconds", 2.0)
-                    if escape_x == 0:
-                        escape_x = 50 if model.rng.random() < 0.5 else -50
-                    if escape_toggle_timer < 0.4:
-                        # Phase 1: Jump, no movement
-                        control.x = 0; control.y = 0; control.jump = True
-                    elif escape_toggle_timer < 0.4 + _climb:
-                        # Phase 2: forward burst (strategy climb_period)
-                        control.x = escape_x; control.y = 80; control.jump = True
-                    elif escape_toggle_timer < 0.4 + _climb + _persist:
-                        # Phase 3: persistence — reduced forward, same heading
-                        control.x = escape_x // 2; control.y = 40; control.jump = True
-                    else:
-                        escape_toggle_timer = 0.0
-                        # Mirror turn direction for next cycle (strategy mode)
-                        if _active_strategy.get("mode", "mirror") == "mirror":
-                            escape_x = -escape_x
-                        # Reverse-before-jump when stuck-in-fall >30s
-                        if memory_ctrl.stuck_duration > 30:
-                            control.x = -escape_x  # reverse away from obstacle
-                            control.y = -40        # backward burst
-                        # else: brief reset tick, next cycle starts immediately
-                elif memory_ctrl.forced_bold_explore:
-                    # ---- forced_bold_explore breakout ----
-                    # Force large turn (coach-tunable magnitude, default ±69)
-                    # + extended forward burst (y=70 for 2s) to break out of
-                    # nested loop cycles (EVO R11: coach strategy keys
-                    # exploration.bold_explore_stuck_s / turn_bias consumed
-                    # here via memory_ctrl so GLM advice tunes the breakout).
-                    _turn_mag = max(40, min(80, int(
-                        getattr(memory_ctrl, "bold_turn_bias", 69) or 69)))
-                    if escape_toggle_timer < 0.5:
-                        # Phase 1: Sharp turn to maximum angle, no forward
-                        if escape_toggle_timer < model.dt:
-                            # Choose max turn, alternating sign from previous bold cycle
-                            if escape_x == 0:
-                                escape_x = _turn_mag
-                            escape_x = _turn_mag
-                            if model.rng.random() < 0.5:
-                                escape_x = -escape_x
-                        control.x = escape_x; control.y = 0
-                    elif escape_toggle_timer < 2.5:
-                        # Phase 2: Extended forward burst (2s) with slight counter-steer
-                        control.x = -escape_x // 3; control.y = 70
-                    else:
-                        escape_toggle_timer = 0.0; control.jump = True
-                else:
-                    # ---- Open-area stuck override ----
-                    # When wall≈0 && asymmetry≈0 && stuck>120s, force straight forward
-                    _open_stuck = (model.wall_score < 0.1 and
-                                   abs(model.flow_asymmetry) < 0.05 and
-                                   memory_ctrl.stuck_duration > 120)
-                    # ---- Revisit-penalty escape modulation ----
-                    _revisit_boost = 1.0 + max(0.0, memory_ctrl.revisit_penalty - 0.3) * 1.0
-                    if escape_toggle_timer < 0.8:
-                        if escape_toggle_timer < model.dt:
-                            avoid = memory_ctrl.failures.avoid_direction(pose_ev[0], pose_ev[2], pose_ev[3])
-                            asym = model.true_asymmetry  # self-motion corrected
-                            # Novelty-biased escape: prefer high-novelty directions
-                            novelty_bias = memory_ctrl.spatial.novelty_direction(
-                                pose_ev[0], pose_ev[2], pose_ev[3],
-                                dead_end_keys=memory_ctrl.dead_end_cells,
-                                scene_change_rate=model.scene_change_rate,
-                                forced_bold_explore=memory_ctrl.forced_bold_explore)
-                            if avoid > 0:
-                                escape_x = int(60 * _revisit_boost)
-                            elif asym > 0.12:
-                                escape_x = int(60 * _revisit_boost)
-                            elif asym < -0.12:
-                                escape_x = int(-60 * _revisit_boost)
-                            elif abs(novelty_bias) > 0.2:
-                                # Novelty bias takes priority (>0.2 threshold)
-                                escape_x = int(novelty_bias * 70 * _revisit_boost)
-                            else:
-                                escape_x = model.rng.integers(int(40 * _revisit_boost), int(70 * _revisit_boost))
-                                if model.rng.random() < 0.5:
-                                    escape_x = -escape_x
-                        control.x = int(np.clip(escape_x // (4 if _open_stuck else 1), -80, 80))
-                        control.y = 0
-                    elif escape_toggle_timer < 1.6:
-                        # Open-area stuck: no obstacles, just stuck → go straight
-                        if _open_stuck:
-                            # Ramp escape: if stuck on ramp >180s, sharp turn instead
-                            if model.ramp_score > 0.5 and memory_ctrl.stuck_duration > 180:
-                                control.x = model.rng.integers(60, 80) * (-1 if model.rng.random() < 0.5 else 1)
-                                control.y = 40
-                            else:
-                                control.x = 0
-                                control.y = 80
-                        else:
-                            control.x = int(-escape_x // 2)
-                            control.y = int(70 * _revisit_boost)
-                    else:
-                        escape_toggle_timer = 0.0; control.jump = True
-            else:
-                escape_toggle_timer = 0.0
+            # P1 (audit A3): the escape 5-phase state machine that lived
+            # here (escape_toggle_timer / escape_x phase timers writing
+            # control.x/y/jump directly) is deleted.  See the replacement
+            # drive flags above — no symbolic control writes remain.
 
             # ---- Python→neuron error gradient bridge (t3) ----
             # When Python escape logic makes a turn decision, compare it with
@@ -1111,14 +993,9 @@ async def run(args) -> None:
                     event_counters["total_flow_avoid"] += 1
 
             latest_control = control
-            # ---- Corollary-discharge un-corner reflex ----
-            # ~1.2s of "commanding forward but not moving" = wedged in
-            # geometry. Reverse out + turn, then normal logic resumes.
-            if (not dlg_now and not memory_ctrl.fallen
-                    and _cmd_fail_frames > 60):
-                control.x = int(60 * (1 if (model.step_count // 30) % 2 else -1))
-                control.y = -50
-                control.jump = False
+            # P1 (audit A7): the corollary-discharge un-corner override that
+            # lived here (60-frame no-motion counter → mirrored ±60 turn) is
+            # deleted; wall/loop reflex circuits own wedged-geometry escape.
             # ---- Dialogue final override (after all other logic, so telemetry
             # still publishes every tick — no continue/skip) ----
             if dlg_now:
@@ -1156,32 +1033,26 @@ async def run(args) -> None:
                         # Belt & braces: worker should already have timed
                         # out, but never hang the brain on a lost thread.
                         control.jump = True   # autonomous A fallback
-                else:
-                    control.x = 0
-                    control.y = 0
-                    _dlg_t = getattr(model, "_dialogue_pulse", 0.0)
-                    control.jump = _dlg_t < 0.25   # brief A press at pulse start
+                # P1 (audit A8): the legacy pulse-A fallback (_dlg_t < 0.25)
+                # is deleted together with the model's dialogue pulse block —
+                # with no LLM consultant the habituation breaker below is the
+                # only dialogue behaviour (safety guardrail, kept).
             else:
                 llm_press_hold = 0
                 control.b = False
             bridge.write_control(control.x, control.y, control.jump,
                                  b=getattr(control, "b", False))
             # ---- Decision attribution audit (read-only, telemetry only) ----
-            # Priority mirrors the control cascade (t8 review R2: includes
-            # collision + dialogue branches so decision_source always matches
-            # the control actually written this tick).
+            # Priority mirrors the control cascade.  P1: bold_explore and
+            # collision branches retired with their bypass code paths.
             if dlg_now:
                 decision_source = "dialogue"
             elif cliff_triggered:
                 decision_source = "cliff_reflex"
-            elif bold_override:
-                decision_source = "bold_explore"
             elif reflex_override:
                 decision_source = "anomaly_reflex"
             elif memory_ctrl.escape_behavior:
                 decision_source = "escape"
-            elif collision_bias:
-                decision_source = "collision"
             elif control.jump:
                 decision_source = "jump"
             else:

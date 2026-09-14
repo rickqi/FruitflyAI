@@ -313,6 +313,43 @@ class TargetTracker:
         self.next_id = 0
 
 
+class TurnAdaptation:
+    """Homeostatic turn-circuit adaptation — spontaneous alternation.
+
+    Drosophila spontaneously alternates turn direction: a sustained turn in
+    one direction fatigues the dominant turning circuit and progressively
+    recruits the competitor.  Implemented as paired low-pass fatigue states
+    over the LIF turn-pool firing; the fatigue feeds back as a COUNTER-DRIVE
+    current injected pre-spike, so direction selection remains inside the
+    network dynamics — no Python direction decision is involved.
+    """
+
+    def __init__(self, tau: float = 3.0, saturation: float = 0.5,
+                 gain: float = 0.18):
+        self.tau = tau                # fatigue integration window (s)
+        self.saturation = saturation  # pool activity (fraction) at full fatigue
+        self.gain = gain              # max counter-drive current (V)
+        self.left = 0.0               # fatigue of left-turn circuit
+        self.right = 0.0              # fatigue of right-turn circuit
+
+    def update(self, act_left: float, act_right: float, dt: float) -> None:
+        """Integrate one step of turn-pool activity (fractions in [0, 1])."""
+        decay = float(np.exp(-dt / max(self.tau, 1e-6)))
+        self.left = self.left * decay + max(0.0, act_left) * dt
+        self.right = self.right * decay + max(0.0, act_right) * dt
+
+    def counter_drive(self) -> tuple[float, float]:
+        """Return (drive_left, drive_right) counter currents in [0, gain]."""
+        nl = min(1.0, self.left / max(self.saturation, 1e-6))
+        nr = min(1.0, self.right / max(self.saturation, 1e-6))
+        return nl * self.gain, nr * self.gain
+
+    def reset(self) -> None:
+        """Clear both fatigue states (scene change / new exploration)."""
+        self.left = 0.0
+        self.right = 0.0
+
+
 class FlyModel:
     """Connectome-derived LIF approximation with explicit engineered I/O maps."""
 
@@ -407,6 +444,17 @@ class FlyModel:
         # Novelty-driven modulation and escape
         self.escape_mode = False
         self.escape_current = 0.15  # extra depolarisation during escape
+        # P1 (BRAIN 2.7.0): escape sub-drives set by the brain runner —
+        # jump-burst drive during falls, alternating breakout turn drive.
+        self.escape_jump_drive = False
+        self.bold_turn_drive = 0.0
+        # EVO R14: homeostatic turn-circuit adaptation (spontaneous
+        # alternation) — sustained one-direction turning fatigues that
+        # circuit and counter-drives the competitor, all pre-spike.
+        self._turn_adapt = TurnAdaptation()
+        # EVO R14: anomaly-state mirror (sensory input for the DAN dopamine
+        # signal; set by main.py each tick from the memory controller).
+        self.anomaly_state_name = "idle"
         # Visual short-term memory (scene change detection)
         self.scene_memory = SceneMemory(buffer_size=30)
         self.scene_mean = 0.0
@@ -446,8 +494,13 @@ class FlyModel:
         self.saturation_mean = 0.0      # mean color saturation
         self.color_azimuth = {}          # per-band dominant hue dict
 
-        # ---- Color-enhanced scene signature (backward-compat gated) ----
-        self.color_signature = False     # set True to enable 5-channel color projection
+        # ---- Color-enhanced scene signature ----
+        # EVO R14: enabled.  The 5-channel (luminance + red/UV/green
+        # salience + mean RGB) projection feeds both the Kenyon Cells of the
+        # mushroom body and the scene database, giving the brain colour-
+        # discriminative scene codes (collision rate 10³/day → <1/yr).
+        # Persisted scene signatures rebuild within one loop_window.
+        self.color_signature = True
 
         # ---- 4-direction EMD (T4/T5 equivalent) ----
         self.emd_on_right = 0.0   # T4 rightward motion energy
@@ -1098,6 +1151,14 @@ class FlyModel:
         revisit = getattr(self, "_revisit_penalty", 0.0)
         if revisit > 0.5:
             punishment = max(punishment, 0.2)
+        # EVO R14 · Negative: circling-family anomaly states.  This is the
+        # dopaminergic-neuron (DAN) input for loop suppression — the mushroom
+        # body's three-factor rule then weakens the scene→turn associations
+        # that produced the loop.  Detection lives in the memory controller
+        # (mirrored here each tick); the LEARNING is purely neural.
+        if getattr(self, "anomaly_state_name", "idle") in (
+                "micro_loop", "stuck_ramp", "wall_stuck", "oscillating"):
+            punishment = max(punishment, 0.35)
         return reward - punishment
 
     def step(self, rgb: np.ndarray, now: float | None = None,
@@ -1108,7 +1169,9 @@ class FlyModel:
         # Novelty-driven visual modulation:
         # Low novelty (familiar) → boost sensory to seek variety
         # High novelty (unexplored) → slight suppression for caution
-        novelty_gain = 1.0 + (0.10 if novelty < 0.3 else -0.10 if novelty > 0.7 else 0.0)
+        # B10 (P1): piecewise branches replaced by a smooth sigmoid — same
+        # ±0.10 range, no discontinuities at the old 0.3 / 0.7 breakpoints.
+        novelty_gain = 1.0 + 0.10 * float(np.tanh((0.5 - novelty) * 4.0))
 
         # ---- Reward signal from stuck_duration changes (for gain modulation) ----
         # When stuck_duration drops significantly (escape succeeded) → reward=+1
@@ -1252,6 +1315,16 @@ class FlyModel:
         # Escape-mode depolarisation of motor neurons
         if self.escape_mode:
             self.v[self.motor_nodes] += self.escape_current
+        # P1 (audit A3): fallen → jump-pool burst drive; forced bold breakout
+        # → mirrored turn-pool current.  The LIF competition — not a Python
+        # control write — executes the escape manoeuvre.
+        if self.escape_jump_drive:
+            self.v[self.jump_nodes] += 0.45
+        if self.bold_turn_drive:
+            if self.bold_turn_drive > 0:
+                self.v[self.turn_right] += 0.35 * min(1.0, self.bold_turn_drive)
+            else:
+                self.v[self.turn_left] += 0.35 * min(1.0, -self.bold_turn_drive)
 
         # ---- Tau (time-to-contact) → jump motor pool current injection ----
         # Imminent collision → depolarise jump nodes directly so the neural
@@ -1310,17 +1383,10 @@ class FlyModel:
         self.v[self.turn_left] += cx_bias * self.cx_steering_gain_turn
         self.v[self.turn_right] -= cx_bias * self.cx_steering_gain_turn
 
-        # ---- Dialogue mode: neural suppression of movement + A-press drive ----
-        # A dialogue box covering the lower field means SM64 wants interaction.
-        # Suppress forward pool (stop walking), pulse jump pool (A advances text).
-        if getattr(self, "dialogue_active", False):
-            self.v[self.forward] -= 0.30          # stop forward drive
-            self._dialogue_pulse = getattr(self, "_dialogue_pulse", 0.0) + self.dt
-            if self._dialogue_pulse > 1.5:        # A-press every 1.5s to advance
-                self._dialogue_pulse = 0.0
-                self.v[self.jump_nodes] += 0.50
-        else:
-            self._dialogue_pulse = 1.5            # ready immediately on next box
+        # P1 (audit A8): the dialogue neural pulse block is deleted together
+        # with the runner's legacy pulse-A fallback — dialogue behaviour is
+        # owned by the LLM pause-wait orchestration plus the habituation
+        # safety breaker in the runner (BRAIN 2.4.0 contract).
         # ---- CX interactive-mode gating ----
         # Interactive target near (door/sign) → CX enters interaction mode:
         # suppress escape circuitry current so the agent approaches, not flees.
@@ -1382,11 +1448,10 @@ class FlyModel:
                 looming_factor = 1.0 - min(self.flow_looming * 1.2, 0.8)
                 raw_y *= looming_factor
 
-            # 3. Low cliff → force pre-emptive turn away from edge
-            # Only when scene is visible (not in dark/initial state)
-            if self.flow_cliff < 0.3 and self.mean_luminance > 0.02:
-                turn_dir = 1.0 if self.rng.random() < 0.5 else -1.0
-                raw_x += turn_dir * 40.0
+            # P1 (audit A2): the flow_cliff < 0.3 random ±40 turn branch is
+            # deleted.  Cliff avoidance is owned by the runner's cliff reflex
+            # (cliff_confirmed path) and, on the roadmap, by an LC4-derived
+            # turn-pool injection — a coin-flip write is not a neural policy.
 
             # ---- Multi-channel retina modulation ----
             # 4a. High ON + low OFF = object appearing ahead → increase jump probability

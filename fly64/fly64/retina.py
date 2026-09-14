@@ -1121,8 +1121,17 @@ class SphericalRetina:
         sky_score = sky_score * min(1.0, upper_blue * 4.0)
 
         # Indoor overrides outdoor-flavoured terrain labels (EVO R9).
-        if enclosure_score > 0.35 and terrain in ("mixed", "wall_ahead", "corridor",
-                                                  "open_flat", "dense", "forest_edge"):
+        # C10 (P1): the single 0.35 magic number is split into a sensory
+        # detection threshold and a behavioural override threshold.  Both
+        # currently share the same value — behaviour unchanged — but they
+        # can now be tuned independently (perception vs action).
+        ENCLOSURE_INDOOR_SENSORY_THRESHOLD = 0.35
+        ENCLOSURE_INDOOR_OVERRIDE_THRESHOLD = 0.35
+        enclosure_sensory = enclosure_score > ENCLOSURE_INDOOR_SENSORY_THRESHOLD
+        if (enclosure_sensory
+                and enclosure_score > ENCLOSURE_INDOOR_OVERRIDE_THRESHOLD
+                and terrain in ("mixed", "wall_ahead", "corridor",
+                                "open_flat", "dense", "forest_edge")):
             terrain = "indoor"
 
         # ---- Small target detection (LPLC/LC11 equivalent) ----

@@ -74,6 +74,33 @@ D:\codes\flygym\
 
 # 变更日志
 
+## 2026-09-14: P1 进化轮 — Brain v2.8.0（去 Python 化：删除 11 个 A 类旁路点，行为决策回归 LIF 网络）
+
+**触发**：脑模型替代判断分支审计轮（t7 审计 + t8 逐项核实）。根因=**双轨旁路**：main.py 在 LIF 解码后直接改写 control（~35 处）、model.py 解码后符号调制绕过池竞争——五大神经基质（HRC/LC4、反射四电路、CX 环吸引子、MB、多巴胺增益）均已在但被旁路。
+
+**变更清单（按 t8 修正行号执行）**：
+- A1 main.py（原 893-904）：运动不对称>0.3 强转 / looming>0.4 减速的 Python 覆盖删除——model 电流注入路径已实现同源调制
+- A2 model.py（原 1387-1389）：flow_cliff<0.3 随机 ±40 转向删除——崖壁避让归 main 崖壁反射（cliff_confirmed 路径保留），LC4 注入列入 P3
+- A3 main.py（原 918-1023）：逃逸五阶段硬编码状态机（escape_toggle_timer/escape_x/0.4-2.5s 定时器）删除。接管路径：model.escape_mode 逃逸电流注入（已验证注入 model.py escape_mode 块无死区）+ 反射四电路（先于逃逸写 control）+ CX opening 转向。新增两根系：`escape_jump_drive`（fallen→jump 池 +0.45）与 `bold_turn_drive`（forced_bold→镜像交替转向池电流 ±0.35，方向由 ReflexController.bold_direction() 自发交替记忆给出）
+- A4 main.py（原 1000-1006）：novelty_bias>0.2 转向分支删除——CX.update(novelty_direction) 目标导航接管
+- A5 main.py（原 874-882）：health<0.3 的 control.x×1.5 增幅删除——保留 set_aggressive_mode 神经调质（冷却减半），紧迫性归增益通路
+- A6 main.py（原 906-909）：场景突变抑制逃逸分支删除——stuck 检测器自身滞回把关，MB 学习门控列入 P4
+- A7 main.py（原 715-724+1114-1121）：corollary-discharge 帧计数器与 un-corner 覆盖删除——楔入几何逃逸归反射电路；位移数据通路备注保留供 P3 递归神经元
+- A8 main.py（原 1159-1163）+ model.py（原 1313-1323）：legacy 脉冲-A 与 model 对话脉冲块双删——对话行为归 LLM 暂停等待编排（BRAIN 2.4.0 契约）+ 习惯化安全护栏
+- A9 memory.py（原 492-501）：novelty_direction 8 方向网格离散化（±0.3 死区）→ 连续 heading→最近格映射，CX 输入成为连续群体向量
+- B10 model.py（原 1111）：novelty 增益分段阈值 → 平滑 sigmoid `1+0.10*tanh((0.5-n)*4)`（同 ±0.10 值域，消除断点）
+- C10 retina.py（原 1124）：enclosure 0.35 单一魔数拆分为 SENSORY/OVERRIDE 两常数（同值，行为不变，感知/行为可独立调参）
+
+**连带清理**：decision_source 归因级联移除 bold_explore/collision 分支；escape_toggle_timer/escape_x/_cmd_fail_frames 变量全删；command_decoupled 遥测键保留（恒 False，兼容面板）。
+
+**版本**：Brain 2.7.0→**2.8.0**（SKILL_VERSION 3.0.0 不变，evolution_skill.py 本轮未动，镜像一致，check_version.py 通过）
+
+**回归**：py_compile 4 模块通过；全量 tests（除 live 测试）25 failed / 355 passed —— 25 项失败与 HEAD 基线（git worktree 对照）**逐项一致，零新增失败**。
+
+**KPI 基线口径**：main.py 直接写 control 点数 35→**约 12**（剩：崖壁反射、反射动作写回、对话暂停/习惯化护栏、LLM 按键执行）；行为级 Python 分支随 P2-P4 继续收敛。
+
+---
+
 ## 2026-09-14: EVO R11 完成轮 — 教练策略键接入行为管线（commit f0d86f7）
 
 **变更**：coach 下发的策略键真正被行为管线消费——`bold_explore_stuck_s` → micro_loop 突破阈值、`turn_bias` → bold 转向幅度、`escape.stuck_threshold_s` → memory.py 时长型教练逃脱条件（经 main.py 热重载推送）；skills.md 记录 Brain 2.6.1 / Skill 2.9.1 当前版本；并发更新后复验 R11 接线完好（opening injection / report_movement / bold_override 均在场）。

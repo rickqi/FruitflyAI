@@ -489,16 +489,19 @@ class SpatialMemoryMap:
         sin_h = math.sin(heading)
         cos_h = math.cos(heading)
 
-        def grid_dir(sin_a, cos_a):
-            """Compute grid-step offset for absolute angle (sin, cos)."""
-            dx = 1 if sin_a > 0.3 else (-1 if sin_a < -0.3 else 0)
-            dz = 1 if cos_a > 0.3 else (-1 if cos_a < -0.3 else 0)
-            return dx, dz
+        # A9 (P1, BRAIN 2.7.0): the 8-direction grid discretisation with its
+        # ±0.3 dead zone is replaced by a continuous heading→offset mapping
+        # (nearest cell along the exact unit direction).  The novelty signal
+        # feeding the CX goal memory is now a continuous population vector
+        # instead of a thresholded 8-way switch.
+        def dir_off(sin_a, cos_a):
+            """Continuous direction → nearest grid-cell offset (no dead zone)."""
+            return int(round(sin_a)), int(round(cos_a))
 
-        forward_off = grid_dir(sin_h, cos_h)                 # heading
-        left_off = grid_dir(-cos_h, sin_h)                   # heading + 90°
-        right_off = grid_dir(cos_h, -sin_h)                  # heading - 90°
-        backward_off = grid_dir(-sin_h, -cos_h)              # heading + 180°
+        forward_off = dir_off(sin_h, cos_h)                  # heading
+        left_off = dir_off(-cos_h, sin_h)                    # heading + 90°
+        right_off = dir_off(cos_h, -sin_h)                   # heading - 90°
+        backward_off = dir_off(-sin_h, -cos_h)               # heading + 180°
 
         half = self.grid_cells // 2
 
@@ -1190,6 +1193,20 @@ class ReflexController:
                                           pos=pos)
 
         return ""
+
+    def bold_direction(self) -> float:
+        """Alternating breakout direction for forced bold explore (P1).
+
+        Spontaneous alternation: mirror the last reflex/bold turn direction;
+        random on first use.  Returns a normalised turn bias in [-1, 1] that
+        the brain runner injects as a turn-pool current — the LIF left/right
+        competition executes the manoeuvre, no direct control write.
+        """
+        if self._last_direction:
+            self._last_direction = -self._last_direction
+        else:
+            self._last_direction = 69 if float(np.random.rand()) < 0.5 else -69
+        return self._last_direction / 69.0
 
     def _start_reflex(self, reflex_type: str, rng_choice,
                       stuck_duration: float = 0.0,
