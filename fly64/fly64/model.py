@@ -10,6 +10,7 @@ from scipy import sparse
 from .retina import SphericalRetina
 from .mushroom_body import MushroomBody
 from .gain_modulation import DopamineGainController
+from .central_complex import CentralComplex
 
 
 @dataclass
@@ -20,6 +21,7 @@ class Control:
     forward_rate: float
     turn_rate: float
     jump_rate: float
+    b: bool = False   # B button (LLM dialogue decisions; emulator may ignore)
 
 
 class SceneMemory:
@@ -372,6 +374,10 @@ class FlyModel:
         self.visual_connected = True
         self.tonic_current = 0.180
         self.synaptic_gain = 1.50
+        # Reward signal (for gain modulation plasticity proxy)
+        self.reward_signal = 0.0
+        self._prev_stuck_duration = 0.0
+        self._cumulative_reward = 0.0
         # Local motion detection: moving objects when Mario is stationary
         self.local_motion_energy = 0.0
         self.local_motion_detected = False
@@ -509,6 +515,11 @@ class FlyModel:
         # Pre-allocated gain lookup array (updated each step)
         self._pathway_gains_np = np.ones(5, dtype=np.float32)
 
+        # ---- Central Complex navigation module ----
+        self.cx = CentralComplex()
+        self.cx_steering_gain_turn = 0.12   # CX steering → turn motor pool
+        self.cx_novelty_direction = 0.0     # from memory controller
+
         # ---- Small target tracking (LPLC/LC11 equivalent) ----
         self.target_tracker = TargetTracker(dt=self.dt)
         self.target_count = 0
@@ -518,6 +529,15 @@ class FlyModel:
         self.target_nearest_velocity = (0.0, 0.0)
         self.fg_fraction = 0.0
         self.max_target_energy = 0.0
+
+        # ---- Python→neuron error gradient bridge (t3) ----
+        self._last_error_gradient = {
+            "error": 0.0, "neural_bias": 0.0, "python_bias": 0.0,
+            "corrective_left": 0.0, "corrective_right": 0.0,
+        }
+        self._corrective_current_applied = (0.0, 0.0)
+        # Pending Python turn correction for t3 error gradient bridge
+        self._pending_python_turn = 0
 
     def _load_demo(self):
         self.n = 4096
@@ -803,8 +823,11 @@ class FlyModel:
         self.scene_sig_valid = True
 
         # ---- Mushroom Body encoding ----
-        if self.scene_sig_valid:
-            self.mushroom.encode(self.scene_sig)
+        if self.scene_sig_valid and hasattr(self, "mushroom"):
+            try:
+                self.mushroom.encode(self.scene_sig)
+            except Exception:
+                pass  # graceful degradation
 
         return drive
 
@@ -897,7 +920,131 @@ class FlyModel:
         self.scene_sig[:] = 0.0
         self.scene_sig_valid = False
         self.target_tracker.reset()
-        self.mushroom.reset()
+        if hasattr(self, "mushroom"):
+            try:
+                self.mushroom.reset()
+            except Exception:
+                pass
+        if hasattr(self, "cx"):
+            try:
+                self.cx.reset()
+            except Exception:
+                pass
+
+    # ---- Python→neuron error gradient bridge (t3) ----
+
+    def compute_error_gradient(self, python_turn_x: int) -> dict:
+        """Compare Python escape turn decision with neural network's preferred bias.
+
+        The 'neural bias' is the decoded turn preference from the motor pool
+        rolling-window firing rates (right_rate − left_rate, in [-1, 1]).
+
+        Parameters
+        ----------
+        python_turn_x : int
+            The Python escape turn direction (positive = right, negative = left).
+
+        Returns
+        -------
+        dict with keys:
+            error           — signed error in [-1, 1] (positive = Python wants
+                              more right-turn than the network)
+            neural_bias     — the network's turn bias in [-1, 1]
+            python_bias     — signed Python turn direction in [-1, 1]
+            corrective_left — current to inject into turn_left pool
+            corrective_right — current to inject into turn_right pool
+        """
+        # Neural bias from the decoded motor firing rates
+        neural_bias = getattr(self, "turn_rate", 0.0)  # right_rate − left_rate
+
+        # Python's intended turn direction, normalised to [-1, 1]
+        if abs(python_turn_x) > 8:
+            python_bias = np.clip(python_turn_x / 70.0, -1.0, 1.0)
+        else:
+            python_bias = 0.0
+
+        # Error = what Python wants − what the network provided
+        error = python_bias - neural_bias
+
+        # Corrective currents: amplify the under-performing motor pool,
+        # suppress the over-performing one.  Magnitude decays as |error| shrinks.
+        amp = min(0.06, abs(error) * 0.08)  # max 0.06 per tick
+        if error > 0:  # Python wants MORE right / LESS left
+            corrective_left = -amp * 0.6   # suppress left
+            corrective_right = amp         # boost right
+        elif error < 0:  # Python wants MORE left / LESS right
+            corrective_right = -amp * 0.6  # suppress right
+            corrective_left = amp          # boost left
+        else:
+            corrective_left = 0.0
+            corrective_right = 0.0
+
+        result = {
+            "error": round(error, 4),
+            "neural_bias": round(neural_bias, 4),
+            "python_bias": round(python_bias, 4),
+            "corrective_left": round(corrective_left, 4),
+            "corrective_right": round(corrective_right, 4),
+        }
+        # Store for telemetry / flow.json exposure
+        self._last_error_gradient = result
+        return result
+
+    def inject_corrective_current(self, error_dict: dict,
+                                   reward_signal: float = 0.0) -> None:
+        """Inject error-signed corrective currents into turn motor pools.
+
+        Currents are gated by the reward signal — correction is strongest when
+        the reward is low/negative (the network's decision led to a poor
+        outcome).  High reward means the network is doing well and corrections
+        are suppressed.
+
+        Parameters
+        ----------
+        error_dict : dict
+            Output of compute_error_gradient().
+        reward_signal : float
+            Current reward signal from t1 (positive = good outcome).
+        """
+        # Gate: only correct when reward is low/negative (needs improvement)
+        gate = 1.0 if reward_signal < 0.3 else max(0.0, 1.0 - reward_signal)
+        if gate < 0.01:
+            return
+
+        cl = error_dict.get("corrective_left", 0.0) * gate
+        cr = error_dict.get("corrective_right", 0.0) * gate
+        if abs(cl) < 1e-6 and abs(cr) < 1e-6:
+            return
+
+        self.v[self.turn_left] += cl
+        self.v[self.turn_right] += cr
+        self._corrective_current_applied = (cl, cr)
+
+    def set_python_correction(self, python_turn_x: int,
+                              reward_signal: float = 0.0) -> dict:
+        """One-call convenience: compute error gradient and enqueue injection.
+
+        Called from main.py after the Python escape logic has made a decision.
+        The computed error is stored and will be applied as corrective current
+        on the *next* call to step().
+
+        Parameters
+        ----------
+        python_turn_x : int
+            The Python escape turn direction (positive = right, negative = left).
+        reward_signal : float
+            Current reward signal for gating.
+
+        Returns
+        -------
+        dict
+            The error gradient dict (for telemetry / flow.json).
+        """
+        error_dict = self.compute_error_gradient(python_turn_x)
+        self._pending_python_turn = python_turn_x
+        # Gate and inject immediately into the current voltage state
+        self.inject_corrective_current(error_dict, reward_signal)
+        return error_dict
 
     def _compute_dopamine(self) -> float:
         """Compute proxy dopamine signal from available behavioral signals."""
@@ -938,10 +1085,47 @@ class FlyModel:
         # High novelty (unexplored) → slight suppression for caution
         novelty_gain = 1.0 + (0.10 if novelty < 0.3 else -0.10 if novelty > 0.7 else 0.0)
 
+        # ---- Reward signal from stuck_duration changes (for gain modulation) ----
+        # When stuck_duration drops significantly (escape succeeded) → reward=+1
+        # When stuck increases → reward=-0.1; when fallen → reward=-0.5
+        _prev_stuck = self._prev_stuck_duration
+        _cur_stuck = getattr(self, "stuck_duration", 0.0)
+        self._prev_stuck_duration = _cur_stuck
+        if _prev_stuck > 5.0 and _cur_stuck < _prev_stuck * 0.3:
+            self.reward_signal = 1.0  # escaped!
+        elif _cur_stuck > _prev_stuck + 5.0:
+            self.reward_signal = -0.1  # getting more stuck
+        elif getattr(self, "fallen", False):
+            self.reward_signal = -0.5  # fallen
+        else:
+            self.reward_signal *= 0.95  # decay toward zero
+        self._cumulative_reward = 0.99 * self._cumulative_reward + self.reward_signal
+
+        # ---- Per-pool gain update based on active motor command ----
+        # When reward arrives, increase gain of the motor pool that was active.
+        if abs(self.reward_signal) > 0.05:
+            if float(self.spikes[self.forward].mean()) > 0.01:
+                self.dopamine_gain.pathway_eligibility["forward"] = min(
+                    1.0, self.dopamine_gain.pathway_eligibility["forward"] + 0.3)
+            if float(self.spikes[self._turn_all].mean()) > 0.01:
+                self.dopamine_gain.pathway_eligibility["turn"] = min(
+                    1.0, self.dopamine_gain.pathway_eligibility["turn"] + 0.3)
+            if float(self.spikes[self.jump_nodes].mean()) > 0.01:
+                self.dopamine_gain.pathway_eligibility["jump"] = min(
+                    1.0, self.dopamine_gain.pathway_eligibility["jump"] + 0.3)
+
         # ---- Dopamine signal and Mushroom Body plasticity ----
-        dop = self._compute_dopamine()
-        self.mushroom.set_dopamine(dop)
-        n_syn = self.mushroom.update_weights()
+        # Combine the existing behavioral dopamine with the t1 reward_signal
+        # (stuck_duration-based escape success/failure signal) so that the
+        # mushroom body learns from both scene-driven and escape-driven signals.
+        _behavioral_dop = self._compute_dopamine()
+        _reward_contrib = max(-0.3, min(0.5, self.reward_signal)) * 0.4
+        dop = _behavioral_dop + _reward_contrib
+        try:
+            self.mushroom.set_dopamine(dop)
+            n_syn = self.mushroom.update_weights()
+        except Exception:
+            n_syn = 0  # graceful degradation if mushroom unavailable
 
         # ---- Dopamine-gated gain modulation (plasticity proxy) ----
         # Feed the same dopamine signal to the gain controller for
@@ -963,15 +1147,40 @@ class FlyModel:
         n_gain = self.dopamine_gain.apply_gain_update()
 
         # ---- MBON-to-motor current injection ----
-        mbon = self.mushroom.mbon_outputs
-        self.v[self.forward] += mbon[0] * self.mbon_gain_forward
-        self.v[self.turn_left] += mbon[1] * self.mbon_gain_turn
-        self.v[self.turn_right] += mbon[2] * self.mbon_gain_turn
-        self.v[self.jump_nodes] += mbon[3] * self.mbon_gain_jump
-        if mbon[4] > 0.2:
-            self.escape_current = min(0.25, self.escape_current * 1.02)
-        elif mbon[4] < -0.2:
-            self.escape_current = max(0.05, self.escape_current * 0.98)
+        try:
+            mbon = self.mushroom.mbon_outputs
+            self.v[self.forward] += mbon[0] * self.mbon_gain_forward
+            self.v[self.turn_left] += mbon[1] * self.mbon_gain_turn
+            self.v[self.turn_right] += mbon[2] * self.mbon_gain_turn
+            self.v[self.jump_nodes] += mbon[3] * self.mbon_gain_jump
+            if mbon[4] > 0.2:
+                self.escape_current = min(0.25, self.escape_current * 1.02)
+            elif mbon[4] < -0.2:
+                self.escape_current = max(0.05, self.escape_current * 0.98)
+
+            # ---- Consolidated memory recall (t7) ----
+            # If the current scene matches a consolidated (important) memory,
+            # replay its associated MBON outputs as an additional bias.  This
+            # increases MB utilisation by providing a direct memory-to-behaviour
+            # pathway independent of the plastic weight matrix.
+            _recalled = self.mushroom.recall()
+            if _recalled is not None:
+                self.v[self.forward] += _recalled[0] * self.mbon_gain_forward * 0.5
+                self.v[self.turn_left] += _recalled[1] * self.mbon_gain_turn * 0.5
+                self.v[self.turn_right] += _recalled[2] * self.mbon_gain_turn * 0.5
+                self.v[self.jump_nodes] += _recalled[3] * self.mbon_gain_jump * 0.5
+
+            # ---- Scene familiarity modulation (t7) ----
+            # Familiar scenes (high familiarity) → reduce escape tendency
+            # (the agent is in known territory).  Novel scenes (low familiarity)
+            # → slight increase in exploratory escape tendency.
+            _familiarity = self.mushroom.familiarity
+            if _familiarity > 0.5:
+                self.escape_current *= 0.90  # calm in familiar territory
+            elif _familiarity < 0.1 and novelty < 0.5:
+                self.escape_current = min(0.25, self.escape_current * 1.05)
+        except Exception:
+            pass  # graceful degradation if mushroom body unavailable
 
         current = np.asarray(self.w[:, np.flatnonzero(self.spikes)].sum(axis=1)).ravel()
         # Pathway-specific gain modulation (plasticity proxy)
@@ -1008,7 +1217,8 @@ class FlyModel:
         self.v *= np.exp(-self.dt / self.tau_m)
         self.v += self._synaptic_buf + self.ou_global_state * 0.22 + self.tonic_current
         if self.visual_connected:
-            self.v[self.visual] += sensory * 0.62 * novelty_gain
+            _vis_gain = self.dopamine_gain.get_gain("visual")
+            self.v[self.visual] += sensory * 0.62 * novelty_gain * _vis_gain
 
         # Escape-mode depolarisation of motor neurons
         if self.escape_mode:
@@ -1043,14 +1253,20 @@ class FlyModel:
         if self.sky_score > 0.5:
             self.v[self.jump_nodes] += self.sky_score * 0.12
 
-        # ---- Central complex novelty injection for direction selection ----
-        # Novelty from spatial memory biases turn motor pools at the neural
-        # level, implementing exploratory direction selection through current
-        # injection rather than Python escape logic.
-        _nv = max(0.0, min(1.0, novelty))
-        _nv_turn = (_nv - 0.5) * 0.15  # [-0.075, 0.075]
-        self.v[self.turn_left] -= _nv_turn
-        self.v[self.turn_right] += _nv_turn
+        # ---- Central Complex (CX) steering ----
+        # The CX module maintains a heading compass, integrates optic flow,
+        # tracks goal direction from novelty signals, and produces a unified
+        # steering bias injected into turn motor pools.  Replaces the earlier
+        # simple novelty-based turn bias with proper compass+goal steering.
+        cx_bias = self.cx.update(
+            heading=self.heading,
+            heading_rate=self.heading_rate,
+            flow_asymmetry=self.flow_asymmetry,
+            novelty=novelty,
+            novelty_direction=self.cx_novelty_direction,
+        )
+        self.v[self.turn_left] += cx_bias * self.cx_steering_gain_turn
+        self.v[self.turn_right] -= cx_bias * self.cx_steering_gain_turn
 
         # ---- Dialogue mode: neural suppression of movement + A-press drive ----
         # A dialogue box covering the lower field means SM64 wants interaction.

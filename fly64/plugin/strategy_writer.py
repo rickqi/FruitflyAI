@@ -63,6 +63,31 @@ class StrategyWriter:
         self._atomic_write(self.strategy_path, payload)
         return payload
 
+    def write_dialogue_decision(self, action: str, reason: str = "",
+                                source: str = "glm-5.3-flash",
+                                wait_seconds: Optional[float] = None,
+                                timed_out: bool = False) -> dict:
+        """Merge a ``dialogue_decision`` block into active_strategy.json.
+
+        ``action`` is ``press_a`` | ``press_b`` | ``none`` (``timeout``
+        fallback writes ``press_a`` with ``timed_out=True``).  Existing
+        strategy sections (fallen_recovery / exploration / escape) are
+        preserved so the brain's hot-reload keeps working unchanged.
+        """
+        payload = self.load_strategy() or {}
+        decision = {
+            "action": str(action or "none"),
+            "reason": str(reason or ""),
+            "source": source,
+            "timed_out": bool(timed_out),
+            "ts": round(time.time(), 2),
+        }
+        if wait_seconds is not None:
+            decision["wait_seconds"] = round(float(wait_seconds), 1)
+        payload["dialogue_decision"] = decision
+        self._atomic_write(self.strategy_path, payload)
+        return payload
+
     def load_strategy(self) -> Optional[dict]:
         try:
             return json.loads(self.strategy_path.read_text(encoding="utf-8"))

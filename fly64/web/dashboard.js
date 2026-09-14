@@ -854,7 +854,38 @@ async function updateSceneDisplay() {
       lm.innerHTML = 'Local motion: ' + v.toFixed(3) +
         (det ? ' <span style="color:#ffca72">⚠ moving object</span>' : ' <span style="color:#536170">(clear)</span>');
     }
+    renderLlmDecision(d.llm_decision);
   } catch (_) {}
+}
+
+// ── LLM dialogue decision pill (pause-wait mode) ─────────────────────
+
+function renderLlmDecision(dec) {
+  const pill = $('llmDecisionPill');
+  if (!pill) return;
+  if (!dec || (!dec.status || dec.status === 'idle')) {
+    pill.hidden = true;
+    return;
+  }
+  const act = dec.action || '…';
+  const icon = {press_a: '🅰', press_b: '🅱', none: '⏸'}[act] || '⏸';
+  if (dec.status === 'waiting') {
+    pill.hidden = false;
+    pill.style.color = '#ffca72';
+    const w = dec.wait_s != null ? Math.round(dec.wait_s) + 's' : '';
+    pill.textContent = '🤖 LLM waiting ' + w;
+    pill.title = 'Dialogue detected — paused, waiting for GLM decision (max 10 min)';
+  } else if (dec.status === 'decided') {
+    pill.hidden = false;
+    pill.style.color = '#4cdf7c';
+    pill.textContent = icon + ' LLM ' + act;
+    pill.title = 'LLM dialogue decision: ' + (dec.reason || act);
+  } else {  // timeout
+    pill.hidden = false;
+    pill.style.color = '#ff7a7a';
+    pill.textContent = '⏱ LLM timeout → A';
+    pill.title = 'LLM decision timed out — autonomous A-press fallback';
+  }
 }
 
 if (typeof document !== 'undefined') {

@@ -17,6 +17,7 @@ HEADER = struct.Struct("<8sIIIIQbbHI")
 HEADER_SIZE = 128
 FILE_SIZE = HEADER_SIZE + FRAME_BYTES
 A_BUTTON = 0x8000
+B_BUTTON = 0x4000  # LLM dialogue decisions: B (cancel/skip); emulator may ignore
 # Explicit hardware fences for cross-process seqlocks on Apple Silicon.
 # On Linux x86_64 the TSO memory model makes an explicit fence unnecessary —
 # the barrier is a no-op there (WSL2 Ubuntu fix).
@@ -73,8 +74,9 @@ class SharedBridge:
                 return self._last_frame
         return self._last_frame
 
-    def write_control(self, x: int, y: int, jump: bool, enabled: bool = True) -> None:
-        buttons = A_BUTTON if jump else 0
+    def write_control(self, x: int, y: int, jump: bool, enabled: bool = True,
+                      b: bool = False) -> None:
+        buttons = (A_BUTTON if jump else 0) | (B_BUTTON if b else 0)
         control_seq = struct.unpack_from("<I", self.mm, 16)[0] | 1
         struct.pack_into("<I", self.mm, 16, control_seq)
         _memory_barrier()

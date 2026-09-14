@@ -35,7 +35,7 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.3.0"
+BRAIN_VERSION = "2.4.0"
 SKILL_VERSION = "2.7.0"   # must mirror fly64/skills/evolution_skill.py SKILL_VERSION
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
@@ -403,6 +403,23 @@ def build_help_snapshot(scene_name, position, diagnosis, frame,
     }
 
 
+# ── LLM dialogue decision (pause-wait mode) ──────────────────────────
+# When a dialogue box appears the brain pauses and asks the MHR plugin's
+# GLM LLM for a press_a / press_b / none decision.  Wait at most 10
+# minutes, then fall back to the autonomous A-press reflex.
+DIALOGUE_LLM_WAIT_S = 600.0
+DIALOGUE_PRESS_TICKS = 12   # ~0.2s of held button per executed press
+
+
+def frame_to_b64(frame) -> str:
+    """Base64-encode an HxWxC uint8 frame (raw, channel-last, row-major)."""
+    import base64
+    if frame is None:
+        return ""
+    arr = np.ascontiguousarray(np.asarray(frame, np.uint8))
+    return base64.b64encode(arr.tobytes()).decode("ascii")
+
+
 # ── L3 operator strategy (active_strategy.json hot-reload) ───────────
 
 ACTIVE_STRATEGY_DEFAULTS = {
@@ -477,6 +494,54 @@ async def run(args) -> None:
     dialogue_last_pos = None
     dialogue_blocked_until = 0.0
     prev_dialogue_active = False
+    # LLM dialogue decision (pause-wait mode): on each new dialogue episode
+    # the brain pauses and a worker thread asks GLM for press_a/press_b/none.
+    dialogue_episode = 0
+    llm_decision = None            # {"action","reason","ts"} once decided
+    llm_decision_episode = -1      # episode the current decision applies to
+    llm_decision_consumed = False
+    llm_wait_started = 0.0
+    llm_decision_status = "idle"   # idle | waiting | decided | timeout
+    llm_press_hold = 0             # ticks of remaining held button press
+    llm_press_b = False            # which button the held press is
+    _dialogue_writer = None
+    _dialogue_consultant = None
+    try:
+        from plugin.llm_consult import GLMConsultant as _DlgConsultant
+        from plugin.strategy_writer import StrategyWriter as _DlgWriter
+        _dialogue_consultant = _DlgConsultant()
+        _dialogue_writer = _DlgWriter()
+    except Exception as _exc:   # pragma: no cover - plugin optional
+        print(f"[fly64] LLM dialogue consultant unavailable: {_exc}")
+
+    def _request_dialogue_decision(ep: int, frame) -> None:
+        """Worker thread: screenshot -> GLM -> dialogue_decision, <=10 min."""
+        nonlocal llm_decision, llm_decision_episode, llm_decision_status
+        try:
+            parsed = _dialogue_consultant.consult_dialogue(
+                frame_to_b64(frame), timeout=DIALOGUE_LLM_WAIT_S)
+            llm_decision = {"action": parsed.get("action", "none"),
+                            "reason": parsed.get("reason", ""),
+                            "ts": round(time.time(), 2)}
+            llm_decision_status = "decided"
+            timed_out = False
+        except Exception as exc:
+            llm_decision = {"action": "press_a",
+                            "reason": f"LLM timeout/error, autonomous fallback: {exc}",
+                            "ts": round(time.time(), 2)}
+            llm_decision_status = "timeout"
+            timed_out = True
+        llm_decision_episode = ep
+        llm_decision_consumed = False
+        wait_s = time.monotonic() - llm_wait_started
+        try:
+            _dialogue_writer.write_dialogue_decision(
+                llm_decision["action"], llm_decision["reason"],
+                source="glm-5.3-flash", wait_seconds=wait_s,
+                timed_out=timed_out)
+        except Exception:
+            pass
+
     # L2 coach-help: one snapshot per habituation blocking episode
     dialogue_help_sent = False
     # L3 operator strategy, hot-reloaded every 600 ticks
@@ -591,6 +656,18 @@ async def run(args) -> None:
             # bridge.write_control so telemetry still publishes every tick.
             dlg_now = getattr(model, "dialogue_active", False)
             if dlg_now and not prev_dialogue_active:
+                # New dialogue episode: pause the brain and ask the LLM.
+                dialogue_episode += 1
+                llm_decision = None
+                llm_decision_consumed = False
+                llm_decision_status = ("waiting" if _dialogue_consultant
+                                       else "timeout")
+                llm_wait_started = time.monotonic()
+                if _dialogue_consultant is not None:
+                    threading.Thread(
+                        target=_request_dialogue_decision,
+                        args=(dialogue_episode, frame),
+                        daemon=True, name="llm-dialogue-decision").start()
                 px, pz = pose_ev[0], pose_ev[2]
                 if (dialogue_last_pos is not None
                         and abs(px - dialogue_last_pos[0]) < 150
@@ -949,12 +1026,45 @@ async def run(args) -> None:
                     control.x = int(60 * (1 if (model.step_count // 20) % 2 else -1))
                     control.y = -60
                     control.jump = False
+                elif _dialogue_consultant is not None:
+                    # ---- LLM pause-wait mode (BRAIN 2.4.0) ----
+                    # Brain paused: hold still while waiting for the GLM
+                    # decision (max DIALOGUE_LLM_WAIT_S, then the worker
+                    # falls back to autonomous press_a).
+                    control.x = 0
+                    control.y = 0
+                    control.jump = False
+                    control.b = False
+                    if (llm_decision is not None
+                            and llm_decision_episode == dialogue_episode
+                            and not llm_decision_consumed):
+                        action = llm_decision.get("action", "none")
+                        if action in ("press_a", "press_b"):
+                            llm_press_hold = DIALOGUE_PRESS_TICKS
+                            llm_press_b = action == "press_b"
+                        llm_decision_consumed = True
+                    if llm_press_hold > 0:
+                        llm_press_hold -= 1
+                        if llm_press_b:
+                            control.b = True
+                        else:
+                            control.jump = True
+                    elif (llm_decision is None
+                            and time.monotonic() - llm_wait_started
+                            >= DIALOGUE_LLM_WAIT_S):
+                        # Belt & braces: worker should already have timed
+                        # out, but never hang the brain on a lost thread.
+                        control.jump = True   # autonomous A fallback
                 else:
                     control.x = 0
                     control.y = 0
                     _dlg_t = getattr(model, "_dialogue_pulse", 0.0)
                     control.jump = _dlg_t < 0.25   # brief A press at pulse start
-            bridge.write_control(control.x, control.y, control.jump)
+            else:
+                llm_press_hold = 0
+                control.b = False
+            bridge.write_control(control.x, control.y, control.jump,
+                                 b=getattr(control, "b", False))
             # ---- Decision attribution audit (read-only, telemetry only) ----
             # Priority mirrors the control cascade (t8 review R2: includes
             # collision + dialogue branches so decision_source always matches
@@ -1109,6 +1219,15 @@ async def run(args) -> None:
                     "local_motion": round(model.local_motion_energy, 4),
                     "local_motion_detected": model.local_motion_detected,
                     "dialogue_active": getattr(model, "dialogue_active", False),
+                    "llm_decision": {
+                        "status": llm_decision_status,
+                        "action": (llm_decision or {}).get("action"),
+                        "reason": (llm_decision or {}).get("reason", ""),
+                        "episode": dialogue_episode,
+                        "wait_s": (round(time.monotonic() - llm_wait_started, 1)
+                                   if llm_decision_status == "waiting" else None),
+                        "ts": (llm_decision or {}).get("ts"),
+                    },
                     "interactive_near": getattr(model, "interactive_near", False),
                     "evo_findings": _evo_findings,
                     "brain_version": BRAIN_VERSION,

@@ -34,6 +34,19 @@ import urllib.request
 from pathlib import Path
 from typing import Callable, Optional
 
+DIALOGUE_PROMPT_TEMPLATE = (
+    "你是 SM64 果蝇脑控制系统的对话决策器。屏幕上出现了游戏对话/交互对话框。\n"
+    "分析当前截屏，判断马里奥应该如何应对这个对话框：\n"
+    "- press_a: 按 A 键（推进对话/确认/翻页）\n"
+    "- press_b: 按 B 键（取消/跳过/关闭对话框）\n"
+    "- none: 暂不按键（例如对话框仍在展开、需要先等待）\n"
+    "只回复一个 JSON 对象，格式:\n"
+    '{"action": "press_a|press_b|none", "reason": "一句中文理由"}'
+)
+
+DIALOGUE_ACTIONS = ("press_a", "press_b", "none")
+DEFAULT_DIALOGUE_TIMEOUT = 60.0
+
 PLUGIN_DIR = Path(__file__).resolve().parent
 DEFAULT_MODEL = "glm-5.3-flash"
 DEFAULT_TRANSPORT = "subagent"
@@ -144,6 +157,36 @@ class GLMConsultant:
         if isinstance(parsed.get("strategy"), dict):
             parsed["strategy"] = sanitize_strategy(parsed["strategy"])
         return parsed
+
+    # ── dialogue decision API ─────────────────────────────────────────
+    def consult_dialogue(self, frame_b64: Optional[str],
+                         context: Optional[dict] = None,
+                         timeout: Optional[float] = None) -> dict:
+        """Ask the LLM how to handle an on-screen dialogue box.
+
+        Sends the current game frame with the dialogue prompt and returns
+        ``{"action": "press_a"|"press_b"|"none", "reason": str}``.  Raises
+        :class:`ConsultError` when no reply arrives in time.  The caller
+        (brain dialogue pause-wait mode) owns the overall wait budget and
+        passes it via ``timeout``.
+        """
+        saved_timeout = self.timeout
+        if timeout is not None:
+            self.timeout = float(timeout)
+        try:
+            request = build_consult_request(context or {}, frame_b64,
+                                            prompt=DIALOGUE_PROMPT_TEMPLATE)
+            request["model"] = self.model
+            request["kind"] = "dialogue_decision"
+            self.last_request = request
+            self.request_path.parent.mkdir(parents=True, exist_ok=True)
+            self.request_path.write_text(
+                json.dumps(request, ensure_ascii=False), encoding="utf-8")
+            raw = self._dispatch(request)
+            self.last_raw_response = raw
+            return parse_dialogue_response(raw)
+        finally:
+            self.timeout = saved_timeout
 
     # ── transports ────────────────────────────────────────────────────
     def _dispatch(self, request: dict) -> str:
@@ -257,6 +300,30 @@ def sanitize_strategy(strategy: dict) -> dict:
     return clean
 
 
+def parse_dialogue_response(raw: str) -> dict:
+    """Parse a GLM dialogue reply into ``{action, reason}``.
+
+    ``action`` is always one of ``press_a`` / ``press_b`` / ``none`` —
+    unknown, missing, or malformed actions degrade to ``none`` (hold).
+    """
+    reason = ""
+    action = "none"
+    text = extract_json_text(raw)
+    if text is not None:
+        try:
+            data = json.loads(text)
+            if isinstance(data, dict):
+                reason = str(data.get("reason", "") or "")
+                action = str(data.get("action", "none") or "none").strip().lower()
+        except ValueError:
+            pass
+    if action not in DIALOGUE_ACTIONS:
+        action = "none"
+    if not reason:
+        reason = (raw or "").strip()[:200]
+    return {"action": action, "reason": reason}
+
+
 def parse_response(raw: str) -> dict:
     """Parse a GLM reply into ``{advice, strategy?, scene_elements?, ...}``."""
     text = extract_json_text(raw)
@@ -270,3 +337,21 @@ def parse_response(raw: str) -> dict:
     advice = out.get("advice") or out.get("action") or ""
     out["advice"] = str(advice)
     return out
+
+
+# ── module-level convenience ─────────────────────────────────────────────
+
+_default_consultant: Optional[GLMConsultant] = None
+
+
+def consult_dialogue(frame_b64: Optional[str],
+                     timeout: float = DEFAULT_DIALOGUE_TIMEOUT) -> dict:
+    """One-shot dialogue decision via the shared default consultant.
+
+    Returns ``{"action": "press_a"|"press_b"|"none", "reason": str}``;
+    raises :class:`ConsultError` on timeout/transport failure.
+    """
+    global _default_consultant
+    if _default_consultant is None:
+        _default_consultant = GLMConsultant()
+    return _default_consultant.consult_dialogue(frame_b64, timeout=timeout)

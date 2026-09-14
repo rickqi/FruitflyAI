@@ -277,3 +277,92 @@ class TestDashboardWiring:
         src = (PROJECT / "web" / "index.html").read_text(encoding="utf-8")
         assert 'id="coachPanel"' in src
         assert 'id="coachAdviceText"' in src
+
+
+# ── dialogue LLM decision (BRAIN 2.4.0 pause-wait mode) ────────────────
+
+class TestDialogueDecision:
+    def _dlg_consultant(self, tmp_path, reply, timeout=None):
+        kw = dict(transport="subagent", subagent_fn=lambda req: reply,
+                  request_path=tmp_path / "req.json",
+                  response_path=tmp_path / "resp.json")
+        if timeout is not None:
+            kw["timeout"] = timeout
+        return GLMConsultant(**kw)
+
+    def test_parse_dialogue_response_actions(self):
+        from plugin.llm_consult import parse_dialogue_response
+        assert parse_dialogue_response(
+            '{"action": "press_a", "reason": "推进对话"}') == {
+                "action": "press_a", "reason": "推进对话"}
+        out = parse_dialogue_response(
+            '```json\n{"action": "press_b", "reason": "取消"}\n```')
+        assert out["action"] == "press_b"
+        # unknown / missing / malformed actions degrade to none
+        assert parse_dialogue_response('{"action": "dance"}')["action"] == "none"
+        assert parse_dialogue_response('{"reason": "x"}')["action"] == "none"
+        assert parse_dialogue_response("乱说一通")["action"] == "none"
+        # free text preserved as reason
+        assert parse_dialogue_response("等一下")["reason"] == "等一下"
+
+    def test_consult_dialogue_returns_decision(self, tmp_path):
+        c = self._dlg_consultant(tmp_path,
+                                 '{"action": "press_a", "reason": "按A推进"}')
+        out = c.consult_dialogue(GOOD_FRAME)
+        assert out == {"action": "press_a", "reason": "按A推进"}
+        req = json.loads((tmp_path / "req.json").read_text("utf-8"))
+        assert req["frame_b64"] == GOOD_FRAME
+        assert req["kind"] == "dialogue_decision"
+        assert "press_a|press_b|none" in req["prompt"]
+
+    def test_consult_dialogue_module_level(self, tmp_path):
+        import plugin.llm_consult as mod
+        c = self._dlg_consultant(tmp_path,
+                                 '{"action": "none", "reason": "等待"}')
+        old = mod._default_consultant
+        mod._default_consultant = c
+        try:
+            assert mod.consult_dialogue(GOOD_FRAME)["action"] == "none"
+        finally:
+            mod._default_consultant = old
+
+    def test_consult_dialogue_timeout_restored(self, tmp_path):
+        c = self._dlg_consultant(tmp_path, '{"action": "press_b"}',
+                                 timeout=5.0)
+        c.consult_dialogue(GOOD_FRAME, timeout=120.0)
+        assert c.timeout == 5.0  # caller budget restored after the call
+
+    def test_write_dialogue_decision_merges_into_strategy(self, tmp_path):
+        w = StrategyWriter(strategy_path=tmp_path / "active_strategy.json",
+                           advice_path=tmp_path / "coach_advice.json")
+        w.write_strategy({"fallen_recovery": {"mode": "directional_climb"}},
+                         advice="keep me")
+        w.write_dialogue_decision("press_a", "推进对话",
+                                  wait_seconds=12.3)
+        data = json.loads(
+            (tmp_path / "active_strategy.json").read_text("utf-8"))
+        d = data["dialogue_decision"]
+        assert d["action"] == "press_a" and d["reason"] == "推进对话"
+        assert d["wait_seconds"] == 12.3 and d["timed_out"] is False
+        # existing strategy section preserved
+        assert data["fallen_recovery"]["mode"] == "directional_climb"
+        assert data["coach_advice"] == "keep me"
+        w.write_dialogue_decision("press_a", "超时回退", timed_out=True)
+        data = json.loads(
+            (tmp_path / "active_strategy.json").read_text("utf-8"))
+        assert data["dialogue_decision"]["timed_out"] is True
+
+    def test_main_dialogue_pause_wait_wiring(self):
+        src = (PROJECT / "fly64" / "main.py").read_text(encoding="utf-8")
+        assert 'DIALOGUE_LLM_WAIT_S = 600.0' in src
+        assert "consult_dialogue" in src
+        assert "write_dialogue_decision" in src
+        assert "llm_decision" in src          # telemetry + control branch
+        assert "autonomous" in src            # timeout fallback
+        assert 'BRAIN_VERSION = "2.4.0"' in src
+        bridge_src = (PROJECT / "fly64" / "bridge.py").read_text("utf-8")
+        assert "B_BUTTON" in bridge_src       # press_b transport
+        web_src = (PROJECT / "web" / "dashboard.js").read_text("utf-8")
+        assert "renderLlmDecision" in web_src
+        html_src = (PROJECT / "web" / "index.html").read_text("utf-8")
+        assert 'id="llmDecisionPill"' in html_src
