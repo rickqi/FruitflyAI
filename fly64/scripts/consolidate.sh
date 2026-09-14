@@ -63,4 +63,34 @@ print(json.load(urllib.request.urlopen("http://127.0.0.1:8765/flow.json", timeou
 EOF
 )
 echo "[consolidate] brain_version=$BV  dashboard ok"
+
+# ── Autonomy resident service (institutionalized) ────────────────────────
+# Restart the 10s autonomy loop (plugin/service.py) together with the brain
+# so autonomy never outlives a brain restart with a stale dashboard view.
+# Watchdog (plugin/watchdog.sh, cron/systemd-timer) keeps it alive afterwards.
+AUTONOMY_PID_FILE="$PROJECT/plugin/fly64-service.pid"
+if [[ -f "$AUTONOMY_PID_FILE" ]]; then
+  _apid=$(cat "$AUTONOMY_PID_FILE" 2>/dev/null || true)
+  if [[ -n "${_apid:-}" ]] && kill -0 "$_apid" 2>/dev/null; then
+    kill "$_apid" 2>/dev/null || true
+    sleep 1
+    kill -9 "$_apid" 2>/dev/null || true
+  fi
+fi
+APY=/usr/bin/python3
+if ./venv/bin/python -c "import numpy, scipy" 2>/dev/null; then
+  APY=./venv/bin/python
+fi
+cd "$PROJECT"
+PYTHONPATH="$PROJECT" nohup "$APY" -m plugin.service --interval 10 \
+  --bridge-path "$BRIDGE" \
+  > /tmp/fly64_service_start.log 2>&1 &
+disown
+sleep 3
+if [[ -f "$AUTONOMY_PID_FILE" ]] && kill -0 "$(cat "$AUTONOMY_PID_FILE")" 2>/dev/null; then
+  echo "[consolidate] autonomy service restarted pid=$(cat "$AUTONOMY_PID_FILE")"
+else
+  echo "[consolidate][WARN] autonomy service failed to start (watchdog will retry); see /tmp/fly64_service_start.log"
+fi
+
 echo "[consolidate] done. log: /tmp/fly64_consolidate.log"

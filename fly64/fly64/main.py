@@ -35,11 +35,32 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.5.0"
-SKILL_VERSION = "2.8.0"   # must mirror fly64/skills/evolution_skill.py SKILL_VERSION
+BRAIN_VERSION = "2.6.0"
+SKILL_VERSION = "2.9.0"   # must mirror fly64/skills/evolution_skill.py SKILL_VERSION
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
 _evo_iter_counter = 0
+
+
+def _load_evolution_history() -> None:
+    """agent.md rule 9: restore evolution iteration history from disk so the
+    dashboard history survives brain restarts."""
+    global _evo_iter_counter
+    try:
+        with open("runtime/evolution_history.json", encoding="utf-8") as _ef:
+            _hist = json.load(_ef)
+        for _it in _hist.get("iterations", [])[-20:]:
+            evolution_log.append(_it)
+            _evo_iter_counter = max(_evo_iter_counter, int(_it.get("iter", 0)))
+        DashboardHTTP.evolution_json = json.dumps({
+            "brain_version": BRAIN_VERSION,
+            "iterations": list(evolution_log)[-20:],
+        }).encode()
+    except (OSError, ValueError, AttributeError):
+        pass  # no history yet or corrupted file — start fresh
+
+
+_load_evolution_history()
 
 class EscapeEventBuffer:
     """Ring buffer of last 200 escape events.
@@ -1001,6 +1022,17 @@ async def run(args) -> None:
                             "brain_version": BRAIN_VERSION,
                             "iterations": list(evolution_log)[-20:],
                         }).encode()
+                        # EVO history persistence (agent.md rule 9): survive
+                        # brain restarts so the dashboard history survives too.
+                        try:
+                            with open("runtime/evolution_history.json", "w",
+                                      encoding="utf-8") as _ef:
+                                json.dump({
+                                    "brain_version": BRAIN_VERSION,
+                                    "iterations": list(evolution_log)[-20:],
+                                }, _ef, ensure_ascii=False)
+                        except OSError:
+                            pass
                     except Exception:
                         pass
             if currently_escaping:

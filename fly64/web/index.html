@@ -6,7 +6,7 @@
 <section aria-labelledby="vision-title">
 <div class="section-head"><h2 id="vision-title">Vision</h2><span id="frameAge">Waiting for frames</span></div>
 <div class="eyes">
-<figure><figcaption>Input <span>L / R</span></figcaption><canvas id="retina" width="256" height="128" aria-label="Live left and right fly-eye previews"></canvas><canvas id="retinaOverlay" class="causal-ui" width="256" height="128" aria-label="Sixteen-sector activity overlay (8 azimuth bands x upper/lower)"></canvas></figure>
+<figure><figcaption>Input <span>L / R</span></figcaption><canvas id="retina" width="256" height="128" aria-label="Live left and right fly-eye previews"></canvas><canvas id="retinaOverlay" class="causal-ui" width="256" height="128" aria-label="Sixteen-sector activity overlay (8 azimuth bands x upper/lower)"></canvas><div id="unwrapCaption" class="causal-ui"><span>Signal space · 270°×144°</span><b id="unwrapLR">ΔL — · ΔR —</b></div><canvas id="retinaUnwrap" class="causal-ui" width="256" height="128" aria-label="Unwrapped signal-space view: 270 degree azimuth by 144 degree elevation, sixteen sectors as perfect rectangles"></canvas></figure>
 <figure><figcaption>Frame difference <span>0–100%</span></figcaption><canvas id="change" width="256" height="128" aria-label="Absolute brightness change between successive frames"></canvas></figure>
 <div class="eye-note"><p id="sceneName" style="font-size:15px;font-weight:600;color:#6cdaed;margin-bottom:6px">Scene: …</p><p id="contrast">Waiting for two frames.</p><p id="visualRate">Eye-cell activity: —</p><p id="localMotion" style="font-size:12px;color:#b0bdcc">Local motion: —</p><p class="muted">First person · RGB · 270°<br>Difference = brightness, not flow.</p></div>
 </div></section>

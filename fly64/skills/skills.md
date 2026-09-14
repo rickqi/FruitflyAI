@@ -1,12 +1,14 @@
 # EvolutionSkill — Self-Evolving Motion Diagnosis
 
-**Version**: 2.5.0
+**Version**: 2.9.0
 **Status**: Active
 **Category**: Autonomous Agent / Self-Improvement + Causal Diagnostics + Social Capability
 
 ## Description
 
 A complete closed-loop pipeline for autonomous motion diagnosis and self-improvement in the Fly64 fruit fly brain-controlled SM64 system. Monitors Mario's motion in real-time, detects behavioral anomaly patterns (circle loops, ramp traps, coverage stagnation), diagnoses root causes, applies code fixes, verifies effectiveness, and auto-updates documentation.
+
+**v2.9.0 新增 — 自治基底常驻服务**（EVO Round 12，Brain v2.6.0）：`plugin/service.py`（10s 循环守护：pid 文件、每周期健康自检[仪表板可达/桥接 mtime≤60s/策略文件写出确认]写入 `service_status.json`，连续失败≥5 告警；LLM 咨询 http(`FLY64_LLM_*`)与 subagent 文件握手双传输，ConsultError 超时降级 `local_diagnosis` 写 coach_advice.json）；`plugin/watchdog.sh`（pid 检测自动重启、连续≥3 次启动失败 watchdog.log ALERT）；`scripts/consolidate.sh` 制度化连带重启自治循环。回归：`tests/test_service.py`（10 用例）+ `tests/test_autonomy_regression.py`（watchdog 沙箱/原子写出/consolidate 联动/版本契约/≥3 周期有界循环）。部署：`plugin/DEPLOY_AUTONOMY.md`（systemd / cron 两种模式）。
 
 **v2.2.0 新增 — 神经因果链路诊断**：接入仪表板因果归因遥测（`decision_source` / `cliff_conf` / gate 门控 / 16 扇区活跃度，`causal_schema=1`）。目的：把"马里奥为什么这样动"从黑盒变为**逐 tick 可审计的因果链**——在线由仪表板决策解释卡/因果时间轴直观展示（视觉信号→神经元→判断→行动），离线由 `neural_viz_skill` 量化 cliff 误报、门控抖动、preempt 风暴与信号→行动延迟，为进化修复提供证据基础。
 
@@ -43,6 +45,7 @@ skill 具备**自我更新迭代**能力，通过受控进化循环固定能力�
 | **9** | **2.2.0** | **🏠 室内围闭度检测 + 天空蓝色度门控**（`enclosure_score`/`upper_blue` 新字段，terrain 新增 `indoor` 类，场景名新增"室内"标签，sky_score 蓝色主导门控）| 实测在建筑物内被误识别为"天空·山坡"（天花板亮度误判为天空、墙面渐变误判为斜坡）|
 | **10** | **2.3.0** | **🚪 局部突围机制（local_breakout）**：micro_loop 持续 >60s → 强制 forced_bold_explore（原门控用全局 visited_cells<20 永不触发）+ bold 期间覆盖反射级联 + 门控低置信悬崖转向 + 新增 `decision_source=bold_explore` 归因 | 转圈死循环分析：497.9s micro_loop 位移 0u，突围被全局计数器锁死 |
 | **11** | **2.5.0** | **🔌 神经化重构（neural refactor）**：方向性开口信号 `opening_left/right/asymmetry` → 转向池电流注入（LIF 左右竞争决策突围方向，替代 escape_x 随机）+ 位移奖励 API `report_movement()` 接入 MB 多巴胺（零位移场景被网络学习为惩罚）+ 退役低置信悬崖符号转向分支 | 转圈分析结论：用脑模型能力（感觉电流注入+MB 学习）替代继续堆叠符号判断分支 |
+| **12** | **2.6.0** | **🕸️ 自治基底落成（autonomy substrate）**：plugin/service.py 10s 循环 WSL 常驻服务（pid 文件/健康自检/service_status.json 心跳/连续失败≥5 告警）+ plugin/watchdog.sh 存活监控（自动重启/连续≥3 失败 ALERT）+ LLM 咨询双传输（http 无需 DSH / subagent 文件握手，ConsultError 降级 local_diagnosis）+ consolidate.sh 制度化连带重启自治循环；自治不依赖 DSH 会话存活 | 团队 autonomy-substrate：果蝇自身能力群自治 + 教官层按需介入分层架构 |
 
 进化迭代历史在仪表板实时可见（`/evolution.json`：Brain 版本徽章、EVO 计数、每轮能力列表）。
 

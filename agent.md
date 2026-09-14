@@ -63,7 +63,7 @@ D:\codes\flygym\
 
 | 组件 | 位置 | 状态 |
 |------|------|------|
-| 脑模型 | WSL PID # | **v2.1.0** (T4/T5 HRC 方向选择运动检测) |
+| 脑模型 | WSL PID # | **v2.6.0** (Round 12 自治基底常驻服务) |
 | SM64 游戏 | WSL PID # | 运行中 |
 | 仪表板 | http://127.0.0.1:8765/ | ✅ |
 | 3D 轨迹 | http://127.0.0.1:8765/trajectory.html | ✅ |
@@ -74,6 +74,27 @@ D:\codes\flygym\
 
 # 变更日志
 
+## 2026-09-14: EVO Round 12 — Brain v2.6.0（自治基底落成：WSL 常驻自治服务 + 存活监控，自治不依赖 DSH 会话）
+
+**背景**：AgentTeams 团队 autonomy-substrate 落地推荐架构 A——果蝇自身能力群自治 + 教官层（LLM/DSH）按需介入的分层原则。此前 10s 循环（plugin/runner.py）依赖 DSH 会话驱动，会话结束即停。
+
+**变更**（AUTONOMY）：
+- `plugin/service.py`（新）：常驻服务入口。10s 循环包装 PluginRunner；每周期健康自检（仪表板可达 / 桥接 mtime≤60s 新鲜度 / 策略文件写出确认）写入 `plugin/service_status.json` 心跳，连续失败≥5 输出 ALERT；LLM 咨询双传输——http（`FLY64_LLM_*` 环境变量，无需 DSH）与 subagent 文件握手（依赖 DSH 会话，120s 硬超时）；ConsultError 降级 `local_diagnosis` 本地诊断写 coach_advice.json，自治永不因 LLM 不可用而停摆
+- `plugin/watchdog.sh`（新）：存活监控。pid 检测自动重启（venv 可 import 才用 venv，与 consolidate.sh 同策略）；连续≥3 次启动失败写 watchdog.log ALERT 求教官介入。支持 cron `* * * * *` 或 systemd timer 驱动（部署见 `plugin/DEPLOY_AUTONOMY.md`）
+- `scripts/consolidate.sh`（制度化）：重启脑模型时连带重启自治循环（先 kill 旧 pid 再拉起 `plugin.service`），自治视角永不落后于脑重启
+- **PIN**：`tests/test_service.py`（10 用例：健康自检/降级咨询/失败计数/心跳落盘）+ `tests/test_autonomy_regression.py`（13 用例：VERSION 三处同步契约 / StrategyWriter 原子写出[无 .tmp 残留/重复写始终可解析/历史上限] / watchdog 沙箱[死亡重启/连续失败 ALERT/健康不扰] / consolidate 联动契约 / run_forever ≥3 周期有界循环），23 用例全绿
+- VERSION：BRAIN_VERSION 2.5.0→**2.6.0**；SKILL_VERSION 2.8.0→**2.9.0**（check_version 镜像一致；skills.md 轮次表 +12）
+- 修复 t1 遗留：plugin 脚本 CRLF 行尾（WSL bash `set -o pipefail` 报错根因），统一转 LF
+
+**回归基线对照**：全量 334 用例 320 过 / 14 失败。将本轮版本改动 revert 后重跑失败子集，14 个失败逐一复现——全部为既存基线失败（memory/optic_flow/invariants/evolution_capability R10/plugin_mhr 版本断言过期等），**本轮零新增失败**。
+
+**CONSOLIDATE**：同步 WSL /root/fly64 → `consolidate.sh` 智能重启（检测到游戏 pid FULL 模式接 /tmp/f64b_traj）→ `brain_version=2.6.0` 仪表板在线 + 自治服务重启（nohup 模式，pid 见 `plugin/fly64-service.pid`）。实测常驻存活 **120s+ 连续 25+ 循环周期**（status=ok，consecutive_failures=0）；watchdog 沙箱验证死亡重启/连续失败 ALERT/健康不扰；live 写出验证：subagent 握手咨询 → `skills/active_strategy.json` + `skills/coach_advice.json` 原子写出成功（`tests/_live_writeout_probe.py`）。注意：`pgrep -af fly64` 匹配不到自治服务（cmdline 为 `python3 -m plugin.service`），请用 `pgrep -af plugin.service` 或 pid 文件。
+
+**遗留发现（转下轮修复建议）**：① consolidate.sh 拉起自治服务未传 `--bridge-path "$BRIDGE"`，服务健康自检监控默认 /tmp/f64b 而实际游戏桥为 /tmp/f64b_traj → bridge 新鲜度误报 stale；② HealthChecker.check_dashboard 对返回 `{}` 的 /evolution.json 显示 ok/detail 不一致（`{}` 非 None 记 ok=True 但 detail=unreachable），detail 判据建议改 `bool(data)`。
+
+**二期待评估**：薄 Cordis Tool 层（fly64_status / fly64_consult / fly64_strategy 动态 Tool）。
+
+---
 ## 2026-09-14: EVO Round 11 — Brain v2.5.0（神经化重构：电流注入 + 位移奖励，规则做减法）
 
 **背景**：转圈修复评审指出 R10/R11 早期提案仍在堆叠符号判断分支。参照 MaleCNS-TrackMania 方案（视叶算流、蘑菇体学价值、DN 出命令，无 if/else）重构为神经化方案。

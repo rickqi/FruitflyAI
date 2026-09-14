@@ -96,7 +96,8 @@ function initBrain(positions, measured) {
 
 function render(packet) {
   displayed=packet;const d=packet.data,r=d.rows.at(-1);
-  image('retina',packet.eyes);image('change',packet.change);
+  image('retina',packet.eyes);drawEyeGap(r);image('change',packet.change);drawStrip(packet.eyes,r);
+  $('unwrapLR').textContent=`ΔL ${pct(r.contrast_left)} · ΔR ${pct(r.contrast_right)}`;
   $('frameAge').textContent=`Frame ${number(r.frame_age*1000,0)} ms old`;
   $('contrast').textContent=d.has_comparison?`Δ light  L ${number(r.contrast_left*100)}% · R ${number(r.contrast_right*100)}%`:'Waiting for frame pair';
   $('visualRate').textContent=`R1–R8 ${number(r.visual)} Hz${d.visual_connected?'':' · disconnected'}`;
@@ -196,8 +197,10 @@ if (typeof document !== 'undefined') {
 // subtle dark edges, outside-FOV pixels untouched. Every eye circle is fully
 // covered; no "black middle cells", no uncovered periphery.
 
-function buildSectorMap() {
-  const W = 256, H = 128, map = new Uint8Array(W * H); // 0 = outside FOV
+function buildSectorMaps() {
+  const W = 256, H = 128;
+  const sector = new Uint8Array(W * H);           // 0 = outside FOV, 1..16
+  const sub = new Uint8Array(W * H);              // 0 = outside FOV, 1..32 (8.4375° bands)
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const eye = x < 128 ? 0 : 1;
@@ -216,41 +219,124 @@ function buildSectorMap() {
       const el = Math.asin(Math.max(-1, Math.min(1, ry))) * 180 / Math.PI;
       if (Math.abs(el) > 72) continue;
       if (eye === 0 ? (az < -135 || az > 8.5) : (az < -8.5 || az > 135)) continue;
+      const i = y * W + x;
       const band = Math.min(7, Math.max(0, Math.floor((az + 135) / 33.75)));
       // Bit order matches backend: az{i}_upper = i*2, az{i}_lower = i*2+1
-      map[y * W + x] = band * 2 + (el >= 0 ? 0 : 1) + 1;   // 1..16
+      sector[i] = band * 2 + (el >= 0 ? 0 : 1) + 1;        // 1..16
+      sub[i] = Math.min(31, Math.max(0, Math.floor((az + 135) / 8.4375))) + 1;  // 1..32
     }
   }
-  return map;
+  return { sector, sub };
 }
 
-let SECTOR_MAP = null;
+let SECTOR_MAPS = null;
 function drawSectors(row) {
   const cv = $('retinaOverlay'); if (!cv) return;
   const ctx = cv.getContext('2d');
   ctx.clearRect(0, 0, cv.width, cv.height);
   if (!Number.isInteger(row?.sector_active)) return;
-  if (!SECTOR_MAP) SECTOR_MAP = buildSectorMap();
+  if (!SECTOR_MAPS) SECTOR_MAPS = buildSectorMaps();
+  const { sector: SM, sub: SB } = SECTOR_MAPS;
   const W = cv.width, H = cv.height;
   const img = ctx.createImageData(W, H);
   const d = img.data;
   for (let i = 0; i < W * H; i++) {
-    const s = SECTOR_MAP[i];
+    const s = SM[i];
     if (!s) continue;
     const active = (row.sector_active >> (s - 1)) & 1;
     const x = i % W, y = (i / W) | 0;
-    const l = x > 0 ? SECTOR_MAP[i - 1] : 0;
-    const t = y > 0 ? SECTOR_MAP[i - W] : 0;
-    const edge = (l && l !== s) || (t && t !== s);
+    const lS = x > 0 ? SM[i - 1] : 0, tS = y > 0 ? SM[i - W] : 0;
+    const mainEdge = (lS && lS !== s) || (tS && tS !== s);
+    const sb = SB[i];
+    const lB = x > 0 ? SB[i - 1] : 0, tB = y > 0 ? SB[i - W] : 0;
+    const subEdge = !mainEdge && ((lB && lB !== sb) || (tB && tB !== sb));
     const o = i * 4;
     if (active) {
       d[o] = 108; d[o + 1] = 218; d[o + 2] = 237;            // CYAN #6cdaed
-      d[o + 3] = edge ? 230 : 78;                            // fill + strong edge
-    } else if (edge) {
+      d[o + 3] = mainEdge ? 230 : subEdge ? 130 : 78;        // fill + edges
+    } else if (mainEdge) {
       d[o] = 53; d[o + 1] = 66; d[o + 2] = 80; d[o + 3] = 190; // #354250 boundary
+    } else if (subEdge) {
+      d[o] = 53; d[o + 1] = 66; d[o + 2] = 80; d[o + 3] = 70;  // faint sub-grid
     }
   }
   ctx.putImageData(img, 0, 0);
+}
+
+// ── Unwrapped signal-space view: 270°(az) × 144°(el) equirectangular strip ──
+// Every strip pixel maps linearly to (az, el); the fisheye preview pixel that
+// shows that direction is found via the forward fisheye projection, so the
+// strip is a distortion-corrected reprojection of the live eye image. The 16
+// sectors tile it as perfect rectangles — 100% coverage, visually obvious.
+
+function buildStripLUT() {
+  const W = 256, H = 128, lut = new Int32Array(W * H).fill(-1);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const az = -135 + (x + .5) / W * 270;
+      const el = 72 - (y + .5) / H * 144;
+      const eye = az < 0 ? 0 : 1;                    // closer eye centre
+      const a = (eye === 0 ? -63.25 : 63.25) * Math.PI / 180;
+      const azr = az * Math.PI / 180, elr = el * Math.PI / 180;
+      const cer = Math.cos(elr);
+      const rx = Math.sin(azr) * cer, ry = Math.sin(elr), rz = Math.cos(azr) * cer;
+      const ca = Math.cos(a), sa = Math.sin(a);
+      const lx = ca * rx - sa * rz, ly = ry, lz = sa * rx + ca * rz;
+      const theta = Math.acos(Math.max(-1, Math.min(1, lz)));
+      if (theta >= Math.PI / 2) continue;             // beyond fisheye reach
+      const rho = theta / (Math.PI / 2), st = Math.sin(theta);
+      const uu = lx / st * rho, vv = ly / st * rho;
+      const fx = Math.min(127, Math.max(0, Math.floor((uu + 1) * 64)));
+      const fy = Math.min(127, Math.max(0, Math.floor((1 - vv) * 64)));
+      lut[y * W + x] = (fy * 256 + eye * 128 + fx) * 3;   // RGB index into packet.eyes
+    }
+  }
+  return lut;
+}
+
+let STRIP_LUT = null;
+// ΔL/ΔR drawn in the bottom-centre gap between the two eye circles
+// (x≈86..170 at y≥120 lies outside both fisheye circles → always black).
+function drawEyeGap(r) {
+  const ctx = $('retina').getContext('2d');
+  ctx.font = '9px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = CYAN;
+  ctx.fillText(`ΔL ${pct(r.contrast_left)} · ΔR ${pct(r.contrast_right)}`, 128, 125);
+  ctx.textAlign = 'left';
+}
+function drawStrip(eyes, row) {
+  const cv = $('retinaUnwrap'); if (!cv || !eyes) return;
+  const ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  if (!STRIP_LUT) STRIP_LUT = buildStripLUT();
+  const img = ctx.createImageData(W, H), d = img.data;
+  for (let i = 0; i < W * H; i++) {
+    const src = STRIP_LUT[i], o = i * 4;
+    if (src >= 0 && src + 2 < eyes.length) {
+      d[o] = eyes[src]; d[o + 1] = eyes[src + 1]; d[o + 2] = eyes[src + 2];
+    }
+    d[o + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  const active = Number.isInteger(row?.sector_active) ? row.sector_active : 0;
+  for (let b = 0; b < 8; b++) {
+    const x0 = b * 32;
+    for (let half = 0; half < 2; half++) {
+      const y0 = half * 64, bit = b * 2 + half;
+      ctx.strokeStyle = '#354250'; ctx.lineWidth = 1;
+      ctx.strokeRect(x0 + .5, y0 + .5, 31, 63);
+      if (active >> bit & 1) {
+        ctx.fillStyle = 'rgba(108,218,237,0.28)';
+        ctx.fillRect(x0 + 1, y0 + 1, 30, 62);
+        ctx.strokeStyle = CYAN; ctx.lineWidth = 1.5;
+        ctx.strokeRect(x0 + 1.5, y0 + 1.5, 29, 61); ctx.lineWidth = 1;
+      }
+    }
+  }
+  ctx.fillStyle = 'rgba(176,189,204,0.85)'; ctx.font = '8px sans-serif';
+  [-135, -67.5, 0, 67.5, 135].forEach(az => {
+    const x = Math.round((az + 135) / 270 * W);
+    ctx.fillText(az + '°', Math.min(W - 24, Math.max(1, x + 2)), 8);
+  });
 }
 
 // 120s ring buffer, 0.25s sampling, filled from every arriving row.

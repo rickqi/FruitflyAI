@@ -41,8 +41,9 @@ function renderCausal(r) {
        <span class="chain-tip" hidden>${s.detail}</span></div>`).join('<span class="chain-arrow">←</span>');
 }
 
-function buildSectorMap() {
-  const W = 256, H = 128, map = new Uint8Array(W * H); // 0 = outside FOV
+function buildSectorMaps() {
+  const W = 256, H = 128;
+  const sector = new Uint8Array(W * H), sub = new Uint8Array(W * H);
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const eye = x < 128 ? 0 : 1;
@@ -61,45 +62,109 @@ function buildSectorMap() {
       const el = Math.asin(Math.max(-1, Math.min(1, ry))) * 180 / Math.PI;
       if (Math.abs(el) > 72) continue;
       if (eye === 0 ? (az < -135 || az > 8.5) : (az < -8.5 || az > 135)) continue;
+      const i = y * W + x;
       const band = Math.min(7, Math.max(0, Math.floor((az + 135) / 33.75)));
-      map[y * W + x] = band * 2 + (el >= 0 ? 0 : 1) + 1;   // 1..16
+      sector[i] = band * 2 + (el >= 0 ? 0 : 1) + 1;
+      sub[i] = Math.min(31, Math.max(0, Math.floor((az + 135) / 8.4375))) + 1;
     }
   }
-  return map;
+  return { sector, sub };
 }
 
-let SECTOR_MAP = null;
+let SECTOR_MAPS = null;
 function drawSectors(r) {
   const cv = $('retinaOverlay'), ctx = cv.getContext('2d');
   ctx.clearRect(0, 0, cv.width, cv.height);
   if (!Number.isInteger(r.sector_active)) return;
-  if (!SECTOR_MAP) SECTOR_MAP = buildSectorMap();
+  if (!SECTOR_MAPS) SECTOR_MAPS = buildSectorMaps();
+  const { sector: SM, sub: SB } = SECTOR_MAPS;
   const W = cv.width, H = cv.height;
   const img = ctx.createImageData(W, H);
   const d = img.data;
   for (let i = 0; i < W * H; i++) {
-    const s = SECTOR_MAP[i];
+    const s = SM[i];
     if (!s) continue;
     const active = (r.sector_active >> (s - 1)) & 1;
     const x = i % W, y = (i / W) | 0;
-    const l = x > 0 ? SECTOR_MAP[i - 1] : 0;
-    const t = y > 0 ? SECTOR_MAP[i - W] : 0;
-    const edge = (l && l !== s) || (t && t !== s);
+    const lS = x > 0 ? SM[i - 1] : 0, tS = y > 0 ? SM[i - W] : 0;
+    const mainEdge = (lS && lS !== s) || (tS && tS !== s);
+    const sb = SB[i];
+    const lB = x > 0 ? SB[i - 1] : 0, tB = y > 0 ? SB[i - W] : 0;
+    const subEdge = !mainEdge && ((lB && lB !== sb) || (tB && tB !== sb));
     const o = i * 4;
     if (active) {
       d[o] = 108; d[o + 1] = 218; d[o + 2] = 237;
-      d[o + 3] = edge ? 230 : 78;
-    } else if (edge) {
+      d[o + 3] = mainEdge ? 230 : subEdge ? 130 : 78;
+    } else if (mainEdge) {
       d[o] = 53; d[o + 1] = 66; d[o + 2] = 80; d[o + 3] = 190;
+    } else if (subEdge) {
+      d[o] = 53; d[o + 1] = 66; d[o + 2] = 80; d[o + 3] = 70;
     }
   }
   ctx.putImageData(img, 0, 0);
 }
 
+function buildStripLUT() {
+  const W = 256, H = 128, lut = new Int32Array(W * H).fill(-1);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const az = -135 + (x + .5) / W * 270;
+      const el = 72 - (y + .5) / H * 144;
+      const eye = az < 0 ? 0 : 1;
+      const a = (eye === 0 ? -63.25 : 63.25) * Math.PI / 180;
+      const azr = az * Math.PI / 180, elr = el * Math.PI / 180;
+      const cer = Math.cos(elr);
+      const rx = Math.sin(azr) * cer, ry = Math.sin(elr), rz = Math.cos(azr) * cer;
+      const ca = Math.cos(a), sa = Math.sin(a);
+      const lx = ca * rx - sa * rz, ly = ry, lz = sa * rx + ca * rz;
+      const theta = Math.acos(Math.max(-1, Math.min(1, lz)));
+      if (theta >= Math.PI / 2) continue;
+      const rho = theta / (Math.PI / 2), st = Math.sin(theta);
+      const uu = lx / st * rho, vv = ly / st * rho;
+      const fx = Math.min(127, Math.max(0, Math.floor((uu + 1) * 64)));
+      const fy = Math.min(127, Math.max(0, Math.floor((1 - vv) * 64)));
+      lut[y * W + x] = (fy * 256 + eye * 128 + fx) * 3;
+    }
+  }
+  return lut;
+}
+
+let STRIP_LUT = null;
+function drawStrip(eyes, row) {
+  const cv = $('retinaUnwrap'); if (!cv || !eyes) return;
+  const ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  if (!STRIP_LUT) STRIP_LUT = buildStripLUT();
+  const img = ctx.createImageData(W, H), d = img.data;
+  for (let i = 0; i < W * H; i++) {
+    const src = STRIP_LUT[i], o = i * 4;
+    if (src >= 0 && src + 2 < eyes.length) {
+      d[o] = eyes[src]; d[o + 1] = eyes[src + 1]; d[o + 2] = eyes[src + 2];
+    }
+    d[o + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  const active = Number.isInteger(row?.sector_active) ? row.sector_active : 0;
+  for (let b = 0; b < 8; b++) {
+    const x0 = b * 32;
+    for (let half = 0; half < 2; half++) {
+      const y0 = half * 64, bit = b * 2 + half;
+      ctx.strokeStyle = '#354250'; ctx.lineWidth = 1;
+      ctx.strokeRect(x0 + .5, y0 + .5, 31, 63);
+      if (active >> bit & 1) {
+        ctx.fillStyle = 'rgba(108,218,237,0.28)';
+        ctx.fillRect(x0 + 1, y0 + 1, 30, 62);
+        ctx.strokeStyle = CYAN; ctx.lineWidth = 1.5;
+        ctx.strokeRect(x0 + 1.5, y0 + 1.5, 29, 61); ctx.lineWidth = 1;
+      }
+    }
+  }
+}
+
 // ---- stubs for $ / performance / canvas 2d ----
 const stubStore = {};
 const ctxStub = new Proxy({}, { get: (t, p) => {
-  if (p === 'clearRect' || p === 'putImageData') return () => {};
+  if (p === 'clearRect' || p === 'putImageData' || p === 'fillRect' || p === 'strokeRect') return () => {};
   if (p === 'createImageData') return (w, h) => ({ data: new Uint8ClampedArray(w * h * 4) });
   return undefined;
 }});
@@ -146,8 +211,8 @@ check('renderCausal throttled below 200ms', () => {
 });
 check('drawSectors active-bit path (stub ctx, no throw)', () => drawSectors(fullRow));
 check('drawSectors skips non-integer sector_active', () => drawSectors({ sector_active: NaN }));
-check('sector map: both eyes symmetric coverage, mask ~71% of circle', () => {
-  const m = buildSectorMap();
+check('sector maps: both eyes symmetric coverage, mask ~71% of circle', () => {
+  const { sector: m } = buildSectorMaps();
   let leftCovered = 0, rightCovered = 0;
   for (let y = 0; y < 128; y++) for (let x = 0; x < 256; x++) {
     if (m[y * 256 + x] > 0) (x < 128 ? leftCovered++ : rightCovered++);
@@ -159,24 +224,41 @@ check('sector map: both eyes symmetric coverage, mask ~71% of circle', () => {
   if (frac < 0.6 || frac > 0.85) throw new Error('mask fraction=' + frac.toFixed(3));
 });
 check('sector map: every in-FOV pixel gets exactly one sector (no unassigned gaps)', () => {
-  const m = buildSectorMap();
+  const { sector: m } = buildSectorMaps();
   for (let y = 0; y < 128; y++) for (let x = 0; x < 256; x++) {
     const s = m[y * 256 + x];
     if (s > 16) throw new Error('sector id out of range: ' + s);
   }
 });
 check('sector map uses all 16 sector ids', () => {
-  const m = buildSectorMap();
+  const { sector: m } = buildSectorMaps();
   const seen = new Set(m.filter(v => v > 0));
   if (seen.size !== 16) throw new Error('seen=' + [...seen].join(','));
 });
 check('sector map bit order matches backend az{i}_{upper|lower}', () => {
-  const m = buildSectorMap();
+  const { sector: m } = buildSectorMaps();
   // az0_upper (bit 0 → id 1) must only exist in the far-left band of the LEFT eye
   for (let y = 0; y < 128; y++) for (let x = 0; x < 256; x++) {
     if (m[y * 256 + x] !== 1) continue;
     if (x >= 128) throw new Error('az0_upper pixel in right eye');
   }
+});
+check('sub-grid map uses all 32 sub-bands (8.4375° each)', () => {
+  const { sub } = buildSectorMaps();
+  const seen = new Set(sub.filter(v => v > 0));
+  if (seen.size !== 32) throw new Error('seen=' + seen.size);
+});
+check('strip LUT: every strip pixel has a valid fisheye source', () => {
+  const lut = buildStripLUT();
+  for (let i = 0; i < lut.length; i++) {
+    if (lut[i] < 0) throw new Error('unmapped strip pixel ' + i);
+    if (lut[i] + 2 >= 256 * 128 * 3) throw new Error('source out of range ' + lut[i]);
+  }
+});
+check('drawStrip reprojects eyes + sectors (stub ctx, no throw)', () => {
+  const eyes = new Uint8Array(256 * 128 * 3).fill(90);
+  drawStrip(eyes, fullRow);
+  drawStrip(eyes, { sector_active: NaN });
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);
