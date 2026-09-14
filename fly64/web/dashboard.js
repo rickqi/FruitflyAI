@@ -19,6 +19,21 @@ const states = ['off · F8', 'receiving', 'stale · released', 'torn · released
 let meta, latest, displayed, history = [], frozen = false, receivedAt = 0, lastSeq = 0, brainRenderer, measuredLocations, streamError = '';
 const number = (n, digits=1) => Number.isFinite(n) ? n.toFixed(digits) : '—';
 
+// Unified canvas sizing: CSS box (clientWidth/Height) is the single source of
+// truth; backing store follows ×dpr (capped at 2). Idempotent — no clientWidth
+// feedback loop, no repeated clears. Returns null when the canvas is hidden.
+function fitCanvas(canvas) {
+  const d = Math.min(window.devicePixelRatio || 1, 2);
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  if (!w || !h) return null;
+  const W = Math.round(w * d), H = Math.round(h * d);
+  const ctx = canvas.getContext('2d');
+  if (canvas.width !== W || canvas.height !== H) { canvas.width = W; canvas.height = H; }
+  ctx.setTransform(d, 0, 0, d, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  return { ctx, w, h };
+}
+
 export function decodePacket(buffer) {
   if (buffer.byteLength < 8) throw Error('Incomplete dashboard header');
   const bytes = new Uint8Array(buffer), view = new DataView(buffer);
@@ -39,8 +54,8 @@ function image(id, pixels) {
 }
 
 function chart(id, series, min, max, threshold, marks=false) {
-  const canvas=$(id),ctx=canvas.getContext('2d'),w=canvas.clientWidth,h=canvas.clientHeight,d=window.devicePixelRatio||1;
-  canvas.width=Math.round(w*d);canvas.height=Math.round(h*d);ctx.scale(d,d);
+  const fit = fitCanvas($(id)); if (!fit) return;
+  const canvas=$(id),ctx=fit.ctx,w=fit.w,h=fit.h;
   const left=30,right=w-8,top=18,bottom=h-(id==='stickChart'?18:5);
   const end=displayed.data.rows.at(-1).t,start=end-10;
   const x=t=>left+(t-start)/10*(right-left),y=v=>bottom-(v-min)/(max-min)*(bottom-top);
@@ -352,16 +367,15 @@ function sampleRing(r) {
 let replayRow = null;   // set while inspecting/jumped to a past sample
 function drawTimeline() {
   const cv = $('timeline'); if (!cv) return;
-  const dpr = window.devicePixelRatio || 1;
-  const w = cv.clientWidth, h = 120;
-  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
-  const ctx = cv.getContext('2d'); ctx.scale(dpr, dpr);
-  ctx.clearRect(0, 0, w, h);
+  const fit = fitCanvas(cv); if (!fit) return;
+  const ctx = fit.ctx, w = fit.w, h = fit.h;   // h comes from CSS (#timeline height)
   const rows = ringBuffer;
   if (rows.length < 2) { ctx.fillStyle = MUTED; ctx.font = '11px sans-serif'; ctx.fillText('waiting for samples…', 8, 16); return; }
   const t1 = rows[rows.length - 1].t, t0 = t1 - Math.min(120, t1 - rows[0].t);
   const X = t => (t - t0) / (t1 - t0) * (w - 8) + 4;
-  const lanes = [[4, 32], [36, 60], [64, 84], [88, 112]];
+  // Four lanes scale with the CSS height instead of assuming 120px
+  const laneH = (h - 8) / 4;
+  const lanes = [[4, 4 + laneH], [4 + laneH, 4 + 2 * laneH], [4 + 2 * laneH, 4 + 3 * laneH], [4 + 3 * laneH, 4 + 4 * laneH]];
   const laneLabels = ['flow', 'pools Hz', 'judge', 'action'];
   ctx.font = '9px sans-serif'; ctx.fillStyle = MUTED;
   lanes.forEach(([, y2], i) => {
@@ -520,7 +534,14 @@ async function start() {
   connect();
   $('freeze').onclick=()=>{frozen=!frozen;$('freeze').textContent=frozen?'Resume live':'Freeze display';if(!frozen){replayRow=null;const info=$('timelineInfo');if(info)info.textContent='hover = inspect · click = jump & freeze';}if(!frozen&&latest){history=latest.data.rows.slice();render(latest);}};
   $('population').onchange=()=>{if(displayed)render(displayed);};
-  window.addEventListener('resize',()=>{if(displayed)render(displayed);});
+  // Resize handling: observe the chart canvases themselves (covers window
+  // resize AND two-column layout changes), with a window-resize fallback.
+  const repaint = () => { if (displayed) render(displayed); renderHistoryCharts(); };
+  if (typeof ResizeObserver !== 'undefined') {
+    const ro = new ResizeObserver(repaint);
+    ['forwardChart','steeringChart','jumpChart','stickChart','timeline','stuckChart','flowChart','coverageChart','memoryHeatmap'].forEach(id => { const el = $(id); if (el) ro.observe(el); });
+  }
+  window.addEventListener('resize', repaint);
   setInterval(()=>{const stale=!receivedAt||performance.now()-receivedAt>1000;$('status').textContent=streamError||(stale?'Disconnected / stale':frozen?'Display frozen · game runs':'Live');$('status').dataset.state=stale?'bad':'ok';},250);
 }
 if (typeof document !== 'undefined') start().catch(error=>{$('status').textContent=error.message;$('status').dataset.state='bad';});
@@ -547,18 +568,10 @@ function renderHistoryCharts() {
   // ── Stuck Trend chart ──
   const stuckCanvas = $('stuckChart');
   if (stuckCanvas) {
-    const ctx = stuckCanvas.getContext('2d');
-    const w = stuckCanvas.clientWidth, h = stuckCanvas.clientHeight;
-    const d = window.devicePixelRatio || 1;
-    stuckCanvas.width = Math.round(w * d);
-    stuckCanvas.height = Math.round(h * d);
-    ctx.scale(d, d);
+    const fit = fitCanvas(stuckCanvas); if (fit) {
+    const ctx = fit.ctx, w = fit.w, h = fit.h;
     const top = 10, bottom = h - 2, left = 4, right = w - 4;
     const range = bottom - top;
-
-    // Clear
-    ctx.fillStyle = '#10151c';
-    ctx.fillRect(0, 0, w, h);
 
     // Get the last 60s of data
     const now = historyData.length > 0 ? historyData[historyData.length - 1].t : 60;
@@ -605,22 +618,16 @@ function renderHistoryCharts() {
       ctx.lineTo(xpos(b.t), ypos(b.stuck_score));
       ctx.stroke();
     }
+    }
   }
 
   // ── Optic Flow chart ──
   const flowCanvas = $('flowChart');
   if (flowCanvas) {
-    const ctx = flowCanvas.getContext('2d');
-    const w = flowCanvas.clientWidth, h = flowCanvas.clientHeight;
-    const d = window.devicePixelRatio || 1;
-    flowCanvas.width = Math.round(w * d);
-    flowCanvas.height = Math.round(h * d);
-    ctx.scale(d, d);
+    const fit = fitCanvas(flowCanvas); if (fit) {
+    const ctx = fit.ctx, w = fit.w, h = fit.h;
     const top = 10, bottom = h - 2, left = 4, right = w - 4;
     const range = bottom - top;
-
-    ctx.fillStyle = '#10151c';
-    ctx.fillRect(0, 0, w, h);
 
     const now = historyData.length > 0 ? historyData[historyData.length - 1].t : 60;
     const cutoff = now - 60;
@@ -692,6 +699,7 @@ function renderHistoryCharts() {
         }
       }
     }
+    }
   }
 }
 
@@ -746,7 +754,7 @@ function renderEscapeTable(data) {
     html += `<tr${jumpable ? ` class="causal-jump" data-t="${ev.timestamp}" title="click: jump timeline to t-${number(ev.timestamp,1)}s"` : ''}><td>${time}</td><td class="${reasonClass}">${reasonLabel}</td><td>${dur}</td><td>${dist}</td></tr>`;
   }
   if (!html) {
-    html = '<tr><td colspan="4" style="color:#536170;text-align:center;padding:8px">No escape events yet</td></tr>';
+    html = '<tr><td colspan="4" class="escape-empty">No escape events yet</td></tr>';
   }
   tbody.innerHTML = html;
 }
@@ -757,19 +765,11 @@ function renderCoverageChart() {
   const canvas = $('coverageChart');
   if (!canvas || !historyData.length) return;
 
-  const ctx = canvas.getContext('2d');
-  const w = canvas.clientWidth, h = canvas.clientHeight;
-  const d = window.devicePixelRatio || 1;
-  canvas.width = Math.round(w * d);
-  canvas.height = Math.round(h * d);
-  ctx.scale(d, d);
+  const fit = fitCanvas(canvas); if (!fit) return;
+  const ctx = fit.ctx, w = fit.w, h = fit.h;
 
   const top = 10, bottom = h - 2, left = 4, right = w - 4;
   const range = bottom - top;
-
-  // Clear
-  ctx.fillStyle = '#10151c';
-  ctx.fillRect(0, 0, w, h);
 
   // Get last 60s of data with coverage_pct
   const now = historyData.length > 0 ? historyData[historyData.length - 1].t : 60;
@@ -891,18 +891,8 @@ async function updateHealthStrip() {
       ap.textContent = state === 'idle' ? '—' : state;
       ap.dataset.state = state === 'idle' ? '' : state;
     }
-    // Option A: memory-note health bar + stats
-    const nf = $('noteHealthFill');
-    if (nf) {
-      const h = d.health_score !== undefined ? Math.round(d.health_score * 100) : 0;
-      nf.style.width = h + '%';
-      nf.style.background = h > 60 ? '#2a8a3a' : h > 30 ? '#b8860b' : '#8b2020';
-    }
-    const nl = $('noteHealthLabel');
-    if (nl) {
-      const h = d.health_score !== undefined ? Math.round(d.health_score * 100) : 0;
-      nl.textContent = 'Health ' + h + '%';
-    }
+    // note-health bar was removed (health dedup: gauge + pill are the two
+    // remaining, non-redundant presentations).
     const ns = $('noteStats');
     if (ns) {
       const v = d.revisit_penalty !== undefined ? d.revisit_penalty : 0;
@@ -978,14 +968,14 @@ async function updateSceneDisplay() {
       const hash = d.scene_hash || '';
       const sv = d.skill_version || '';
       sn.innerHTML = 'Scene: ' + name + (hash ? ' · #' + hash : '') +
-        (sv ? ' <span style="color:#4cdf7c;font-size:12px">[Skill v' + sv + ']</span>' : '');
+        (sv ? ' <span class="skill-tag">[Skill v' + sv + ']</span>' : '');
     }
     const lm = $('localMotion');
     if (lm) {
       const v = d.local_motion !== undefined ? d.local_motion : 0;
       const det = d.local_motion_detected;
       lm.innerHTML = 'Local motion: ' + v.toFixed(3) +
-        (det ? ' <span style="color:#ffca72">⚠ moving object</span>' : ' <span style="color:#536170">(clear)</span>');
+        (det ? ' <span class="motion-warn">⚠ moving object</span>' : ' <span class="motion-clear">(clear)</span>');
     }
     renderLlmDecision(d.llm_decision);
   } catch (_) {}

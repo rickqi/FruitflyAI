@@ -3,19 +3,19 @@
 <body>
 <header><div><h1>Fly64 <span id="model">Connecting…</span></h1></div><div class="session"><span id="status" role="status">Connecting</span><button id="freeze" disabled>Freeze display</button></div></header>
 <main>
-<section aria-labelledby="vision-title">
+<section class="area-vision" aria-labelledby="vision-title">
 <div class="section-head"><h2 id="vision-title">Vision</h2><span id="frameAge">Waiting for frames</span></div>
 <div class="eyes">
 <figure><figcaption>Input <span>L / R</span></figcaption><canvas id="retina" width="256" height="128" aria-label="Live left and right fly-eye previews"></canvas><canvas id="retinaOverlay" class="causal-ui" width="256" height="128" aria-label="Sixteen-sector activity overlay (8 azimuth bands x upper/lower)"></canvas></figure>
 <figure><figcaption>Frame difference <span>0–100%</span></figcaption><canvas id="change" width="256" height="128" aria-label="Absolute brightness change between successive frames"></canvas></figure>
-<div class="eye-note"><p id="sceneName" style="font-size:15px;font-weight:600;color:#6cdaed;margin-bottom:6px">Scene: …</p><p id="contrast">Waiting for two frames.</p><p id="visualRate">Eye-cell activity: —</p><p id="localMotion" style="font-size:12px;color:#b0bdcc">Local motion: —</p><p class="muted">First person · RGB · 270°<br>Difference = brightness, not flow.</p></div>
+<div class="eye-note"><p id="sceneName">Scene: …</p><p id="contrast">Waiting for two frames.</p><p id="visualRate">Eye-cell activity: —</p><p id="localMotion">Local motion: —</p><p class="muted">First person · RGB · 270°<br>Difference = brightness, not flow.</p></div>
 <div id="stripWrap" class="causal-ui"><div id="unwrapCaption"><span>Signal space · 270°×144°</span><b id="unwrapLR">ΔL — · ΔR —</b></div><canvas id="retinaUnwrap" class="causal-ui" width="240" height="128" aria-label="Unwrapped signal-space view: 270 degree azimuth by 144 degree elevation, sixteen sectors as perfect rectangles"></canvas></div>
 </div></section>
-<section id="causal" class="causal-ui" aria-labelledby="causal-title">
+<section id="causal" class="causal-ui area-causal" aria-labelledby="causal-title">
 <div class="section-head"><h2 id="causal-title">Causal Chain · why this action</h2><span id="causalSource">—</span></div>
 <div id="causalChain" class="chain"><span class="chain-empty muted">Waiting for neural samples…</span></div>
 </section>
-<section class="motor-section" aria-labelledby="motor-title">
+<section class="motor-section area-motor" aria-labelledby="motor-title">
 <div class="section-head"><h2 id="motor-title">Neurons → controls</h2><span>10 s · Hz = spikes / cell / s · 260 ms window</span></div>
 <div id="decision" class="decision">Waiting for neural samples…</div>
 <div class="chart-row" id="row-forward"><div class="chart-label"><strong>Forward pool</strong><span>DNg100 · spikes / cell / s</span><output id="forwardValue">—</output></div><canvas id="forwardChart" role="img" aria-label="Forward firing rate, zero to ten hertz, gate at point four hertz; triangles mark overflow"></canvas></div>
@@ -24,29 +24,29 @@
 <div class="chart-row" id="row-stick"><div class="chart-label"><strong>Stick sent → received</strong><span>solid: sent · dashed: game</span><output id="stickValue">—</output></div><canvas id="stickChart" role="img" aria-label="Requested and observed game stick axes, minus seventy to plus seventy"></canvas></div>
 <div class="ack"><strong id="gameState">Game: waiting</strong><span id="jumpState">A request is not proof Mario left the ground.</span></div>
 </section>
-<section aria-labelledby="brain-title">
+<section class="area-brain" aria-labelledby="brain-title">
 <div class="section-head"><h2 id="brain-title">Activity map</h2><label><select id="population" aria-label="Neuron population"><option value="all">All located neurons</option><option value="visual">Visual input · R1–R8</option><option value="forward">Forward · DNg100</option><option value="left">Left steering pool</option><option value="right">Right steering pool</option><option value="jump">Jump pool</option></select></label></div>
 <div class="brain-row"><div class="map"><canvas id="brain" aria-label="Stationary projection of measured neuron locations; brightness is rolling firing rate"></canvas><div class="legend"><span>0 Hz</span><i></i><span>50 Hz</span></div></div><div class="brain-note"><p id="populationRate">—</p><p id="populationInfo">Loading anatomy…</p><p class="muted">Fixed X/Y · dim points = context<br>Missing locations still simulated.</p></div></div>
 </section>
-<section aria-labelledby="memory-title">
+<section class="area-memory" aria-labelledby="memory-title">
 <div class="section-head"><h2 id="memory-title">Spatial memory</h2><span id="memoryInfo" class="memory-info">Waiting for data…</span></div>
-<div class="memory-row"><div class="map memory-map"><canvas id="memoryHeatmap" aria-label="Visit-count heatmap of spatial memory grid with trajectory and escape markers"></canvas><div class="legend"><span>Cold</span><i style="background:linear-gradient(to right,#1e4a6e,#1e8a3e,#f0c030,#e03020)"></i><span>Hot</span></div><div class="escape-legend" style="margin-top:4px;font-size:10px;color:#b0bdcc;display:flex;gap:10px;justify-content:center">
-<span>● <span style="color:#ffc832">Stuck</span></span>
-<span>✕ <span style="color:#ff3c3c">Fall</span></span>
-<span>◆ <span style="color:#32b4ff">Flow/Cliff</span></span>
-<span>✕ <span style="color:rgba(255,60,60,0.7)">Dead-end</span></span>
-<span>─ <span style="color:#6cdaed">Trajectory</span></span>
-</div></div><div class="memory-note"><p class="muted">50×50 grid · 200 u/cell<br>White dot = current<br>Hover markers for details<br>■ Coverage % = visited / 2500</p><div class="note-health"><span class="note-health-bar"><span class="note-health-fill" id="noteHealthFill" style="width:80%"></span></span><span class="note-health-label" id="noteHealthLabel">Health 80%</span></div><div class="note-stats" id="noteStats"><span class="note-stat">↖ Repel --</span><span class="note-stat" id="noteAnomaly">⚪ --</span></div></div></div>
+<div class="memory-row"><div class="map memory-map"><canvas id="memoryHeatmap" aria-label="Visit-count heatmap of spatial memory grid with trajectory and escape markers"></canvas><div class="legend"><span>Cold</span><i class="rainbow"></i><span>Hot</span></div><div class="escape-legend">
+<span class="esc-stuck">● Stuck</span>
+<span class="esc-fall">✕ Fall</span>
+<span class="esc-flow">◆ Flow/Cliff</span>
+<span class="esc-dead">✕ Dead-end</span>
+<span class="esc-traj">─ Trajectory</span>
+</div></div><div class="memory-note"><p class="muted">50×50 grid · 200 u/cell<br>White dot = current<br>Hover markers for details<br>■ Coverage % = visited / 2500</p><div class="note-stats" id="noteStats"><span class="note-stat">↖ Repel --</span><span class="note-stat" id="noteAnomaly">⚪ --</span></div></div></div>
 <div class="history-row"><div class="chart-wrap"><div class="chart-label-sm"><strong>Stuck Trend</strong><span>60s · score</span></div><canvas id="stuckChart" role="img" aria-label="Stuck score trend over 60 seconds"></canvas></div><div class="chart-wrap"><div class="chart-label-sm"><strong>Optic Flow</strong><span>60s · asymmetry / looming / cliff</span></div><canvas id="flowChart" role="img" aria-label="Optic flow signal trends over 60 seconds"></canvas></div></div>
 </section>
-<section id="timeline-section" class="causal-ui" aria-labelledby="timeline-title">
+<section id="timeline-section" class="causal-ui area-timeline" aria-labelledby="timeline-title">
 <div class="section-head"><h2 id="timeline-title">Causal Timeline · 120 s</h2><span id="timelineInfo">hover = inspect · click = jump &amp; freeze</span></div>
 <canvas id="timeline" aria-label="Four-lane causal timeline: optic flow signals, neuron pool rates with gates, judgement bands, and control actions"></canvas>
 </section>
-<section aria-labelledby="interactive-title">
+<section class="area-events" aria-labelledby="interactive-title">
 <div class="section-head"><h2 id="interactive-title">Escape Events &amp; Coverage</h2><div class="health-strip"><span id="brainVerPill" class="repulsion-pill" title="Brain Model Version">Brain v—</span><span id="evoIterPill" class="repulsion-pill" title="Evolution Iterations">EVO #—</span><span id="healthPill" class="health-pill" title="Health Score">Health --%</span><span id="repulsionPill" class="repulsion-pill" title="Landmark Repulsion">↖--</span><span id="anomalyPill" class="anomaly-pill" title="Anomaly State">--</span><span id="helpPill" class="help-pill" title="Coach help requested — see snapshot below" hidden>🆘 COACH</span><span id="llmDecisionPill" class="repulsion-pill" title="LLM dialogue decision" hidden>🤖 LLM</span><span id="escapeCount" class="muted">0 events</span><button id="exportData">Export JSON</button></div></div>
 <div class="interactive-row">
-<div class="health-gauge-wrap"><div class="gauge-ring"><canvas id="healthGauge" style="width:110px;height:110px;display:block" role="img" aria-label="Health score gauge"></canvas></div><div class="evo-history" id="evoHistory" aria-label="Evolution iteration history"></div></div>
+<div class="health-gauge-wrap"><div class="gauge-ring"><canvas id="healthGauge" role="img" aria-label="Health score gauge"></canvas></div><div class="evo-history" id="evoHistory" aria-label="Evolution iteration history"></div></div>
 <div class="escape-table-wrap">
 <div class="chart-label-sm"><strong>Escape Events</strong><span>scrollable · reason / duration / distance</span></div>
 <div class="escape-table-scroll" id="escapeTableScroll">
@@ -65,7 +65,7 @@
 <div class="help-panel" id="coachPanel" hidden>
 <div class="chart-label-sm"><strong>🤖 LLM Coach Advice</strong><span id="coachModelLabel"></span></div>
 <div class="help-body">
-<div id="coachAdviceText" style="flex:1;font-size:13px;line-height:1.5"></div>
+<div id="coachAdviceText"></div>
 </div>
 <div class="evo-history" id="coachHistory" aria-label="LLM consultation history"></div>
 </div>
@@ -76,5 +76,5 @@
 </div>
 </div>
 </section>
-<footer><p id="performance">Waiting for performance counters…</p><p>Measured wiring; modeled dynamics & controls. Activity ≠ intent.</p></footer>
+<footer class="area-footer"><p id="performance">Waiting for performance counters…</p><p>Measured wiring; modeled dynamics & controls. Activity ≠ intent.</p></footer>
 </main><script type="module" src="/dashboard.js"></script></body></html>
