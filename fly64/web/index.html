@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Fly64 Neural Observatory</title><link rel="stylesheet" href="/dashboard.css"></head>
 <body>
-<header><div><h1>Fly64 <span id="model">Connecting…</span></h1></div><div class="session"><span id="status" role="status">Connecting</span><button id="layoutBtn" title="Cycle layout mode: Auto (wide ≥1400px) / Wide / Single">Layout: Auto</button><a href="/monitor-preview.html" target="_blank" rel="noopener" style="font-size:12px;color:var(--cyan);text-decoration:none;border:1px solid #2a6a78;border-radius:3px;padding:3px 8px" title="布局预览（模拟数据）">Layout preview</a><button id="freeze" disabled>Freeze display</button></div></header>
+<header><div><h1>Fly64 <span id="model">Connecting…</span></h1></div><div class="session"><span id="statusPills" class="status-pills"><span id="llmDecisionPill" class="repulsion-pill" title="LLM dialogue decision" hidden>🤖 LLM</span><span id="brainVerPill" class="repulsion-pill" title="Brain Model Version">Brain v—</span><span id="evoIterPill" class="repulsion-pill" title="Evolution Iterations">EVO #—</span><span id="healthPill" class="health-pill" title="Health Score">Health --%</span><span id="anomalyPill" class="anomaly-pill" title="Anomaly State">--</span><span id="helpPill" class="help-pill" title="Coach help requested — see snapshot below" hidden>🆘 COACH</span></span><span id="status" role="status">Connecting</span><button id="layoutBtn" title="Cycle layout mode: Auto (wide ≥1400px) / Wide / Single">Layout: Auto</button><a href="/monitor-preview.html" target="_blank" rel="noopener" style="font-size:12px;color:var(--cyan);text-decoration:none;border:1px solid #2a6a78;border-radius:3px;padding:3px 8px" title="布局预览（模拟数据）">Layout preview</a><a href="/layout-wireframe.html" target="_blank" rel="noopener" style="font-size:12px;color:var(--muted);text-decoration:none;border:1px solid #536170;border-radius:3px;padding:3px 8px" title="布局线框图（组件标注）">Wireframe</a><button id="freeze" disabled>Freeze display</button></div></header>
 <main>
 <section class="area-vision" aria-labelledby="vision-title">
 <div class="section-head"><h2 id="vision-title">Vision</h2><span id="frameAge">Waiting for frames</span></div>
@@ -36,7 +36,7 @@
 <span class="esc-flow">◆ Flow/Cliff</span>
 <span class="esc-dead">✕ Dead-end</span>
 <span class="esc-traj">─ Trajectory</span>
-</div></div><div class="memory-note"><p class="muted">50×50 grid · 200 u/cell<br>White dot = current<br>Hover markers for details<br>■ Coverage % = visited / 2500</p><div class="note-stats" id="noteStats"><span class="note-stat">↖ Repel --</span><span class="note-stat" id="noteAnomaly">⚪ --</span></div></div></div>
+</div></div><div class="memory-note"><p class="muted">50×50 grid · 200 u/cell<br>White dot = current<br>Hover markers for details<br>■ Coverage % = visited / 2500</p><div class="note-stats" id="noteStats"><span class="note-stat">↖ Repel --</span><span class="note-stat" id="noteAnomaly">⚪ --</span><span class="note-stat" id="noteBold" hidden style="color:#ffca72">🏃 BOLD breakout</span><span class="note-stat" id="noteReflexIneff" hidden style="color:#ff7a7a">⚠ reflex ineffective</span></div></div></div>
 <div class="history-row"><div class="chart-wrap"><div class="chart-label-sm"><strong>Stuck Trend</strong><span>60s · score</span></div><canvas id="stuckChart" role="img" aria-label="Stuck score trend over 60 seconds"></canvas></div><div class="chart-wrap"><div class="chart-label-sm"><strong>Optic Flow</strong><span>60s · asymmetry / looming / cliff</span></div><canvas id="flowChart" role="img" aria-label="Optic flow signal trends over 60 seconds"></canvas></div></div>
 </section>
 <section id="timeline-section" class="causal-ui area-timeline" aria-labelledby="timeline-title">
@@ -44,7 +44,7 @@
 <canvas id="timeline" aria-label="Four-lane causal timeline: optic flow signals, neuron pool rates with gates, judgement bands, and control actions"></canvas>
 </section>
 <section class="area-events" aria-labelledby="interactive-title">
-<div class="section-head"><h2 id="interactive-title">Escape Events &amp; Coverage</h2><div class="health-strip"><span id="brainVerPill" class="repulsion-pill" title="Brain Model Version">Brain v—</span><span id="evoIterPill" class="repulsion-pill" title="Evolution Iterations">EVO #—</span><span id="healthPill" class="health-pill" title="Health Score">Health --%</span><span id="repulsionPill" class="repulsion-pill" title="Landmark Repulsion">↖--</span><span id="anomalyPill" class="anomaly-pill" title="Anomaly State">--</span><span id="helpPill" class="help-pill" title="Coach help requested — see snapshot below" hidden>🆘 COACH</span><span id="llmDecisionPill" class="repulsion-pill" title="LLM dialogue decision" hidden>🤖 LLM</span><span id="escapeCount" class="muted">0 events</span><button id="exportData">Export JSON</button></div></div>
+<div class="section-head"><h2 id="interactive-title">Escape Events &amp; Coverage</h2><div class="health-strip"><span id="repulsionPill" class="repulsion-pill" title="Landmark Repulsion">↖--</span><span id="escapeCount" class="muted">0 events</span><button id="exportData">Export JSON</button></div></div>
 <div class="interactive-row">
 <div class="health-gauge-wrap"><div class="gauge-ring"><canvas id="healthGauge" role="img" aria-label="Health score gauge"></canvas></div><div class="evo-history" id="evoHistory" aria-label="Evolution iteration history"></div></div>
 <div class="escape-table-wrap">
@@ -55,20 +55,27 @@
 <tbody id="escapeBody"></tbody>
 </table>
 </div>
+<details class="fold-panel" id="helpFold"><summary>🆘 Coach Help Snapshot <span id="helpReasonLabel"></span></summary>
 <div class="help-panel" id="helpPanel" hidden>
-<div class="chart-label-sm"><strong>🆘 Coach Help Snapshot</strong><span id="helpReasonLabel"></span></div>
 <div class="help-body">
 <img id="helpFrame" alt="Agent current frame at help time" width="160">
 <div class="help-fields" id="helpFields"></div>
 </div>
 </div>
+</details>
+<details class="fold-panel" id="coachFold"><summary>🤖 LLM Coach Advice <span id="coachModelLabel"></span></summary>
 <div class="help-panel" id="coachPanel" hidden>
-<div class="chart-label-sm"><strong>🤖 LLM Coach Advice</strong><span id="coachModelLabel"></span></div>
 <div class="help-body">
 <div id="coachAdviceText"></div>
 </div>
 <div class="evo-history" id="coachHistory" aria-label="LLM consultation history"></div>
 </div>
+</details>
+<details class="fold-panel" id="strategyFold" open><summary>🎛 Coach Strategy Consumption <span id="strategySourceLabel"></span></summary>
+<div class="help-panel" id="strategyPanel">
+<div class="help-fields" id="strategyFields"><span class="muted">Loading…</span></div>
+</div>
+</details>
 </div>
 <div class="chart-wrap">
 <div class="chart-label-sm"><strong>Coverage Trend</strong><span>60s · % visited / 2500</span></div>

@@ -140,6 +140,14 @@ class DashboardHTTP(BaseHTTPRequestHandler):
                 body, mime = _coach.read_bytes(), "application/json"
             except OSError:
                 body, mime = b'{"advice": "", "history": []}', "application/json"
+        elif path == "/active_strategy.json":
+            # t16 P0-2: coach strategy consumption panel — current operator
+            # keys + dialogue_decision as written by the MHR plugin
+            _strat = Path(__file__).resolve().parent.parent / "skills" / "active_strategy.json"
+            try:
+                body, mime = _strat.read_bytes(), "application/json"
+            except OSError:
+                body, mime = b'{"mode": "mirror"}', "application/json"
         elif path in self.assets:
             body, mime = self.assets[path]
         elif path == "/bridge-status.json" and self.bridge is not None:
@@ -317,6 +325,7 @@ def start_http(project: Path, model, port: int, ws_port: int) -> ThreadingHTTPSe
         "/memory-heatmap.js": ((project / "web/memory-heatmap.js").read_bytes(), "text/javascript"),
         "/trajectory.html": ((project / "web/trajectory.html").read_bytes(), "text/html"),
         "/monitor-preview.html": ((project / "web/monitor-preview.html").read_bytes(), "text/html; charset=utf-8"),
+        "/layout-wireframe.html": ((project / "web/layout-wireframe.html").read_bytes(), "text/html; charset=utf-8"),
         "/measured.bin": (model.position_measured.astype(np.uint8).tobytes(), "application/octet-stream"),
     }
     DashboardHTTP.metadata = json.dumps(dict(n=model.n, ws=ws_port, label=model.label,

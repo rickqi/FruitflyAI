@@ -180,11 +180,20 @@ function render(packet) {
 const PURPLE = '#9d7bff', GREEN = '#7dff9d', RED = '#ff3c3c';
 const hz = v => Number.isFinite(v) ? v.toFixed(1) : '—';
 const pct = v => Number.isFinite(v) ? `${Math.round(v * 100)}%` : '—';
-const PRIORITY = { cliff_reflex: 4, anomaly_reflex: 3, escape: 2, jump: 1, steering: 0 };
+const PRIORITY = { dialogue: 5, cliff_reflex: 4, anomaly_reflex: 3, escape: 2, jump: 1, steering: 0 };
 const CAUSAL_TARGET = { raw: null, signal: 'row-forward', neural: 'row-forward', judge: '#memory-title', action: 'row-stick' };
 
 export function judgeText(r) {
   if (!Number.isFinite(r.cliff_conf)) return 'awaiting causal fields (P1 telemetry)';
+  // t16 P0-3: dialogue pause is the top-priority action — never mask it as
+  // "neutral steering" while the brain waits for the coach decision.
+  if (r.decision_source === 'dialogue') {
+    const ld = (typeof window !== 'undefined' && window.__LLM_DECISION) || {};
+    if (ld.status === 'waiting')
+      return `⏸ DIALOGUE PAUSED · awaiting coach decision (${Math.round(ld.wait_s || 0)}s / 600s)`;
+    if (ld.action) return `DIALOGUE · coach decision: ${ld.action}`;
+    return 'DIALOGUE · handling (LLM path or habituation guard)';
+  }
   if (r.decision_source === 'cliff_reflex')
     return `CLIFF REFLEX preempts steering (conf ${number(r.cliff_conf, 2)}${r.cliff_confirmed ? ' · confirmed' : ''})`;
   if (r.decision_source === 'escape')
@@ -932,7 +941,12 @@ async function updateHealthStrip() {
     if (ns) {
       const v = d.revisit_penalty !== undefined ? d.revisit_penalty : 0;
       const state = d.anomaly_state || 'idle';
-      ns.innerHTML = '<span class="note-stat">↖ Repel ' + (v * 100).toFixed(0) + '</span><span class="note-stat">' + (state === 'idle' ? '⚪ OK' : '🔴 ' + state) + '</span>';
+      // t16 P0-4: coach-breakout / reflex-ineffectiveness badges — these
+      // memory fields existed but were never surfaced.
+      const badges =
+        (d.forced_bold_explore ? '<span class="note-stat" style="color:#ffca72">🏃 BOLD breakout</span>' : '') +
+        (d.reflex_ineffective ? '<span class="note-stat" style="color:#ff7a7a">⚠ reflex ineffective</span>' : '');
+      ns.innerHTML = '<span class="note-stat">↖ Repel ' + (v * 100).toFixed(0) + '</span><span class="note-stat">' + (state === 'idle' ? '⚪ OK' : '🔴 ' + state) + '</span>' + badges;
     }
     // Option B: health gauge
     renderHealthGauge(d.health_score !== undefined ? d.health_score : 0);
@@ -992,18 +1006,42 @@ if (typeof document !== 'undefined') {
 
 // ── Scene identification + local motion display ──────────────────────
 
-async function updateSceneDisplay() {
+// t16 P2-1: single shared /flow.json fetch — the old code had two timers
+// (updateSceneDisplay + updateEvolutionDisplay fallback) hitting the same
+// endpoint every 2s.  Consumers read `latestFlow`.
+let latestFlow = null;
+let latestFlowPromise = null;
+async function fetchFlowOnce() {
   try {
     const r = await fetch('/flow.json');
-    if (!r.ok) return;
-    const d = await r.json();
+    if (r.ok) latestFlow = await r.json();
+  } catch (_) {}
+  return latestFlow;
+}
+function getFlow() {
+  if (!latestFlowPromise)
+    latestFlowPromise = fetchFlowOnce().finally(() => { latestFlowPromise = null; });
+  return latestFlowPromise;
+}
+
+async function updateSceneDisplay() {
+  try {
+    const d = await getFlow();
+    if (!d) return;
     const sn = $('sceneName');
     if (sn) {
       const name = d.scene_name || '…';
       const hash = d.scene_hash || '';
       const sv = d.skill_version || '';
+      // t16 P1-2: terrain / underwater context chip (flow fields existed
+      // but were never surfaced).
+      const chips = [];
+      if (d.terrain) chips.push('<span class="chip">' + d.terrain + '</span>');
+      if (d.underwater) chips.push('<span class="chip chip-warn">🌊 underwater</span>');
+      if (d.interactive_near) chips.push('<span class="chip chip-warn">door/sign near</span>');
       sn.innerHTML = 'Scene: ' + name + (hash ? ' · #' + hash : '') +
-        (sv ? ' <span class="skill-tag">[Skill v' + sv + ']</span>' : '');
+        (sv ? ' <span class="skill-tag">[Skill v' + sv + ']</span>' : '') +
+        (chips.length ? ' ' + chips.join(' ') : '');
     }
     const lm = $('localMotion');
     if (lm) {
@@ -1020,6 +1058,7 @@ async function updateSceneDisplay() {
 
 function renderLlmDecision(dec) {
   const pill = $('llmDecisionPill');
+  if (typeof window !== 'undefined') window.__LLM_DECISION = dec || null;
   if (!pill) return;
   if (!dec || (!dec.status || dec.status === 'idle')) {
     pill.hidden = true;
@@ -1030,9 +1069,11 @@ function renderLlmDecision(dec) {
   if (dec.status === 'waiting') {
     pill.hidden = false;
     pill.style.color = '#ffca72';
-    const w = dec.wait_s != null ? Math.round(dec.wait_s) + 's' : '';
-    pill.textContent = '🤖 LLM waiting ' + w;
-    pill.title = 'Dialogue detected — paused, waiting for GLM decision (max 10 min)';
+    // t16 P0-1: countdown against the 600 s budget
+    const w = Math.round(dec.wait_s != null ? dec.wait_s : 0);
+    pill.textContent = '🤖 LLM waiting ' + w + 's / 600s';
+    pill.title = 'Dialogue detected — brain paused, waiting for GLM decision '
+      + '(max 10 min, then autonomous A). Reason so far: ' + (dec.reason || '—');
   } else if (dec.status === 'decided') {
     pill.hidden = false;
     pill.style.color = '#4cdf7c';
@@ -1042,7 +1083,8 @@ function renderLlmDecision(dec) {
     pill.hidden = false;
     pill.style.color = '#ff7a7a';
     pill.textContent = '⏱ LLM timeout → A';
-    pill.title = 'LLM decision timed out — autonomous A-press fallback';
+    pill.title = 'LLM decision timed out — autonomous A-press fallback. '
+      + (dec.reason || '');
   }
 }
 
@@ -1058,9 +1100,9 @@ async function updateEvolutionDisplay() {
     let r = await fetch('/evolution.json');
     let d = r.ok ? await r.json() : {};
     if (!d.brain_version) {
-      // fallback: flow.json carries brain_version immediately after boot
-      const fr = await fetch('/flow.json');
-      if (fr.ok) d.brain_version = (await fr.json()).brain_version;
+      // t16 P2-1: reuse the shared flow snapshot instead of a second fetch
+      const fr = await getFlow();
+      if (fr) d.brain_version = fr.brain_version;
     }
     const bv = $('brainVerPill');
     if (bv) bv.textContent = 'Brain v' + (d.brain_version || '—');

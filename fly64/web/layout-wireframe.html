@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fly64 监控界面布局线框图 · layout-wireframe</title>
+<style>
+:root{color-scheme:dark;--bg:#10151c;--panel:#0d1520;--line:#303a45;--ink:#edf1f5;--muted:#aebac7;
+--cyan:#6cdaed;--gold:#ffca72;--purple:#9d7bff;--green:#7dff9d;--red:#ff3c3c;--dim:#1a2430}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 "Segoe UI",-apple-system,sans-serif;padding:24px}
+h1{font-size:20px;margin:0 0 4px}h1 span{font-size:13px;font-weight:400;color:var(--muted);margin-left:10px}
+.sub{color:var(--muted);font-size:12px;margin-bottom:20px}
+.toolbar{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap}
+.toolbar button{background:transparent;color:var(--ink);border:1px solid #536170;border-radius:3px;font:inherit;font-size:13px;padding:5px 12px;cursor:pointer}
+.toolbar button.active{border-color:var(--cyan);color:var(--cyan)}
+.view{display:none}.view.active{display:block}
+.stage{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px;overflow-x:auto}
+/* header bar */
+.hdr{height:34px;border:1px solid var(--line);border-bottom:2px solid var(--line);border-radius:3px 3px 0 0;
+display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:11px;color:var(--muted);background:#141c26}
+.hdr b{color:var(--ink);font-size:12px}
+/* generic section block */
+.sec{border:1px solid var(--line);border-top:none;background:var(--bg);padding:8px 10px;position:relative}
+.sec .tag{position:absolute;top:4px;right:6px;font-size:9px;color:var(--muted);background:var(--dim);border-radius:8px;padding:1px 7px}
+.sec h3{margin:0 0 6px;font-size:12px;font-weight:600}
+.sec h3 small{font-weight:400;color:var(--muted);margin-left:6px}
+.grid{display:grid;gap:8px}
+.box{background:var(--panel);border:1px dashed #3d4a58;border-radius:3px;min-height:34px;
+display:flex;flex-direction:column;align-items:center;justify-content:center;
+font-size:10px;color:var(--muted);text-align:center;padding:4px;line-height:1.4}
+.box b{color:var(--ink);font-size:10.5px;font-weight:600}
+.box .h{color:#536170;font-size:9px}
+.c-cyan{border-color:#2a6a78}.c-cyan b{color:var(--cyan)}
+.c-gold{border-color:#7a6335}.c-gold b{color:var(--gold)}
+.c-purple{border-color:#4d3d78}.c-purple b{color:var(--purple)}
+.c-green{border-color:#3a6a44}.c-green b{color:var(--green)}
+.c-red{border-color:#6a2a2a}.c-red b{color:var(--red)}
+/* ── single column view ── */
+.one-col{max-width:900px;margin:0 auto}
+.row-vision .grid{grid-template-columns:1fr 1fr 1.4fr 1.2fr}
+.row-motor .mrow{display:grid;grid-template-columns:150px 1fr;gap:8px;margin-bottom:6px}
+.mrow .lbl{background:var(--panel);border:1px dashed #3d4a58;border-radius:3px;font-size:10px;color:var(--muted);
+display:flex;align-items:center;padding:0 8px;min-height:30px}
+.row-brain .grid{grid-template-columns:1.1fr 1fr}
+.row-memory .grid{grid-template-columns:1fr 1.15fr}
+.row-memory .hist{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+.row-events .strip{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.pill{font-size:9px;border-radius:9px;padding:2px 8px;background:var(--dim);color:var(--muted)}
+.pill.hl{background:#2a8a3a;color:#fff}
+.pill.warn{background:#b8860b;color:#fff}
+.row-events .grid{grid-template-columns:120px 1.4fr 1fr}
+/* ── two column view ── */
+.two-col .cols{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.two-col .col{display:flex;flex-direction:column;gap:10px}
+.two-col .sec{border:1px solid var(--line);border-radius:3px}
+.foot{border:1px solid var(--line);border-radius:3px;margin-top:10px;padding:6px 10px;font-size:10px;color:var(--muted);
+display:flex;justify-content:space-between;background:var(--bg)}
+.foot b{color:var(--ink)}
+/* breakpoints strip */
+.bp{display:flex;gap:0;margin-top:22px;border:1px solid var(--line);border-radius:4px;overflow:hidden;font-size:11px;text-align:center}
+.bp div{padding:8px 4px;color:var(--muted)}
+.bp .a{flex:140;background:#14202e}.bp .b{flex:300;background:#0d1520;border-left:1px solid var(--line)}
+.bp .c{flex:220;background:#14202e;border-left:1px solid var(--line)}.bp .d{flex:1;background:#0d1520;border-left:1px solid var(--line)}
+.bp b{color:var(--ink);display:block;font-size:11px}
+.note{margin-top:14px;font-size:11px;color:var(--muted)}
+.note code{background:var(--dim);border-radius:3px;padding:1px 5px;font-size:10.5px}
+</style>
+</head>
+<body>
+<h1>Fly64 监控界面布局线框图<span>fly64/web · commit 76ca8d3</span></h1>
+<p class="sub">所有 8 个组件区块 · 两种布局模式 · 悬停区块可查看行高变量</p>
+
+<div class="toolbar">
+<button id="btnSingle" class="active">单列布局 &lt;1400px</button>
+<button id="btnTwo">宽屏两列 ≥1400px</button>
+</div>
+
+<!-- ═══════════ 单列视图 ═══════════ -->
+<div class="view active" id="viewSingle">
+<div class="stage one-col">
+  <div class="hdr"><b>⬛ header · 54px</b><span>model 标签 · status · Freeze display</span></div>
+
+  <div class="sec row-vision">
+    <span class="tag">① area-vision · var(--row-vision) 196px</span>
+    <h3>Vision<small>视网膜输入 + 差分 + 展开信号空间</small></h3>
+    <div class="grid">
+      <div class="box c-cyan"><b>Input L/R</b>retina 256×128<br>+retinaOverlay 16扇区</div>
+      <div class="box"><b>Frame diff</b>change 0–100%</div>
+      <div class="box"><b>eye-note</b>Scene · contrast<br>visualRate · localMotion</div>
+      <div class="box c-cyan"><b>Signal space 270°×144°</b>retinaUnwrap 240×128</div>
+    </div>
+  </div>
+
+  <div class="sec" style="border-color:#4d3d78">
+    <span class="tag">② area-causal · var(--row-causal) minmax(56px,auto)</span>
+    <h3 style="color:var(--purple)">Causal Chain · why this action <small>causal-ui · 可noviz=1回滚</small></h3>
+    <div class="grid" style="grid-template-columns:repeat(5,1fr) auto">
+      <div class="box c-cyan"><b>RAW</b>t · ΔL/ΔR</div><span style="align-self:center;color:#536170">←</span>
+      <div class="box"><b>SIGNAL</b>flow asym/loom/cliff</div><span style="align-self:center;color:#536170">←</span>
+      <div class="box c-gold"><b>NEURAL</b>fwd/L/R/jump Hz</div><span style="align-self:center;color:#536170">←</span>
+      <div class="box c-purple"><b>JUDGE</b>gate 判定</div><span style="align-self:center;color:#536170">←</span>
+      <div class="box c-green"><b>ACTION</b>x/y + JUMP</div>
+    </div>
+  </div>
+
+  <div class="sec row-motor">
+    <span class="tag">③ area-motor · var(--row-motor) minmax(330px,1fr)</span>
+    <h3>Neurons → controls<small>10s · spikes/cell/s · 260ms window</small></h3>
+    <div class="box" style="min-height:22px;margin-bottom:8px"><b>#decision</b>Forward/Idle · steering · jump 状态一行</div>
+    <div class="mrow"><div class="lbl">Forward pool · DNg100</div><div class="box c-cyan" style="min-height:30px"><b>forwardChart</b>0–10Hz · gate 0.4</div></div>
+    <div class="mrow"><div class="lbl">Steering L/R</div><div class="box c-gold" style="min-height:30px"><b>steeringChart</b>L/R Hz 对比</div></div>
+    <div class="mrow"><div class="lbl">Jump · DNp01/10</div><div class="box" style="min-height:30px"><b>jumpChart</b>gate 2Hz · A 标记</div></div>
+    <div class="mrow"><div class="lbl">Stick sent→received</div><div class="box" style="min-height:30px"><b>stickChart</b>±70 · 实/虚线</div></div>
+    <div class="box" style="min-height:20px"><b>ack</b>Game 状态 · A request ≠ 起跳证明</div>
+  </div>
+
+  <div class="sec row-brain">
+    <span class="tag">④ area-brain · var(--row-brain) 163px</span>
+    <h3>Activity map<small>WebGL 神经元投影</small> <select style="font-size:9px;background:var(--panel);color:var(--muted);border:1px solid #536170;border-radius:2px"><option>population 下拉</option></select></h3>
+    <div class="grid">
+      <div class="box c-purple"><b>brain canvas</b>亮度=rolling rate<br>0Hz ▓▓▓ 50Hz</div>
+      <div class="box"><b>brain-note</b>Mean rate · located/unlocated<br>固定X/Y · 暗点=context</div>
+    </div>
+  </div>
+
+  <div class="sec row-memory">
+    <span class="tag">⑤ area-memory · var(--row-memory) 300px / ≥1100: 315px</span>
+    <h3>Spatial memory<small>热图本次扩容 88→128/138px</small></h3>
+    <div class="grid">
+      <div class="box c-green" style="min-height:80px"><b>memoryHeatmap</b>50×50 grid · 200u/cell<br>Cold▓▓▓Hot · ●Stuck ✕Fall ◆Flow ✕Dead ─Traj</div>
+      <div class="box"><b>memory-note</b>Coverage %=visited/2500<br>noteStats: ↖Repel · ⚪状态<br><span style="color:var(--red);font-size:9px">（health 进度条已删 · 去重）</span></div>
+    </div>
+    <div class="hist">
+      <div class="box c-gold" style="min-height:34px"><b>stuckChart</b>60s · score · gate 0.8</div>
+      <div class="box" style="min-height:34px"><b>flowChart</b>60s · asym/loom/cliff</div>
+    </div>
+  </div>
+
+  <div class="sec" style="border-color:#4d3d78">
+    <span class="tag">⑥ area-timeline · var(--row-timeline) minmax(140px,auto)</span>
+    <h3 style="color:var(--purple)">Causal Timeline · 120s<small>高度从 CSS clientHeight 读取 · 泳道按比例伸缩</small></h3>
+    <div class="grid" style="grid-template-columns:1fr">
+      <div class="box" style="min-height:56px"><b>timeline canvas 120px</b>
+      泳道1 flow(-1..1) │ 泳道2 pools Hz + gates │ 泳道3 judge 紫带/红▲ │ 泳道4 action x + 金色jump<br>
+      hover=inspect · click=jump&amp;freeze · 紫色回放游标 + 因果弧+ms标注</div>
+    </div>
+  </div>
+
+  <div class="sec row-events">
+    <span class="tag">⑦ area-events · var(--row-events) 265px / ≥1100: 275px</span>
+    <h3>Escape Events &amp; Coverage</h3>
+    <div class="strip">
+      <span class="pill">Brain v—</span><span class="pill">EVO #—</span><span class="pill hl">Health --%</span>
+      <span class="pill">↖--</span><span class="pill">anomaly</span><span class="pill warn">🆘COACH (隐藏)</span>
+      <span class="pill warn">🤖LLM (隐藏)</span><span class="pill">N events</span><span class="pill">Export JSON</span>
+    </div>
+    <div class="grid">
+      <div class="box" style="min-height:70px"><b>healthGauge</b>110px 圆环<br>+evoHistory 滚动</div>
+      <div class="box" style="min-height:70px"><b>escapeTable</b>sticky 表头<br>110/120px 滚动 · 行点击跳时间轴</div>
+      <div class="box c-cyan" style="min-height:70px"><b>coverageChart</b>60s · %/2500</div>
+    </div>
+    <div class="box" style="min-height:18px;margin-top:8px;border-style:dotted"><b>helpPanel 🆘 / coachPanel 🤖</b>默认 hidden · 展开时跨全行 max 200px</div>
+  </div>
+
+  <div class="foot"><span><b>⑧ area-footer · 50px</b></span><span>performance: t · rtf · step ms · rss MB · dropped</span></div>
+</div>
+</div>
+
+<!-- ═══════════ 两列视图 ═══════════ -->
+<div class="view" id="viewTwo">
+<div class="stage two-col">
+  <div class="hdr"><b>⬛ header · 54px</b><span>main: max-width 1800px · grid-columns 1fr 1fr</span></div>
+  <div class="cols">
+    <div class="col">
+      <div class="sec" style="min-height:150px"><span class="tag">row1 · 315px (由右列 memory 决定)</span>
+        <h3>① area-vision</h3>
+        <div class="grid" style="grid-template-columns:1fr 1fr">
+          <div class="box c-cyan"><b>Input L/R + overlay</b></div>
+          <div class="box"><b>Frame diff</b></div>
+          <div class="box"><b>eye-note</b></div>
+          <div class="box c-cyan"><b>retinaUnwrap</b></div>
+        </div></div>
+      <div class="sec" style="border-color:#4d3d78;min-height:56px"><span class="tag">row2 · 64px+</span>
+        <h3 style="color:var(--purple)">② area-causal</h3>
+        <div class="grid" style="grid-template-columns:repeat(5,1fr)">
+          <div class="box">RAW</div><div class="box">SIGNAL</div><div class="box c-gold">NEURAL</div><div class="box c-purple">JUDGE</div><div class="box c-green">ACTION</div>
+        </div></div>
+      <div class="sec" style="min-height:110px"><span class="tag">row3 · minmax(330px,1fr)</span>
+        <h3>③ area-motor</h3>
+        <div class="box" style="min-height:80px"><b>4 个图表行</b>forward / steering / jump / stick<br>label 185px + canvas 1fr</div></div>
+      <div class="sec" style="min-height:70px"><span class="tag">row4 · 175px</span>
+        <h3>④ area-brain</h3>
+        <div class="grid" style="grid-template-columns:1fr 1fr">
+          <div class="box c-purple"><b>brain WebGL</b></div><div class="box"><b>brain-note</b></div>
+        </div></div>
+    </div>
+    <div class="col">
+      <div class="sec c-green" style="min-height:150px"><span class="tag">row1 · 与 vision 同行</span>
+        <h3>⑤ area-memory <small>决定 row1 高度</small></h3>
+        <div class="grid" style="grid-template-columns:1.2fr 1fr">
+          <div class="box c-green" style="min-height:64px"><b>memoryHeatmap 128/138px</b></div>
+          <div class="box"><b>note + stats</b></div>
+        </div>
+        <div class="grid" style="grid-template-columns:1fr 1fr;margin-top:6px">
+          <div class="box c-gold" style="min-height:26px"><b>stuckChart</b></div>
+          <div class="box" style="min-height:26px"><b>flowChart</b></div>
+        </div></div>
+      <div class="sec" style="border-color:#4d3d78;min-height:56px"><span class="tag">row2 · minmax(150px,auto)</span>
+        <h3 style="color:var(--purple)">⑥ area-timeline</h3>
+        <div class="box"><b>timeline 120px · 4 泳道</b></div></div>
+      <div class="sec" style="flex:1;min-height:190px"><span class="tag">跨 row3+row4</span>
+        <h3>⑦ area-events</h3>
+        <div class="strip"><span class="pill hl">Health</span><span class="pill">Brain v</span><span class="pill">EVO</span><span class="pill">↖</span><span class="pill">Export</span></div>
+        <div class="grid" style="grid-template-columns:100px 1fr 1fr">
+          <div class="box" style="min-height:60px"><b>gauge</b></div>
+          <div class="box" style="min-height:60px"><b>escapeTable</b></div>
+          <div class="box c-cyan" style="min-height:60px"><b>coverageChart</b></div>
+        </div>
+        <div class="box" style="min-height:16px;margin-top:6px;border-style:dotted"><b>help/coach panels</b> 跨全行</div></div>
+    </div>
+  </div>
+  <div class="foot"><span><b>⑧ area-footer · 50px</b>（grid-area: footer · span 2 列）</span><span>performance 计数器</span></div>
+  <p class="note">grid-template-areas：<code>"vision memory" "causal timeline" "motor events" "brain events" "footer footer"</code></p>
+</div>
+</div>
+
+<!-- 断点条 -->
+<div class="bp">
+  <div class="a"><b>&lt;650px</b>block 流式 · eyes 2列</div>
+  <div class="b"><b>650–1100px</b>单列基础档 (196/163/300/265px)</div>
+  <div class="c"><b>1100–1400px</b>单列放大档 (vars ≥1100 覆盖)</div>
+  <div class="d"><b>≥1400px</b>两列 grid areas · max 1800px</div>
+</div>
+
+<p class="note">
+回滚开关：<code>?noviz=1</code> 或 <code>localStorage['fly64.causal']='off'</code> → <code>body.causal-off</code> 隐藏全部 <code>.causal-ui</code>（②⑥区 + retinaOverlay/unwrap）。<br>
+行高单一来源：<code>:root</code> 的 <code>--row-*</code> 变量，媒体查询只覆盖变量值。
+</p>
+
+<script>
+const b1=document.getElementById('btnSingle'),b2=document.getElementById('btnTwo'),
+      v1=document.getElementById('viewSingle'),v2=document.getElementById('viewTwo');
+function pick(two){b1.classList.toggle('active',!two);b2.classList.toggle('active',two);
+v1.classList.toggle('active',!two);v2.classList.toggle('active',two);}
+b1.onclick=()=>pick(false);b2.onclick=()=>pick(true);
+</script>
+</body>
+</html>
