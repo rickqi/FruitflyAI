@@ -26,6 +26,48 @@ sys.path.insert(0, str(ROOT))
 
 from plugin.service import ServiceRunner  # noqa: E402
 from plugin.strategy_writer import StrategyWriter  # noqa: E402
+from plugin.runner import PluginRunner  # noqa: E402
+
+
+class TestReflexIneffectiveEscalation(unittest.TestCase):
+    """EVO R12: an active reflex with ~zero displacement must not mask the
+    coach escalation (the 497.9s / 0u incident)."""
+
+    def _runner(self):
+        return PluginRunner(dashboard_base="http://127.0.0.1:8765")
+
+    def _snapshot(self, *, reflex_active=True, ineffective=True, stuck=300.0):
+        return {"memory": {
+            "stuck_duration": stuck,
+            "reflex_active": reflex_active,
+            "anomaly_state": "micro_loop",
+            "reflex_ineffective": ineffective,
+            "disp_60s": 4.2 if ineffective else 120.0,
+            "scene_name": "室内 #ab12",
+        }}
+
+    def test_ineffective_reflex_escalates_despite_active_reflex(self):
+        ctx = self._runner().check_help_needed(
+            self._snapshot(reflex_active=True, ineffective=True))
+        self.assertIsNotNone(ctx)
+        self.assertEqual(ctx["help_reason"], "reflex_ineffective_stuck")
+        self.assertEqual(ctx["disp_60s"], 4.2)
+
+    def test_healthy_reflex_does_not_escalate(self):
+        ctx = self._runner().check_help_needed(
+            self._snapshot(reflex_active=True, ineffective=False))
+        self.assertIsNone(ctx)
+
+    def test_no_reflex_still_escalates_original_path(self):
+        ctx = self._runner().check_help_needed(
+            self._snapshot(reflex_active=False, ineffective=False))
+        self.assertIsNotNone(ctx)
+        self.assertEqual(ctx["help_reason"], "unsolvable_stuck")
+
+    def test_short_stuck_does_not_escalate(self):
+        ctx = self._runner().check_help_needed(
+            self._snapshot(reflex_active=True, ineffective=True, stuck=45.0))
+        self.assertIsNone(ctx)
 
 
 def _make_runner(tmp: Path, interval: float = 0.01):

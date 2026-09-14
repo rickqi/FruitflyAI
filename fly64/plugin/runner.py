@@ -109,15 +109,21 @@ class PluginRunner:
         stuck = float(mem.get("stuck_duration", 0.0))
         no_reflex = not mem.get("reflex_active", False)
         anomaly = mem.get("anomaly_state", "idle") != "idle"
-        if stuck > STUCK_HELP_THRESHOLD and no_reflex and anomaly:
+        # EVO R12: an ACTIVE reflex with ~zero 60 s displacement is by
+        # definition not solving the problem — active reflex must not mask
+        # the escalation (the 497.9s / 0u incident).
+        reflex_ineffective = bool(mem.get("reflex_ineffective", False))
+        if stuck > STUCK_HELP_THRESHOLD and anomaly and (no_reflex or reflex_ineffective):
             return {
-                "help_reason": "unsolvable_stuck",
+                "help_reason": ("reflex_ineffective_stuck" if reflex_ineffective
+                                else "unsolvable_stuck"),
                 "scene_name": mem.get("scene_name", "?"),
                 "position": mem.get("position") or {},
                 "diagnosis": "",
                 "stuck_duration": stuck,
                 "anomaly_state": mem.get("anomaly_state", "?"),
                 "health_score": float(mem.get("health_score", 1.0)),
+                "disp_60s": mem.get("disp_60s"),
             }
         return None
 

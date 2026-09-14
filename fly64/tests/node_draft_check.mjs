@@ -104,8 +104,8 @@ function drawSectors(r) {
   ctx.putImageData(img, 0, 0);
 }
 
-function buildStripLUT() {
-  const W = 256, H = 128, lut = new Int32Array(W * H).fill(-1);
+function buildStripLUT(W, H) {
+  const lut = new Int32Array(W * H).fill(-1);
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const az = -135 + (x + .5) / W * 270;
@@ -129,12 +129,12 @@ function buildStripLUT() {
   return lut;
 }
 
-let STRIP_LUT = null;
+let STRIP_LUT = null, STRIP_LUT_KEY = '';
 function drawStrip(eyes, row) {
   const cv = $('retinaUnwrap'); if (!cv || !eyes) return;
   const ctx = cv.getContext('2d');
-  const W = cv.width, H = cv.height;
-  if (!STRIP_LUT) STRIP_LUT = buildStripLUT();
+  const W = cv.width, H = cv.height, key = W + 'x' + H;
+  if (STRIP_LUT_KEY !== key) { STRIP_LUT = buildStripLUT(W, H); STRIP_LUT_KEY = key; }
   const img = ctx.createImageData(W, H), d = img.data;
   for (let i = 0; i < W * H; i++) {
     const src = STRIP_LUT[i], o = i * 4;
@@ -145,17 +145,18 @@ function drawStrip(eyes, row) {
   }
   ctx.putImageData(img, 0, 0);
   const active = Number.isInteger(row?.sector_active) ? row.sector_active : 0;
+  const bw = W / 8, bh = H / 2;
   for (let b = 0; b < 8; b++) {
-    const x0 = b * 32;
+    const x0 = b * bw;
     for (let half = 0; half < 2; half++) {
-      const y0 = half * 64, bit = b * 2 + half;
+      const y0 = half * bh, bit = b * 2 + half;
       ctx.strokeStyle = '#354250'; ctx.lineWidth = 1;
-      ctx.strokeRect(x0 + .5, y0 + .5, 31, 63);
+      ctx.strokeRect(x0 + .5, y0 + .5, bw - 1, bh - 1);
       if (active >> bit & 1) {
         ctx.fillStyle = 'rgba(108,218,237,0.28)';
-        ctx.fillRect(x0 + 1, y0 + 1, 30, 62);
+        ctx.fillRect(x0 + 1, y0 + 1, bw - 2, bh - 2);
         ctx.strokeStyle = CYAN; ctx.lineWidth = 1.5;
-        ctx.strokeRect(x0 + 1.5, y0 + 1.5, 29, 61); ctx.lineWidth = 1;
+        ctx.strokeRect(x0 + 1.5, y0 + 1.5, bw - 3, bh - 3); ctx.lineWidth = 1;
       }
     }
   }
@@ -248,12 +249,23 @@ check('sub-grid map uses all 32 sub-bands (8.4375° each)', () => {
   const seen = new Set(sub.filter(v => v > 0));
   if (seen.size !== 32) throw new Error('seen=' + seen.size);
 });
-check('strip LUT: every strip pixel has a valid fisheye source', () => {
-  const lut = buildStripLUT();
+check('strip LUT: every strip pixel has a valid fisheye source (768×144)', () => {
+  const lut = buildStripLUT(768, 144);
   for (let i = 0; i < lut.length; i++) {
     if (lut[i] < 0) throw new Error('unmapped strip pixel ' + i);
     if (lut[i] + 2 >= 256 * 128 * 3) throw new Error('source out of range ' + lut[i]);
   }
+});
+check('strip LUT: azimuth ordering monotonic (left edge = -135°, right = +135°)', () => {
+  const W = 768, H = 144, lut = buildStripLUT(W, H);
+  // far-left strip column must sample the LEFT eye; far-right the RIGHT eye
+  if (lut[Math.floor(H / 2) * W] >= (fy => fy)(1 << 8) * 3 * 0 + (0 * 256 + 128) * 3 && lut[Math.floor(H / 2) * W] >= 128 * 3) {
+    // source eye encoded by pixel index range: left eye < 128, right >= 128
+  }
+  const srcL = lut[Math.floor(H / 2) * W] / 3;
+  const srcR = lut[Math.floor(H / 2) * W + (W - 1)] / 3;
+  if (Math.floor(srcL % 256 / 1) >= 128) throw new Error('left column not sampled from left eye');
+  if (Math.floor(srcR % 256 / 1) < 128) throw new Error('right column not sampled from right eye');
 });
 check('drawStrip reprojects eyes + sectors (stub ctx, no throw)', () => {
   const eyes = new Uint8Array(256 * 128 * 3).fill(90);

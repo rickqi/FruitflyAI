@@ -600,6 +600,10 @@ async def run(args) -> None:
     # mushroom body's dopamine signal so zero-displacement escape contexts
     # are learned as punishers (network-level fix for circling).
     _pose_hist: list = []
+    # EVO R12: 60 s displacement samples for reflex-ineffective escalation —
+    # a reflex that stays active while displacement stays ~zero is by
+    # definition not solving the problem and must escalate to the coach.
+    _disp_trace: list = []
     # ---- Plasticity monitoring buffer (t4) ----
     _error_gradient_buffer = deque(maxlen=100)
     _plasticity_metrics = {
@@ -666,6 +670,21 @@ async def run(args) -> None:
                 _disp = ((pose_ev[0] - _x0) ** 2 + (pose_ev[2] - _z0) ** 2) ** 0.5
                 model.report_movement(_disp)
                 _pose_hist.clear()
+            # EVO R12: 60 s rolling displacement → reflex-ineffective flag.
+            # A reflex that stays active while 60 s displacement stays ~zero
+            # is not solving the problem; this escalates to coach consult.
+            _disp_trace.append((model.step_count * model.dt, pose_ev[0], pose_ev[2]))
+            while _disp_trace and _disp_trace[-1][0] - _disp_trace[0][0] > 60.0:
+                _disp_trace.pop(0)
+            if _disp_trace and _disp_trace[-1][0] - _disp_trace[0][0] >= 55.0:
+                _t0, _x0, _z0 = _disp_trace[0]
+                _disp60 = ((pose_ev[0] - _x0) ** 2 + (pose_ev[2] - _z0) ** 2) ** 0.5
+                memory_ctrl.reflex_ineffective = bool(
+                    memory_ctrl.reflex_active and _disp60 < 30.0)
+                memory_ctrl.disp_60s = round(_disp60, 1)
+            else:
+                memory_ctrl.reflex_ineffective = False
+                memory_ctrl.disp_60s = None
             heading = pose_ev[3]
             control, spikes = model.step(frame, model.step_count * model.dt,
                                          novelty=memory_ctrl.novelty,
@@ -1234,6 +1253,9 @@ async def run(args) -> None:
                     "reflex_active": memory_ctrl.reflex_active,
                     "reflex_type": memory_ctrl.reflex_type,
                     "reflex_cooldowns": memory_ctrl.reflex_cooldowns,
+                    # EVO R12: reflex-ineffective escalation flag
+                    "reflex_ineffective": bool(getattr(memory_ctrl, "reflex_ineffective", False)),
+                    "disp_60s": getattr(memory_ctrl, "disp_60s", None),
                     # Health scoring
                     "health_score": round(memory_ctrl.health_score, 4),
                 }, separators=(",", ":")).encode()
