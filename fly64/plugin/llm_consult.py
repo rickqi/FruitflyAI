@@ -89,7 +89,14 @@ PROMPT_TEMPLATE = (
     '"strategy": {"fallen_recovery": {"mode": "mirror|directional_climb", '
     '"climb_period": 2.0, "persist_seconds": 2.0}, '
     '"exploration": {"bold_explore_stuck_s": 60.0, "turn_bias": 0}, '
-    '"escape": {"stuck_threshold_s": 30.0, "reverse_seconds": 0.5}}}'
+    '"escape": {"stuck_threshold_s": 30.0, "reverse_seconds": 0.5}}}\n'
+    '策略参数语义卡（严格遵守单位与方向，不要反向调参）:\n'
+    '- exploration.bold_explore_stuck_s: 秒。异常持续该秒数后触发突围，'
+    '越小越快突围（建议 20-120）。\n'
+    '- exploration.turn_bias: 0-1 转向强度（占最大转向电流的比例），'
+    '越大转向越猛（建议 0.3-1.0；不要填 69 这类角度值）。\n'
+    '- escape.stuck_threshold_s: 秒。持续卡住该秒数后强制逃逸，'
+    '越小越快逃逸（建议 1-60）。\n'
 )
 
 # Keys allowed per strategy section (name -> (type, default))
@@ -124,9 +131,44 @@ def build_consult_request(context: dict, frame_b64: Optional[str],
         "ts": round(time.time(), 2),
     }
     if frame_b64:
-        req["frame_b64"] = frame_b64
-        req["image"] = "data:image/png;base64," + frame_b64
+        # t13 fix④: the brain runner hands us RAW RGB bytes (base64 of the
+        # shared-memory frame), not a PNG.  Labeling raw bytes as
+        # image/png made the GLM API reject the request with HTTP 400.
+        png_b64 = raw_rgb_b64_to_png_b64(frame_b64)
+        req["frame_b64"] = png_b64
+        req["image"] = "data:image/png;base64," + png_b64
     return req
+
+
+def raw_rgb_b64_to_png_b64(frame_b64: str,
+                           width: int = 384, height: int = 256) -> str:
+    """Convert base64(raw RGB bytes, HxWx3 row-major) to base64(PNG).
+
+    Pure stdlib (zlib + struct) so the plugin needs no imaging dependency.
+    If the payload is not exactly WxHx3 raw bytes it is returned unchanged —
+    it is then assumed to already be an encoded image.
+    """
+    import struct
+    import zlib
+    try:
+        raw = base64.b64decode(frame_b64, validate=True)
+    except Exception:
+        return frame_b64
+    if len(raw) != width * height * 3:
+        return frame_b64  # not raw RGB — assume already-encoded image
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return (struct.pack(">I", len(data)) + tag + data
+                + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF))
+
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    stride = width * 3
+    rows = b"".join(b"\x00" + raw[y * stride:(y + 1) * stride]
+                    for y in range(height))
+    idat = zlib.compress(rows, 6)
+    png = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr)
+           + chunk(b"IDAT", idat) + chunk(b"IEND", b""))
+    return base64.b64encode(png).decode("ascii")
 
 
 def frame_to_data_uri(frame_b64: Optional[str]) -> Optional[str]:
@@ -261,8 +303,19 @@ class GLMConsultant:
                 "Authorization": f"Bearer {self.api_key}",
             },
             method="POST")
-        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-            data = json.loads(resp.read())
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                data = json.loads(resp.read())
+        except urllib.error.HTTPError as exc:
+            # t13 fix④: surface the API error body — the bare "HTTP Error
+            # 400" hid the raw-RGB-labelled-as-PNG root cause for a round.
+            body = ""
+            try:
+                body = exc.read().decode("utf-8", "replace")[:500]
+            except Exception:
+                pass
+            raise ConsultError(
+                f"GLM API HTTP {exc.code}: {body}") from exc
         return data["choices"][0]["message"]["content"]
 
 

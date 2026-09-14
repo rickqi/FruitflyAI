@@ -164,6 +164,25 @@
       "tags": ["plasticity", "dopamine", "plateau", "t4"],
       "rollback_strategy": "revert_value",
       "threshold_justification": "dopamine_gain_avg>=2.0=near ceiling (GAIN_MAX=2.5), learning_progress<0.05=minimal error gradient (converged), stuck>60s=sufficient run time"
+    },
+    {
+      "id": "cliff_standoff",
+      "name": "Cliff standoff — 悬崖边缘对峙驻留",
+      "version": "1.0.0",
+      "description": "Mario parks at a confirmed cliff edge: cliff reflex blocks forward, escape keeps re-approaching — standoff with near-zero net displacement instead of progressing along the edge.",
+      "conditions": {
+        "cliff_confirmed": true,
+        "cliff_standoff_s": {"min": 20},
+        "escape_behavior": true
+      },
+      "contradiction": "cliff avoidance is working (no falls) yet exploration stalls — protection has become paralysis",
+      "diagnosis": "Head-on cliff approach loop: forward drive and cliff retreat cancel out. FailureMemory knows this cliff — the tangential detour current (FailureMemory → turn-pool injection) should route Mario ALONG the edge; if standoff persists, the tangent gate or its freshness sign is mis-firing.",
+      "fix_template": "# Cliff standoff — verify tangential detour injection\n# File: fly64/fly64/main.py + fly64/fly64/model.py\n# model.cliff_tangent_bias must be non-zero when failures.nearest_failure_vector(x,z) hits\n# and model.step must inject it into turn pools before spike generation",
+      "fix_files": ["fly64/fly64/main.py", "fly64/fly64/model.py", "fly64/fly64/memory.py"],
+      "severity": "medium",
+      "tags": ["cliff", "standoff", "tangent", "detour", "brain_first"],
+      "rollback_strategy": "revert_added_block",
+      "threshold_justification": "cliff_confirmed=multi-frame edge confirmed, standoff>20s = protection plateau (retreat+re-approach cycles), escape active = brain wants to move but cannot"
     }
   ]
 }

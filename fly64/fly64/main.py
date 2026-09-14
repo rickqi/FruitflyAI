@@ -1204,6 +1204,13 @@ async def run(args) -> None:
                     "scene_hash": (memory_ctrl.scene_id or "")[:6],
                     "skill_version": SKILL_VERSION,
                     "brain_version": BRAIN_VERSION,
+                    # EVO R15: expose P1-P3 signal heads for the skill layer
+                    "danger_red_index": round(getattr(model, "danger_red_index", 0.0), 4),
+                    "sky_blue_index": round(getattr(model, "sky_blue_index", 0.0), 4),
+                    "emd_on_down": round(model.emd_on_down, 4),
+                    "target_count": model.target_count,
+                    "mb_assoc_count": getattr(model.mushroom, "assoc_count", 0),
+                    "cliff_standoff_s": round(getattr(model, "cliff_standoff_s", 0.0), 1),
                     "local_motion": round(model.local_motion_energy, 4),
                     "local_motion_detected": model.local_motion_detected,
                     "dialogue_active": getattr(model, "dialogue_active", False),

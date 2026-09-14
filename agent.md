@@ -17,8 +17,9 @@
    - `main.py` 的 `SKILL_VERSION` 镜像常量（必须镜像 `skills/evolution_skill.py` 的 `SKILL_VERSION`）
    - `skills/skills.md` 的版本号与进化轮次表
    - 校验：`python fly64/tests/check_version.py` 必须通过（镜像一致性守护）；CONSOLIDATE 统一使用 `scripts/consolidate.sh` 智能重启（自动检测游戏进程选择完整/合成模式，禁止手工无脑 `--synthetic`）
-9. **进化历史持久化待办**：`/evolution.json` 的迭代记录目前存于内存 deque（重启即清空，EVO 徽章旁历史列表会归零）——需将进化历史持久化到 `runtime/evolution_history.json` 并在启动时加载（列入下一轮进化待办）
-8. 每轮进化能力需配套**回归测试**（`tests/test_evolution_capability.py`），确保进化能力可重复验证、不退化
+9. **进化历史持久化**（已实现）：`/evolution.json` 迭代记录持久化到 `runtime/evolution_history.json`，脑模型启动时自动恢复（仪表板 EVO 历史不再因重启归零）
+10. **二期门禁（12 小时稳定自动聘雇）**：自治服务连续稳定运行 ≥12 小时（零 ALERT/零连续失败/健康自检通过）→ `scripts/phase2_gate.sh`（cron 每分钟驱动）自动翻 GO → 开工二期薄 Cordis Tool 层（fly64_status/fly64_consult/fly64_strategy）。禁止在门禁 GO 前提前建设二期
+11. 每轮进化能力需配套**回归测试**（`tests/test_evolution_capability.py`），确保进化能力可重复验证、不退化
 
 ## 项目结构
 

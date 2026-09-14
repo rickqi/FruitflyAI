@@ -1496,8 +1496,9 @@ class MemoryController:
         # Update cliff detector with multi-frame confirmation
         self._cliff_state = self.cliff.update(flow_cliff)
 
-        # EVO R15: cliff-edge standoff timer — confirmed cliff + active escape
-        if self._cliff_state.get("cliff_confirmed") and self.escape_behavior:
+        # EVO R15: cliff-edge standoff timer — detector-confirmed cliff while
+        # escape is active ("cliff_detected" IS the post-window confirm flag).
+        if self._cliff_state.get("cliff_detected") and self.escape_behavior:
             self._cliff_standoff_s += self._bold_explore_dt
         else:
             self._cliff_standoff_s = 0.0
@@ -1828,7 +1829,7 @@ class MemoryController:
             return 1.0                       # fresher ground on tangent 1
         if v2 < v1:
             return -1.0                      # fresher ground on tangent 2
-        return 0.0                           # equal visitation — no preference
+        return 1.0                           # tie → deterministic detour
 
     @property
     def reflex_cooldowns(self) -> dict[str, float]:

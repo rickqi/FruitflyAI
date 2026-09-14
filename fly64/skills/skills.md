@@ -46,10 +46,15 @@ skill 具备**自我更新迭代**能力，通过受控进化循环固定能力�
 | **10** | **2.3.0** | **🚪 局部突围机制（local_breakout）**：micro_loop 持续 >60s → 强制 forced_bold_explore（原门控用全局 visited_cells<20 永不触发）+ bold 期间覆盖反射级联 + 门控低置信悬崖转向 + 新增 `decision_source=bold_explore` 归因 | 转圈死循环分析：497.9s micro_loop 位移 0u，突围被全局计数器锁死 |
 | **11** | **2.5.0** | **🔌 神经化重构（neural refactor）**：方向性开口信号 `opening_left/right/asymmetry` → 转向池电流注入（LIF 左右竞争决策突围方向，替代 escape_x 随机）+ 位移奖励 API `report_movement()` 接入 MB 多巴胺（零位移场景被网络学习为惩罚）+ 退役低置信悬崖符号转向分支 | 转圈分析结论：用脑模型能力（感觉电流注入+MB 学习）替代继续堆叠符号判断分支 |
 | **12** | **2.6.0** | **🕸️ 自治基底落成（autonomy substrate）**：plugin/service.py 10s 循环 WSL 常驻服务（pid 文件/健康自检/service_status.json 心跳/连续失败≥5 告警）+ plugin/watchdog.sh 存活监控（自动重启/连续≥3 失败 ALERT）+ LLM 咨询双传输（http 无需 DSH / subagent 文件握手，ConsultError 降级 local_diagnosis）+ consolidate.sh 制度化连带重启自治循环；自治不依赖 DSH 会话存活 | 团队 autonomy-substrate：果蝇自身能力群自治 + 教官层按需介入分层架构 |
+| **13** | **2.7.0** | **🏠 对话暂停场景标签 + 蘑菇体挫折多巴胺**：`_scene_name` 优先返回"对话暂停等待 #hash"；`model.add_setback()` 外部挫折 → PPL1 式负多巴胺脉冲（新对话 episode 0.5 / 重复交互 +0.3 / 习惯化封锁 0.8），下一个 tick 由蘑菇体消费抑制 KC→MBON，学会"该场景被堵" | 锁门场景：对话发现即挫折注入，未来重访 recall 回放回避价值 |
 
 进化迭代历史在仪表板实时可见（`/evolution.json`：Brain 版本徽章、EVO 计数、每轮能力列表）。
 
-> 当前版本：BRAIN_VERSION **2.6.1** / SKILL_VERSION **2.9.1**（含 EVO Round 11 神经化重构：开口电流注入、位移奖励 MB 学习、低置信悬崖分支退役、教官策略键消费）。
+> 当前版本：BRAIN_VERSION **2.7.0** / SKILL_VERSION **3.0.0**（EVO Round 13：对话暂停场景标签 + 蘑菇体挫折多巴胺 + llm.env 自动加载 + 教官策略键消费）。
+
+## 二期门禁：12 小时稳定自动聘雇（2026-09-14 决策）
+
+自治服务（plugin/service.py）**连续稳定运行 ≥12 小时**（uptime 达标 + 零 watchdog ALERT + 零连续失败 + 三项健康自检通过）→ 门禁自动翻 GO → **自动开工二期薄 Cordis Tool 层**（fly64_status / fly64_consult / fly64_strategy 三个动态 Tool）。评估脚本 `scripts/phase2_gate.sh` 由 cron 每分钟驱动，结果写 `runtime/phase2_gate.json` 与 `plugin/phase2_gate.log`。取代原"稳定 1 周"门禁。
 
 **v2.7.0 新增 — 局部突围机制 local_breakout**（EVO Round 10，Brain v2.3.0）：
 
