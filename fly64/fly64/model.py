@@ -377,6 +377,7 @@ class FlyModel:
         # Reward signal (for gain modulation plasticity proxy)
         self.reward_signal = 0.0
         self.movement_reward = 0.0  # EVO R11: displacement-based dopamine feedback
+        self._pending_dopamine = 0.0  # EVO R13: external setback pulses (PPL1-like)
         self._prev_stuck_duration = 0.0
         self._cumulative_reward = 0.0
         # Local motion detection: moving objects when Mario is stationary
@@ -1063,6 +1064,13 @@ class FlyModel:
         self.reward_signal = max(-1.0, min(1.0,
             self.reward_signal * 0.5 + self.movement_reward * 0.5))
 
+    def add_setback(self, strength: float = 0.6) -> None:
+        """EVO R13: external setback discovered by supervision (e.g. dialogue
+        interaction blocked, locked door) → negative dopamine pulse consumed
+        by the mushroom body at the next tick, teaching the KC→MBON pathway
+        that THIS scene context carries negative value (PPL1-like)."""
+        self._pending_dopamine = max(-1.0, self._pending_dopamine - abs(strength))
+
     def _compute_dopamine(self) -> float:
         """Compute proxy dopamine signal from available behavioral signals."""
         reward = 0.0
@@ -1137,7 +1145,11 @@ class FlyModel:
         # mushroom body learns from both scene-driven and escape-driven signals.
         _behavioral_dop = self._compute_dopamine()
         _reward_contrib = max(-0.3, min(0.5, self.reward_signal)) * 0.4
-        dop = _behavioral_dop + _reward_contrib
+        # EVO R13: external setback pulses (dialogue blocked, locked door …)
+        # join the dopamine sum — one-shot, consumed after this tick.
+        _pending = getattr(self, "_pending_dopamine", 0.0)
+        dop = max(-1.0, min(1.0, _behavioral_dop + _reward_contrib + _pending))
+        self._pending_dopamine = 0.0
         try:
             self.mushroom.set_dopamine(dop)
             n_syn = self.mushroom.update_weights()

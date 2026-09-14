@@ -419,6 +419,41 @@ class TestEvoRound10:
         assert "self.reward_signal = max(-1.0, min(1.0," in src
         assert "_reward_contrib" in src
 
+
+# ── EVO Round 13 (Brain v2.7.0 / Skill v3.0.0): dialogue pause-wait scene
+#    label + mushroom-body setback dopamine + llm.env auto-load ─────────────
+
+class TestEvoRound13:
+    def _src(self, name):
+        return (Path(__file__).resolve().parent.parent / "fly64" / name).read_text(encoding="utf-8")
+
+    def test_dialogue_pause_scene_label_priority(self):
+        src = self._src("main.py")
+        assert "对话暂停等待" in src
+        assert src.index("对话暂停等待") < src.index("feats = {"), \
+            "dialogue pause label must be checked before terrain dominance"
+
+    def test_setback_dopamine_pulse_wiring(self):
+        model_src = self._src("model.py")
+        assert "def add_setback" in model_src
+        assert "_pending_dopamine" in model_src
+        assert '_pending = getattr(self, "_pending_dopamine", 0.0)' in model_src
+        assert "self._pending_dopamine = 0.0" in model_src
+
+    def test_dialogue_setback_called_on_discovery_and_lock(self):
+        src = self._src("main.py")
+        assert "model.add_setback(0.5)" in src, "new dialogue episode setback"
+        assert "model.add_setback(0.8)" in src, "habituation lock deepens setback"
+
+    def test_llm_env_file_autoload(self):
+        src = self._src("plugin/llm_consult.py")
+        assert "_load_llm_env" in src and "llm.env" in src
+
+    def test_memory_json_dialogue_observability(self):
+        src = self._src("main.py")
+        assert '"dialogue_active"' in src
+        assert '"scene_label"' in src
+
 # ── EVO Round t4: Plasticity monitoring ──────────────────────────────────────
 
 class TestPlasticityMonitoring:

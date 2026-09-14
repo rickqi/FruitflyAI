@@ -53,6 +53,30 @@ DEFAULT_TRANSPORT = "subagent"
 REQUEST_PATH = PLUGIN_DIR / ".consult_request.json"
 RESPONSE_PATH = PLUGIN_DIR / ".consult_response.json"
 SUBAGENT_TIMEOUT_SECONDS = 120.0
+LLM_ENV_FILE = PLUGIN_DIR / "llm.env"
+
+
+def _load_llm_env() -> None:
+    """Load plugin/llm.env (KEY=VALUE, optional 'export ' prefix) into
+    os.environ as DEFAULTS.  Makes the GLM http transport work even when the
+    brain was started by an external workflow that did not source the env
+    file (EVO R12 follow-up: externally-restarted brains had no FLY64_LLM_*)."""
+    try:
+        if not LLM_ENV_FILE.exists():
+            return
+        for line in LLM_ENV_FILE.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line.startswith("export "):
+                line = line[7:].strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            os.environ.setdefault(key.strip(), val.strip().strip('"').strip("'"))
+    except OSError:
+        pass
+
+
+_load_llm_env()
 
 PROMPT_TEMPLATE = (
     "你是 SM64 果蝇脑控制系统的教练。分析当前游戏截屏和状态，回答：\n"

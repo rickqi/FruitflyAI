@@ -35,8 +35,8 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.6.1"
-SKILL_VERSION = "2.9.1"   # must mirror fly64/skills/evolution_skill.py SKILL_VERSION
+BRAIN_VERSION = "2.7.0"
+SKILL_VERSION = "3.0.0"   # must mirror fly64/skills/evolution_skill.py SKILL_VERSION
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
 _evo_iter_counter = 0
@@ -352,6 +352,11 @@ def _scene_name(model, memory_ctrl, recognizer=None) -> str:
       2. If a custom label exists for this scene hash, return that.
       3. Fall back to the existing feature-based naming (top-2 dominant features).
     """
+    # EVO R13: dialogue pause-wait is its own scene state — visual feature
+    # dominance (bright ceiling → "sky", walls → "slope") must not mask it.
+    if getattr(model, "dialogue_active", False):
+        h = (memory_ctrl.scene_id or "")[:4]
+        return f"对话暂停等待 #{h}" if h else "对话暂停等待"
     t = getattr(model, "terrain", "mixed")
 
     # Step 1: SM64 profile-based recognition (highest priority)
@@ -725,6 +730,13 @@ async def run(args) -> None:
             if dlg_now and not prev_dialogue_active:
                 # New dialogue episode: pause the brain and ask the LLM.
                 dialogue_episode += 1
+                # EVO R13: dialogue discovery is a setback signal — dopamine
+                # pulse teaches the mushroom body that THIS scene context is
+                # blocked/negative (PPL1-like), so its MBON value steers the
+                # fly away on future visits without any new Python branch.
+                model.add_setback(0.5)
+                if dialogue_engagements >= 2:
+                    model.add_setback(0.3)  # repeat engagement deepens it
                 llm_decision = None
                 llm_decision_consumed = False
                 llm_decision_status = ("waiting" if _dialogue_consultant
@@ -746,6 +758,7 @@ async def run(args) -> None:
                 if dialogue_engagements >= 3:
                     dialogue_blocked_until = time.monotonic() + 120.0
                     dialogue_engagements = 0
+                    model.add_setback(0.8)  # habituation lock = strong setback
             prev_dialogue_active = dlg_now
 
             # ---- L2 coach-help snapshot (while habituation blocks) ----
@@ -1284,6 +1297,9 @@ async def run(args) -> None:
                     # EVO R12: reflex-ineffective escalation flag
                     "reflex_ineffective": bool(getattr(memory_ctrl, "reflex_ineffective", False)),
                     "disp_60s": getattr(memory_ctrl, "disp_60s", None),
+                    # EVO R13: dialogue pause-wait scene observability
+                    "dialogue_active": bool(getattr(model, "dialogue_active", False)),
+                    "scene_label": _scene_name(model, memory_ctrl, scene_recognizer),
                     # Health scoring
                     "health_score": round(memory_ctrl.health_score, 4),
                 }, separators=(",", ":")).encode()
