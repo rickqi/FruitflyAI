@@ -771,6 +771,17 @@ async def run(args) -> None:
                 _last_strategy_tick = model.step_count
                 _active_strategy = load_active_strategy(
                     project / "skills" / "active_strategy.json")
+                # EVO R11 follow-up: push coach-tunable keys into the memory
+                # controller so GLM strategy advice tunes the escape/breakout
+                # behaviour (consumed in memory.py + bold breakout below).
+                _expl = _active_strategy.get("exploration", {}) or {}
+                _esc = _active_strategy.get("escape", {}) or {}
+                memory_ctrl.bold_explore_stuck_s = float(
+                    _expl.get("bold_explore_stuck_s", 60.0))
+                memory_ctrl.bold_turn_bias = float(
+                    _expl.get("turn_bias", 69.0))
+                memory_ctrl.escape_stuck_threshold_s = float(
+                    _esc.get("stuck_threshold_s", 2.0))
 
             # ---- Pre-emptive cliff avoidance (fires BEFORE escape, highest priority) ----
             cliff_triggered = False
@@ -927,18 +938,20 @@ async def run(args) -> None:
                         # else: brief reset tick, next cycle starts immediately
                 elif memory_ctrl.forced_bold_explore:
                     # ---- forced_bold_explore breakout ----
-                    # Force large turn (x=±69) + extended forward burst (y=70 for 2s)
-                    # to break out of nested loop cycles where the agent is visually
-                    # stagnant in a tiny area (scene_change_rate<0.05 for >10s,
-                    # visited_cells<20). Dead-end penalty is already reduced in
-                    # novelty_direction() via the forced_bold_explore flag.
+                    # Force large turn (coach-tunable magnitude, default ±69)
+                    # + extended forward burst (y=70 for 2s) to break out of
+                    # nested loop cycles (EVO R11: coach strategy keys
+                    # exploration.bold_explore_stuck_s / turn_bias consumed
+                    # here via memory_ctrl so GLM advice tunes the breakout).
+                    _turn_mag = max(40, min(80, int(
+                        getattr(memory_ctrl, "bold_turn_bias", 69) or 69)))
                     if escape_toggle_timer < 0.5:
                         # Phase 1: Sharp turn to maximum angle, no forward
                         if escape_toggle_timer < model.dt:
                             # Choose max turn, alternating sign from previous bold cycle
                             if escape_x == 0:
-                                escape_x = 69
-                            escape_x = 69
+                                escape_x = _turn_mag
+                            escape_x = _turn_mag
                             if model.rng.random() < 0.5:
                                 escape_x = -escape_x
                         control.x = escape_x; control.y = 0

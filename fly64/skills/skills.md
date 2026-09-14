@@ -49,6 +49,8 @@ skill 具备**自我更新迭代**能力，通过受控进化循环固定能力�
 
 进化迭代历史在仪表板实时可见（`/evolution.json`：Brain 版本徽章、EVO 计数、每轮能力列表）。
 
+> 当前版本：BRAIN_VERSION **2.6.1** / SKILL_VERSION **2.9.1**（含 EVO Round 11 神经化重构：开口电流注入、位移奖励 MB 学习、低置信悬崖分支退役、教官策略键消费）。
+
 **v2.7.0 新增 — 局部突围机制 local_breakout**（EVO Round 10，Brain v2.3.0）：
 
 memory.py forced_bold_explore 门控新增条件：`micro_loop 异常持续 >60s` 即触发突围（原条件 `全局 visited_cells<20` 在有探索史的地图上永不成立，导致死循环无解）。main.py 级联：bold 期间可覆盖活跃反射（`not reflex_override or bold_override`）、门控低置信悬崖转向分支（转圈主要贡献者）、决策归因新增 `bold_explore` 通道（优先于 anomaly_reflex）。
@@ -56,6 +58,10 @@ memory.py forced_bold_explore 门控新增条件：`micro_loop 异常持续 >60s
 **v2.6.0 新增 — 室内围闭度检测**（EVO Round 9，Brain v2.2.0）：
 
 retina.py compute_flow 新增：`enclosure_score`（围闭度：0.6×天花板信号[(1-蓝色度)×上视野结构边缘能量×8] + 0.4×墙边缘[|edge_90|+|edge_0|]×3）、`upper_blue`（上视野蓝色主导度）；`sky_score` 乘以蓝色主导门控（`min(1, upper_blue×4)`，室内天花板失去"天空"标签）；terrain 判定 `enclosure_score>0.35` 时覆盖为 `indoor`。model/main/telemetry 加法透传；场景名新增"室内"标签。实测：室内眼图（蓝地毯+深色格纹天花板+立柱）enclosure 0.39-0.42 vs 室外 0.03，分离度 13 倍。
+
+**v2.8.0 新增 — 教官策略键消费（coach strategy keys）**（EVO Round 11，Brain v2.5.0）：
+
+LLM 教官建议中的 strategy 参数现在直接调控行为管线（经 main.py 热重载推入 memory_ctrl）：`exploration.bold_explore_stuck_s`（micro_loop 持续多久触发突围，默认 60s）、`exploration.turn_bias`（突围转向幅度，40-80 钳位）、`escape.stuck_threshold_s`（卡住多少秒即 escape，与分数阈值并列 OR 条件）。GLM 咨询的每条建议都能落到动作参数——"说了就算"。
 
 **v2.5.0 新增 — T4/T5 式 HRC 方向选择运动真值**（EVO Round 8，Brain v2.1.0）：
 retina.py 新增 `compute_hrc()`：按 `_edge_pairs` 邻接对复用上一帧逐细胞亮度，逐对计算 Hassenstein-Reichardt 相关 `corr = lum_a(t-1)·lum_b(t) − lum_b(t-1)·lum_a(t)`，方向汇聚为 `hrc_right/left/up/down`（右移亮条 → `hrc_right>0`）与 `hrc_asymmetry`（正=左向运动多，与 `flow_asymmetry` 同号）；LC4 式 16 扇区×上/下×左/右 looming 种群 32 键（`sector_loom`）。model.py 新增 `true_hrc_asymmetry`（减去 `SELF_MOTION_K×heading_rate` 自运动分量，与 flow 同公式）与 `hrc_available`（≥2 视网膜帧预热）；main.py escape 判定在 HRC 预热后优先采用 HRC motion-truth；telemetry.py 每个 WS 行携带 `hrc_asymmetry`，帧边携带 `sector_loom`。全部加法接入，旧键未删改。

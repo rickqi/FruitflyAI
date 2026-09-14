@@ -1508,8 +1508,12 @@ class MemoryController:
         #     original gate could never fire on an experienced map (global
         #     visited_cells already in the hundreds), leaving the fly circling
         #     forever in a dead-end.
+        # Coach-tunable (EVO R11 follow-up): GLM strategy advice hot-reloads
+        # bold_explore_stuck_s via main.py — how long a persistent micro_loop
+        # must last before breakout (default 60 s).
         micro_loop_stuck = (self._latest_anomaly_state == "micro_loop"
-                            and self._latest_anomaly_dur > 60.0)
+                            and self._latest_anomaly_dur > getattr(
+                                self, "bold_explore_stuck_s", 60.0))
         if ((scene_change_rate < 0.05 and self.spatial.visited_cells < 20)
                 or micro_loop_stuck):
             self._scene_low_duration += self._bold_explore_dt
@@ -1532,6 +1536,12 @@ class MemoryController:
         anomaly_override = self.anomaly.active
         if anomaly_override:
             adjusted_threshold = min(adjusted_threshold, 0.5)
+        # Coach-tunable (EVO R11 follow-up): escape.stuck_threshold_s from
+        # GLM strategy advice — escape once stuck persists this many seconds
+        # (e.g. 2.0 s per the locked-door lesson), regardless of score.
+        _coach_stuck_s = getattr(self, "escape_stuck_threshold_s", None)
+        _coach_stuck = (_coach_stuck_s is not None
+                        and self._stuck_duration >= _coach_stuck_s)
 
         self.escape_behavior = (
             (self._stuck_score >= adjusted_threshold
@@ -1540,6 +1550,7 @@ class MemoryController:
             or cliff_emergency
             or self._forced_bold_explore
             or anomaly_override  # anomaly directly triggers escape
+            or _coach_stuck       # coach advice: escape after N s stuck
         )
         return (self._stuck_score, self._stuck_duration,
                 self._novelty, self.escape_behavior, self._fallen,

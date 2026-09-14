@@ -373,8 +373,9 @@ class TestEvoRound10:
         src = self._src("memory.py")
         assert "micro_loop_stuck" in src
         assert '_latest_anomaly_state == "micro_loop"' in src
-        assert "_latest_anomaly_dur > 60.0" in src, \
-            "breakout must trigger after 60 s of persistent micro_loop"
+        # threshold is coach-tunable (EVO R11: default 60.0 via bold_explore_stuck_s)
+        assert "bold_explore_stuck_s" in src and "_latest_anomaly_dur >" in src, \
+            "breakout must trigger after persistent micro_loop (coach-tunable threshold)"
         # original confined-area path preserved (backward compatible)
         assert "visited_cells < 20" in src
 
