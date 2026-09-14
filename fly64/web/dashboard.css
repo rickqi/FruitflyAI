@@ -45,14 +45,18 @@ section.motor-section{display:grid;grid-template-rows:26px 24px repeat(4,minmax(
 footer{font-size:12px;color:var(--muted);padding:3px 0;background:var(--bg);position:relative;z-index:2}footer p{margin:0 0 3px}#performance{font-variant-numeric:tabular-nums}#status[data-state="bad"]{color:var(--gold)}
 @media(min-width:1100px){:root{--row-vision:196px;--row-causal:minmax(64px,auto);--row-motor:minmax(330px,1fr);--row-brain:175px;--row-memory:315px;--row-timeline:minmax(150px,auto);--row-events:275px;--mem-row-h:190px;--mem-map-h:186px;--mem-canvas-h:138px;--esc-max-h:120px}main{grid-template-rows:var(--row-vision) var(--row-causal) var(--row-motor) var(--row-brain) var(--row-memory) var(--row-timeline) var(--row-events) var(--row-footer)}.eyes{grid-template-columns:240px 260px 1fr 260px;height:auto}.eyes canvas{height:110px}#retinaUnwrap{height:128px;width:240px}.brain-row{grid-template-columns:420px 1fr;height:132px}.map{height:128px}.brain-row canvas{height:108px}.memory-row{height:var(--mem-row-h)}.memory-map{height:var(--mem-map-h)}.memory-row canvas{height:var(--mem-canvas-h)}}
 @media(max-width:900px){#causal .chain{flex-direction:column;height:auto}.chain-arrow{transform:rotate(90deg);align-self:flex-start;margin-left:20px}}
-/* ── Wide-screen two-column dashboard (≥1400px) ────────────────────────
+/* ── Wide-screen two-column dashboard ──────────────────────────────────
    Left: perception→causal→motor→activity map. Right: memory→timeline→events.
-   Footer spans both. Compresses total scroll height ~40%. */
-@media(min-width:1400px){main{max-width:1800px;grid-template-columns:1fr 1fr;
+   Footer spans both. Compresses total scroll height ~40%.
+   Applied via body.layout-wide; dashboard.js turns it on automatically at
+   ≥1400px (auto mode) or per the user's manual Layout toggle (persisted). */
+body.layout-wide main{max-width:1800px;grid-template-columns:1fr 1fr;
 grid-template-areas:"vision memory" "causal timeline" "motor events" "brain events" "footer footer";
 grid-template-rows:var(--row-memory) var(--row-timeline) var(--row-motor) var(--row-brain) var(--row-footer)}
-.area-vision{grid-area:vision}.area-causal{grid-area:causal}.area-motor{grid-area:motor}.area-brain{grid-area:brain}.area-memory{grid-area:memory}.area-timeline{grid-area:timeline}.area-events{grid-area:events}.area-footer{grid-area:footer}
-.area-events{display:grid;grid-template-rows:auto 1fr;align-content:start}}
+body.layout-wide .area-vision{grid-area:vision}body.layout-wide .area-causal{grid-area:causal}body.layout-wide .area-motor{grid-area:motor}body.layout-wide .area-brain{grid-area:brain}body.layout-wide .area-memory{grid-area:memory}body.layout-wide .area-timeline{grid-area:timeline}body.layout-wide .area-events{grid-area:events}body.layout-wide .area-footer{grid-area:footer}
+body.layout-wide .area-events{display:grid;grid-template-rows:auto 1fr;align-content:start}
+/* Layout toggle button */
+#layoutBtn.active{border-color:var(--cyan);color:var(--cyan)}
 @media(max-width:650px){body{height:auto;min-height:100svh}header{height:auto;min-height:60px;flex-wrap:wrap;padding:8px 12px}h1 span{display:block;margin-left:0}.session{gap:8px}main{height:auto;padding:0 12px;display:block}.eyes{grid-template-columns:1fr 1fr;height:auto}.eye-note{grid-column:1/-1}.section-head{height:auto;min-height:28px;flex-wrap:wrap}section.motor-section{grid-template-rows:auto 40px repeat(4,85px) auto}.chart-row{grid-template-columns:145px minmax(0,1fr);gap:6px}.ack{flex-wrap:wrap}.brain-row{height:auto;grid-template-columns:1fr 1fr;gap:12px}.brain-note{font-size:13px}.memory-row{height:auto;grid-template-columns:1fr 1fr;gap:12px}.memory-note{font-size:13px}.interactive-row{grid-template-columns:1fr;gap:8px}.escape-table-wrap{grid-template-columns:1fr}.escape-table-scroll{max-height:90px}footer{padding-bottom:10px}}
 /* ── L2 coach-help: SOS badge + snapshot panel ─────────────────────── */
 @keyframes helpPulse{0%,100%{opacity:1}50%{opacity:.35}}

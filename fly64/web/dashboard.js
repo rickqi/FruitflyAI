@@ -15,6 +15,41 @@ if (typeof window === 'object') {
   window.__CAUSAL_ENABLED = !causalOff;
   if (causalOff) document.body.classList.add('causal-off');
 }
+
+// ── Layout mode toggle: Auto (two-column ≥1400px) / Wide / Single ──────
+// body.layout-wide drives the CSS (dashboard.css); this decides when to set
+// it. Auto follows matchMedia so plain resizing keeps working, Wide/Single
+// override it and persist in localStorage('fly64.layout').
+const LAYOUT_KEY = 'fly64.layout';
+const wideMQ = (typeof matchMedia === 'object') ? matchMedia('(min-width:1400px)') : null;
+function layoutMode() {
+  return (typeof localStorage === 'object' && localStorage.getItem(LAYOUT_KEY)) || 'auto';
+}
+function applyLayout() {
+  const mode = layoutMode();
+  const wide = mode === 'wide' || (mode === 'auto' && (!wideMQ || wideMQ.matches));
+  document.body.classList.toggle('layout-wide', wide);
+  const btn = typeof document === 'object' ? document.getElementById('layoutBtn') : null;
+  if (btn) {
+    btn.textContent = 'Layout: ' + (mode === 'auto' ? 'Auto' : mode === 'wide' ? 'Wide' : 'Single');
+    btn.classList.toggle('active', mode !== 'auto');
+    btn.title = mode === 'auto'
+      ? 'Auto — two-column at ≥1400px. Click to force Wide.'
+      : mode === 'wide' ? 'Wide forced. Click to force Single.' : 'Single forced. Click to return to Auto.';
+  }
+}
+function repaintLayout() { if (typeof displayed === 'undefined' || !displayed) return; render(displayed); renderHistoryCharts(); }
+if (typeof document === 'object') {
+  applyLayout();
+  const lb = document.getElementById('layoutBtn');
+  if (lb) lb.onclick = () => {
+    const next = layoutMode() === 'auto' ? 'wide' : layoutMode() === 'wide' ? 'single' : 'auto';
+    if (typeof localStorage === 'object') localStorage.setItem(LAYOUT_KEY, next);
+    applyLayout();
+    repaintLayout();  // column change resizes every canvas
+  };
+  if (wideMQ && wideMQ.addEventListener) wideMQ.addEventListener('change', () => { applyLayout(); repaintLayout(); });
+}
 const states = ['off · F8', 'receiving', 'stale · released', 'torn · released', 'disconnected'];
 let meta, latest, displayed, history = [], frozen = false, receivedAt = 0, lastSeq = 0, brainRenderer, measuredLocations, streamError = '';
 const number = (n, digits=1) => Number.isFinite(n) ? n.toFixed(digits) : '—';
