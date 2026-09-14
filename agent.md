@@ -75,6 +75,26 @@ D:\codes\flygym\
 
 # 变更日志
 
+## 2026-09-14: t16 监控界面优化轮 — Brain v2.10.1（P0+P1 可见性与布局 + P2 首项）
+
+**触发**：t15 监控界面布局分析（纯分析）发现的 P0 可见性缺口与 P1 层级问题。
+
+**变更**：
+- **P0-1/P1-1**：状态 pill 条（brainVer/evoIter/health/anomaly/help/llmDecision）整体迁移至 header 全局状态栏；llmDecision 等待态显示倒计时 `Xs / 600s`，title 带原因与超时策略
+- **P0-2**：新增 `/active_strategy.json` HTTP 端点（读 skills/active_strategy.json）+ "Coach Strategy Consumption" 折叠面板——展示 bold_explore_stuck_s / turn_bias / stuck_threshold_s 当前值（含单位与方向提示）、dialogue_decision、最后写入时间与来源，补齐教练建议→生效闭环可视
+- **P0-3**：因果链 PRIORITY 增加 dialogue=5，judgeText 对话分支——暂停期显示 `⏸ DIALOGUE PAUSED · awaiting coach decision (Xs/600s)`，已决策显示动作；不再误报 neutral steering
+- **P0-4**：memory note-stats 新增 forced_bold_explore（🏃 BOLD breakout）/ reflex_ineffective（⚠）徽章
+- **P1-2**：scene 行新增 terrain / underwater / interactive_near chip
+- **P1-3**：help / coach 面板折叠为 `<details class="fold-panel">`
+- **P1-4**：新增 `@media(max-width:800px)` 单列断点（main 改 block、区纵向堆叠、pill 条换行前置）
+- **P2-1**：flow.json 双定时器重复拉取合并为共享 `fetchFlowOnce()`（updateSceneDisplay/updateEvolutionDisplay 共用 latestFlow）
+
+**版本**：Brain 2.10.0→**2.10.1**（SKILL 3.0.0 镜像不变）；check_version.py 通过。
+
+**回归与部署**：py_compile main.py、node --check dashboard.js、test_dashboard_js+test_dashboard_protocol 8/8 通过；commit 5a7a845 push；WSL 同步后重启大脑，人工核验清单（curl 级）：各静态端点 200、flow.json llm_decision/terrain 字段在位、/active_strategy.json 返回 coach 三键——详见 t16 任务输出。
+
+---
+
 ## 2026-09-14: EVO Round 16 — Brain v2.10.0（震荡突破电流 + skill 层复明 + 常驻 EVO 循环）
 
 **触发**：缺陷审计（R15 后）：① TurnAdaptation 交替把"恒向转圈"变为"原地编织"——loop_score 仍饱和 1.0，缺 forward 突破机制；② flow.json 缺 5 个因果键（decision_source/cliff_conf/gate_forward/hrc_asymmetry/emd_on_total）→ EvolutionSkill 新检测模式永不命中（0/876 因果行可分析）；③ DiagnosisEngine 对缺失字段静默跳过。
