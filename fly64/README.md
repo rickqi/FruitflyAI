@@ -149,20 +149,46 @@ FLY64_BRIDGE=../runtime/fly64_bridge.bin ./build/us_pc/sm64.us.f3dex2e --skip-in
 
 ## 🌐 仪表板
 
-游戏/模型运行时访问 **http://127.0.0.1:8765/**：
+游戏/模型运行时访问 **http://127.0.0.1:8765/**。
+
+![监控面板总览](docs/screenshots/dashboard-main.png)
+
+### 布局与响应式
+
+- **单列布局**（<1400px）：8 个区块按固定行高纵向排列，滚动浏览；
+- **宽屏两列布局**（≥1400px 或手动切换）：grid areas 双栏——左栏 Vision→Causal→Motor→Activity map，右栏 Memory→Timeline→Events，footer 横跨双栏，总滚动高度压缩约 40%；
+- **Layout 切换按钮**（header）：`Auto`（跟随窗口宽度）/ `Wide`（强制两列）/ `Single`（强制单列）三态循环，选择持久化在 `localStorage['fly64.layout']`；
+- 行高单一来源：`dashboard.css` `:root` 的 `--row-*` CSS 变量，媒体查询只覆盖变量值。
+
+### 面板明细
 
 | 面板 | 功能 |
 |------|------|
 | **Vision** | 果蝇 270° 复眼视野预览 + 帧差异 + **16 扇区活跃度叠加**（活跃扇区青色描边） |
 | **Causal Chain · why this action** | **决策解释卡**：五段因果链 RAW→SIGNAL→NEURAL→JUDGE→ACTION，实时归因当前动作由哪级控制级联生效（`decision_source`），悬停看判据、点选下钻 |
-| **Neurons → controls** | 神经活动实时图表（前进/转向/跳跃） |
-| **Brain** | 全脑 WebGL 热力图 |
-| **Spatial memory** | 空间记忆热力图 + Stuck/Loop/Novelty 状态 |
-| **Causal Timeline · 120 s** | **四泳道因果时间轴**（光流/池率+门控/判断条带+cliff▲/动作 x 线+jump 标记），悬停回看历史因果卡，点击跳转冻结回放，紫色弧线标注 cliff→转向响应的 **+ms 延迟** |
-| **Escape Events & Coverage** | 逃逸事件表（行可点击 → 时间轴跳到事件前 2s 回放）+ 健康仪表 + 覆盖率趋势 |
-| **Trajectory** | 马里奥运动轨迹回放（`/trajectory.html`） |
+| **Neurons → controls** | 神经活动实时图表（前进/转向/跳跃/摇杆），gate 阈值虚线（0.4/2 Hz），溢出以 ▲ 标注而非截断 |
+| **Activity map** | 全脑 WebGL 热力图（亮度=rolling rate，暗点=context） |
+| **Spatial memory** | 空间记忆热力图（128/138px，50×50 grid）+ Stuck/Fall/Flow/Dead-end 标记 + 轨迹 + Stuck/Optic Flow 60s 趋势 |
+| **Causal Timeline · 120 s** | **四泳道因果时间轴**（光流/池率+门控/判断条带+cliff▲/动作 x 线+jump 标记），泳道高度随 CSS 等比伸缩，悬停回看历史因果卡，点击跳转冻结回放，紫色弧线标注 cliff→转向响应的 **+ms 延迟** |
+| **Escape Events & Coverage** | 逃逸事件表（行可点击 → 时间轴跳到事件前 2s 回放）+ 健康仪表圆环 + 覆盖率趋势 + Brain/EVO/Coach pills |
 
-**降级开关**：`http://127.0.0.1:8765/?noviz=1`（或 `localStorage['fly64.causal']='off'`）一键隐藏全部因果组件，恢复基础布局；因果组件异常不会影响既有面板渲染（try/catch 隔离）。
+### 配套页面
+
+| 页面 | 地址 | 说明 |
+|------|------|------|
+| **布局预览** | `/monitor-preview.html` | 模拟数据驱动的实时面板演示：单列/两列手动切换、区块标注（`--row-*` 变量与数值）、causal-off 模拟复选框；500ms 动画刷新，可暂停 |
+| **布局线框图** | `/layout-wireframe.html` | 全部 8 个组件区块的线框图：双布局模式 + 四档响应式断点条（<650 / 650–1100 / 1100–1400 / ≥1400）+ grid-template-areas 原文 |
+| **轨迹回放** | `/trajectory.html` | 马里奥运动轨迹回放 |
+
+![布局预览页](docs/screenshots/monitor-preview.png)
+
+![布局线框图](docs/screenshots/layout-wireframe.png)
+
+**降级开关**：`http://127.0.0.1:8765/?noviz=1`（或 `localStorage['fly64.causal']='off'`）一键隐藏全部因果组件（`.causal-ui`），恢复基础布局；因果组件异常不会影响既有面板渲染（try/catch 隔离）。
+
+**资产热更新**：`web/` 下的静态资产（css/js/预览/线框图页）为每请求即时读取——修改后刷新浏览器即生效，无需重启主进程；仅面板 `index.html` 本体与 `metadata.json`/`measured.bin` 仍是启动时快照。
+
+### API 端点
 
 API 端点：
 - `http://127.0.0.1:8765/trajectory.json` — 实时运动轨迹数据

@@ -30,16 +30,22 @@ body.causal-off .causal-ui{display:none!important}
 
 /* ═══ main 网格：结构复刻真实 dashboard ═══ */
 main.preview{position:relative;height:auto;margin:auto;padding:0 18px 18px;display:grid;
-grid-template-rows:var(--row-vision) var(--row-causal) var(--row-motor) var(--row-brain)
+/* track 1 = in-preview .hdr bar; tracks 2-9 mirror the real dashboard rows */
+grid-template-rows:auto var(--row-vision) var(--row-causal) var(--row-motor) var(--row-brain)
  var(--row-memory) var(--row-timeline) var(--row-events) var(--row-footer);
 max-width:1400px;overflow:visible}
+main.preview .hdr{grid-row:1}
 main.preview.wide{max-width:1800px;grid-template-columns:1fr 1fr;
-grid-template-areas:"vision memory" "causal timeline" "motor events" "brain events" "footer footer";
-grid-template-rows:var(--row-memory) var(--row-timeline) var(--row-motor) var(--row-brain) var(--row-footer)}
+grid-template-areas:"hdr hdr" "vision memory" "causal timeline" "motor events" "brain events" "footer footer";
+grid-template-rows:auto var(--row-memory) var(--row-timeline) var(--row-motor) var(--row-brain) var(--row-footer)}
+main.preview.wide .hdr{grid-area:hdr}
 main.preview.wide footer{grid-column:auto}
-.area-vision{grid-area:vision}.area-causal{grid-area:causal}.area-motor{grid-area:motor}
-.area-brain{grid-area:brain}.area-memory{grid-area:memory}.area-timeline{grid-area:timeline}
-.area-events{grid-area:events}.area-footer{grid-area:footer}
+/* grid-area ONLY in wide mode: in single-column these named areas don't exist
+   in grid-template-areas, and unconditional grid-area collapses every section
+   into one implicit track (the bug this fixes). */
+main.preview.wide .area-vision{grid-area:vision}main.preview.wide .area-causal{grid-area:causal}main.preview.wide .area-motor{grid-area:motor}
+main.preview.wide .area-brain{grid-area:brain}main.preview.wide .area-memory{grid-area:memory}main.preview.wide .area-timeline{grid-area:timeline}
+main.preview.wide .area-events{grid-area:events}main.preview.wide .area-footer{grid-area:footer}
 
 /* ── 区块通用 ── */
 section{position:relative;padding:8px 0;border-bottom:1px solid var(--line);min-height:0}
@@ -83,7 +89,7 @@ background:var(--panel);border-radius:0 3px 3px 0;overflow:hidden}
 .chain-arrow{color:var(--dim);align-self:center}
 
 /* ③ Motor */
-.motor-body{display:grid;grid-template-rows:auto repeat(4,minmax(55px,1fr)) auto;height:calc(100% - 30px);gap:2px}
+.motor-body{display:grid;grid-template-rows:auto repeat(4,72px) auto;gap:2px}
 .decision{font-size:14px;align-self:center;font-variant-numeric:tabular-nums}
 .chart-row{display:grid;grid-template-columns:185px minmax(0,1fr);gap:12px;min-height:0;align-items:stretch}
 .chart-label{font-size:13px;align-self:center}
