@@ -74,6 +74,21 @@ D:\codes\flygym\
 
 # 变更日志
 
+## 2026-09-14: EVO Round 11 — Brain v2.5.0（神经化重构：电流注入 + 位移奖励，规则做减法）
+
+**背景**：转圈修复评审指出 R10/R11 早期提案仍在堆叠符号判断分支。参照 MaleCNS-TrackMania 方案（视叶算流、蘑菇体学价值、DN 出命令，无 if/else）重构为神经化方案。
+
+**变更**（LEARN，"判断"降维为"电流"）：
+- `retina.py`：新增方向性开口信号 `opening_left/right/asymmetry`（外侧方位带 az0,1/az6,7 相对中央变暗 = 该侧有开口；正值=开口在左）
+- `model.py`：① escape 期间开口不对称 → 转向池**电流注入**（`v[turn_left/right] += _open_inj`），LIF 左右竞争决策突围方向，取代 escape_x 随机；② 新增 `report_movement(displacement)` API——main.py 每 2.4s 窗口测净位移喂入，零位移=多巴胺惩罚，蘑菇体 KC→MBON 学到"该情境面朝墙无价值"（网络自己停止撞墙）；③ **退役**低置信悬崖符号转向分支（`x*1.5 / y-20`，转圈主贡献者）
+- BRAIN_VERSION 2.4.0→2.5.0；SKILL_VERSION 2.7.0→2.8.0
+
+**PIN**：4 新用例（开口注入接线/位移奖励 API/分支退役/归因顺序），46 全绿（capability+protocol+js）；retina 2 tmp_path 沙箱既存失败。
+
+**CONSOLIDATE（两次实战修正 consolidate.sh）**：①进程清理模式改为 `[f]ly64.main`（任意解释器）+ pkill -9 兜底；②游戏检测遍历 us_pc 进程读 FLY64_BRIDGE env（修复抓到 bash 包装进程导致桥错位）。最终实测：`brain_version=2.5.0`、`frame_age 60ms`、`decision_source: steering` ✅。
+
+---
+
 ## 2026-09-13: EVO Round 10 — Brain v2.3.0（局部突围机制 local_breakout）
 
 **触发**：转圈分析发现 497.9s micro_loop 事件位移 0u。根因：forced_bold_explore 突围门控用**全局** visited_cells<20（已 400 格，永不触发）——检测用局部窗口、解药却用全局计数器，制度性死锁。

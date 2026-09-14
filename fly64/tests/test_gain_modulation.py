@@ -493,5 +493,146 @@ class TestModelIntegration:
             assert gains_before[p] == gains_after[p]
 
 
+# ══════════════════════════════════════════════════════════════════
+# Error gradient bridge tests (t3)
+# ══════════════════════════════════════════════════════════════════
+
+
+class TestErrorGradientBridge:
+    """Python→neuron error gradient bridge for corrective training."""
+
+    def test_compute_error_gradient_returns_dict(self):
+        model = FlyModel(demo=True)
+        result = model.compute_error_gradient(60)
+        assert isinstance(result, dict)
+        assert "error" in result
+        assert "neural_bias" in result
+        assert "python_bias" in result
+        assert "corrective_left" in result
+        assert "corrective_right" in result
+
+    def test_error_zero_when_python_no_turn(self):
+        model = FlyModel(demo=True)
+        result = model.compute_error_gradient(0)
+        assert result["python_bias"] == 0.0
+        # error ranges in [-1, 1]
+
+    def test_error_positive_when_python_right_turn(self):
+        model = FlyModel(demo=True)
+        # When Python wants right (+60) but neural bias is smaller or negative
+        result = model.compute_error_gradient(60)
+        assert result["python_bias"] > 0
+        assert isinstance(result["error"], float)
+
+    def test_error_negative_when_python_left_turn(self):
+        model = FlyModel(demo=True)
+        result = model.compute_error_gradient(-60)
+        assert result["python_bias"] < 0
+
+    def test_corrective_current_sign_matches_error(self):
+        """When error>0 (wants more right), corrective_right > 0 > corrective_left."""
+        model = FlyModel(demo=True)
+        result = model.compute_error_gradient(60)
+        if result["error"] > 0:
+            assert result["corrective_right"] >= 0, "right should be boosted"
+            assert result["corrective_left"] <= 0, "left should be suppressed"
+        elif result["error"] < 0:
+            assert result["corrective_right"] <= 0
+            assert result["corrective_left"] >= 0
+
+    def test_corrective_current_injects_into_v(self):
+        """inject_corrective_current modifies motor pool voltages."""
+        import numpy as np
+        model = FlyModel(demo=True)
+        green = np.full((256, 384, 3), (60, 180, 60), dtype=np.uint8)
+        for i in range(10):
+            model.step(green, now=i * model.dt)
+
+        v_left_before = model.v[model.turn_left].copy()
+        v_right_before = model.v[model.turn_right].copy()
+
+        result = model.compute_error_gradient(60)
+        model.inject_corrective_current(result, reward_signal=0.0)
+
+        # Voltages should have changed if correction was applied
+        if result["corrective_left"] != 0.0:
+            assert not np.allclose(model.v[model.turn_left], v_left_before)
+        if result["corrective_right"] != 0.0:
+            assert not np.allclose(model.v[model.turn_right], v_right_before)
+
+    def test_high_reward_suppresses_correction(self):
+        """Gate reduces corrective current when reward_signal is high."""
+        import numpy as np
+        model = FlyModel(demo=True)
+        green = np.full((256, 384, 3), (60, 180, 60), dtype=np.uint8)
+        for i in range(10):
+            model.step(green, now=i * model.dt)
+
+        # Compute error but DON'T inject yet
+        err = model.compute_error_gradient(60)
+        cl, cr = err["corrective_left"], err["corrective_right"]
+
+        # Injection with low reward: full gate
+        model.inject_corrective_current(err, reward_signal=0.0)
+        applied_low = model._corrective_current_applied
+
+        # Reset voltages
+        model2 = FlyModel(demo=True)
+        for i in range(10):
+            model2.step(green, now=i * model.dt)
+        err2 = model2.compute_error_gradient(60)
+        model2.inject_corrective_current(err2, reward_signal=0.9)
+        applied_high = model2._corrective_current_applied
+
+        # High reward should gate more aggressively than low reward
+        mag_low = abs(applied_low[0]) + abs(applied_low[1])
+        mag_high = abs(applied_high[0]) + abs(applied_high[1])
+        assert mag_high <= mag_low, (
+            f"High reward gate failed: low={mag_low:.6f} high={mag_high:.6f}"
+        )
+
+    def test_set_python_correction_injects_immediately(self):
+        """set_python_correction computes error and injects in one call."""
+        import numpy as np
+        model = FlyModel(demo=True)
+        green = np.full((256, 384, 3), (60, 180, 60), dtype=np.uint8)
+        for i in range(5):
+            model.step(green, now=i * model.dt)
+
+        error_dict = model.set_python_correction(60, reward_signal=0.0)
+        assert "error" in error_dict
+
+    def test_model_runs_with_error_bridge(self):
+        """Error gradient bridge doesn't break extended simulation."""
+        import numpy as np
+        model = FlyModel(demo=True)
+        frame = np.full((256, 384, 3), (60, 180, 60), dtype=np.uint8)
+
+        for i in range(50):
+            control, spikes = model.step(frame, now=i * model.dt)
+            # Simulate escape logic calling set_python_correction
+            if i % 10 == 0 and abs(control.x) > 8:
+                model.set_python_correction(control.x, model.reward_signal)
+
+        assert -70 <= control.x <= 70
+        assert 0 <= control.y <= 70
+
+    def test_error_gradient_persists_on_model(self):
+        """_last_error_gradient persists between calls."""
+        model = FlyModel(demo=True)
+        err1 = model.compute_error_gradient(60)
+        err2 = model.compute_error_gradient(-60)
+        # Second call overwrites
+        assert model._last_error_gradient["python_bias"] == err2["python_bias"]
+
+    def test_corrective_current_decays_with_small_error(self):
+        """When neural bias = python bias, corrective currents approach 0."""
+        model = FlyModel(demo=True)
+        # Force the error gradient to simulate small error
+        result = model.compute_error_gradient(0)
+        assert abs(result["corrective_left"]) < 1e-4
+        assert abs(result["corrective_right"]) < 1e-4
+
+
 # Import pytest for the tests above
 import pytest

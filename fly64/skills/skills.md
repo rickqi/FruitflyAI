@@ -42,6 +42,7 @@ skill 具备**自我更新迭代**能力，通过受控进化循环固定能力�
 | **8** | **2.1.0** | **🧭 T4/T5 式 HRC 方向选择运动检测（真运动真值）+ LC4 looming 种群化**（`hrc_asymmetry`/`hrc_right/left/up/down`/`true_hrc_asymmetry` + 16扇区×上下×左右 32键 `sector_loom`，escape 决策优先 HRC motion-truth）| MaleCNS-TrackMania 参照：亮度差分光流无方向选择性，真果蝇 T4/T5 经 Hassenstein-Reichardt 相关器实现方向选择 |
 | **9** | **2.2.0** | **🏠 室内围闭度检测 + 天空蓝色度门控**（`enclosure_score`/`upper_blue` 新字段，terrain 新增 `indoor` 类，场景名新增"室内"标签，sky_score 蓝色主导门控）| 实测在建筑物内被误识别为"天空·山坡"（天花板亮度误判为天空、墙面渐变误判为斜坡）|
 | **10** | **2.3.0** | **🚪 局部突围机制（local_breakout）**：micro_loop 持续 >60s → 强制 forced_bold_explore（原门控用全局 visited_cells<20 永不触发）+ bold 期间覆盖反射级联 + 门控低置信悬崖转向 + 新增 `decision_source=bold_explore` 归因 | 转圈死循环分析：497.9s micro_loop 位移 0u，突围被全局计数器锁死 |
+| **11** | **2.5.0** | **🔌 神经化重构（neural refactor）**：方向性开口信号 `opening_left/right/asymmetry` → 转向池电流注入（LIF 左右竞争决策突围方向，替代 escape_x 随机）+ 位移奖励 API `report_movement()` 接入 MB 多巴胺（零位移场景被网络学习为惩罚）+ 退役低置信悬崖符号转向分支 | 转圈分析结论：用脑模型能力（感觉电流注入+MB 学习）替代继续堆叠符号判断分支 |
 
 进化迭代历史在仪表板实时可见（`/evolution.json`：Brain 版本徽章、EVO 计数、每轮能力列表）。
 

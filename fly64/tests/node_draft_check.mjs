@@ -41,24 +41,70 @@ function renderCausal(r) {
        <span class="chain-tip" hidden>${s.detail}</span></div>`).join('<span class="chain-arrow">←</span>');
 }
 
-function drawSectors(r) {
-  const cv = $('retinaOverlay'), ctx = cv.getContext('2d');
-  ctx.clearRect(0, 0, 256, 128);
-  if (!Number.isInteger(r.sector_active)) return;
-  for (let i = 0; i < 16; i++) {
-    const x = (i % 2) * 128, y = Math.floor(i / 2) * 21.3;
-    ctx.strokeStyle = '#354250'; ctx.strokeRect(x, y, 128, 21.3);
-    if (r.sector_active >> i & 1) {
-      ctx.strokeStyle = CYAN; ctx.lineWidth = 2; ctx.strokeRect(x + 1, y + 1, 126, 19.3); ctx.lineWidth = 1;
+function buildSectorMap() {
+  const W = 256, H = 128, map = new Uint8Array(W * H); // 0 = outside FOV
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const eye = x < 128 ? 0 : 1;
+      const u = ((x % 128) + .5 - 64) / 64;
+      const v = (64 - y - .5) / 64;
+      const radius = Math.hypot(u, v);
+      if (radius > 1 || radius < 1e-6) continue;
+      const ang = radius * Math.PI / 2;
+      const s = Math.sin(ang) / radius;
+      const lx = u * s, ly = v * s, lz = Math.cos(ang);
+      const a = (eye === 0 ? -63.25 : 63.25) * Math.PI / 180;
+      const rx = Math.cos(a) * lx + Math.sin(a) * lz;
+      const ry = ly;
+      const rz = -Math.sin(a) * lx + Math.cos(a) * lz;
+      const az = Math.atan2(rx, rz) * 180 / Math.PI;
+      const el = Math.asin(Math.max(-1, Math.min(1, ry))) * 180 / Math.PI;
+      if (Math.abs(el) > 72) continue;
+      if (eye === 0 ? (az < -135 || az > 8.5) : (az < -8.5 || az > 135)) continue;
+      const band = Math.min(7, Math.max(0, Math.floor((az + 135) / 33.75)));
+      map[y * W + x] = band * 2 + (el >= 0 ? 0 : 1) + 1;   // 1..16
     }
   }
+  return map;
+}
+
+let SECTOR_MAP = null;
+function drawSectors(r) {
+  const cv = $('retinaOverlay'), ctx = cv.getContext('2d');
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  if (!Number.isInteger(r.sector_active)) return;
+  if (!SECTOR_MAP) SECTOR_MAP = buildSectorMap();
+  const W = cv.width, H = cv.height;
+  const img = ctx.createImageData(W, H);
+  const d = img.data;
+  for (let i = 0; i < W * H; i++) {
+    const s = SECTOR_MAP[i];
+    if (!s) continue;
+    const active = (r.sector_active >> (s - 1)) & 1;
+    const x = i % W, y = (i / W) | 0;
+    const l = x > 0 ? SECTOR_MAP[i - 1] : 0;
+    const t = y > 0 ? SECTOR_MAP[i - W] : 0;
+    const edge = (l && l !== s) || (t && t !== s);
+    const o = i * 4;
+    if (active) {
+      d[o] = 108; d[o + 1] = 218; d[o + 2] = 237;
+      d[o + 3] = edge ? 230 : 78;
+    } else if (edge) {
+      d[o] = 53; d[o + 1] = 66; d[o + 2] = 80; d[o + 3] = 190;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
 }
 
 // ---- stubs for $ / performance / canvas 2d ----
 const stubStore = {};
-const ctxStub = new Proxy({}, { get: (t, p) => (p === 'clearRect' || p === 'strokeRect') ? () => {} : undefined });
+const ctxStub = new Proxy({}, { get: (t, p) => {
+  if (p === 'clearRect' || p === 'putImageData') return () => {};
+  if (p === 'createImageData') return (w, h) => ({ data: new Uint8ClampedArray(w * h * 4) });
+  return undefined;
+}});
 globalThis.performance = { now: () => Date.now() };
-globalThis.$ = id => stubStore[id] ??= { innerHTML: '', getContext: () => ctxStub };
+globalThis.$ = id => stubStore[id] ??= { innerHTML: '', width: 256, height: 128, getContext: () => ctxStub };
 
 let pass = 0, fail = 0;
 const check = (name, fn) => { try { fn(); pass++; console.log('PASS', name); } catch (e) { fail++; console.log('FAIL', name, '::', e.message); } };
@@ -100,6 +146,38 @@ check('renderCausal throttled below 200ms', () => {
 });
 check('drawSectors active-bit path (stub ctx, no throw)', () => drawSectors(fullRow));
 check('drawSectors skips non-integer sector_active', () => drawSectors({ sector_active: NaN }));
+check('sector map: both eyes symmetric coverage, mask ~71% of circle', () => {
+  const m = buildSectorMap();
+  let leftCovered = 0, rightCovered = 0;
+  for (let y = 0; y < 128; y++) for (let x = 0; x < 256; x++) {
+    if (m[y * 256 + x] > 0) (x < 128 ? leftCovered++ : rightCovered++);
+  }
+  // Eyes have mirrored geometry → identical valid-FOV pixel counts
+  if (leftCovered !== rightCovered) throw new Error(`L=${leftCovered} R=${rightCovered}`);
+  // ±72° elevation cap + azimuth edge cuts leave ~71% of each circle in FOV
+  const frac = leftCovered / (Math.PI * 64 * 64);
+  if (frac < 0.6 || frac > 0.85) throw new Error('mask fraction=' + frac.toFixed(3));
+});
+check('sector map: every in-FOV pixel gets exactly one sector (no unassigned gaps)', () => {
+  const m = buildSectorMap();
+  for (let y = 0; y < 128; y++) for (let x = 0; x < 256; x++) {
+    const s = m[y * 256 + x];
+    if (s > 16) throw new Error('sector id out of range: ' + s);
+  }
+});
+check('sector map uses all 16 sector ids', () => {
+  const m = buildSectorMap();
+  const seen = new Set(m.filter(v => v > 0));
+  if (seen.size !== 16) throw new Error('seen=' + [...seen].join(','));
+});
+check('sector map bit order matches backend az{i}_{upper|lower}', () => {
+  const m = buildSectorMap();
+  // az0_upper (bit 0 → id 1) must only exist in the far-left band of the LEFT eye
+  for (let y = 0; y < 128; y++) for (let x = 0; x < 256; x++) {
+    if (m[y * 256 + x] !== 1) continue;
+    if (x >= 128) throw new Error('az0_upper pixel in right eye');
+  }
+});
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

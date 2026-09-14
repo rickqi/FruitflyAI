@@ -376,6 +376,7 @@ class FlyModel:
         self.synaptic_gain = 1.50
         # Reward signal (for gain modulation plasticity proxy)
         self.reward_signal = 0.0
+        self.movement_reward = 0.0  # EVO R11: displacement-based dopamine feedback
         self._prev_stuck_duration = 0.0
         self._cumulative_reward = 0.0
         # Local motion detection: moving objects when Mario is stationary
@@ -481,6 +482,7 @@ class FlyModel:
         self.ground_angle = 0.7  # 0=cliff, 0.3-0.7=slope, >0.7=flat
         self.door_frame_score = 0.0  # 0-1: doorway detected
         self.opening_width = 0.0  # 0-1: opening width
+        self.opening_asymmetry = 0.0  # -1..1: opening toward left(<0) / right(>0) field (EVO R11)
 
         # ---- Tau (time-to-contact) for collision avoidance ----
         self.tau = float("inf")  # seconds until contact; inf = no collision risk
@@ -668,6 +670,7 @@ class FlyModel:
         self.enclosure_score = float(flow.get("enclosure_score", 0.0))
         self.ground_angle = float(flow.get("ground_angle", 0.7))
         self.door_frame_score = float(flow.get("door_frame_score", 0.0))
+        self.opening_asymmetry = float(flow.get("opening_asymmetry", 0.0))
         # --- Interactive object proximity: isolated vertical structure being
         # approached (door/sign frame, or lone vertical edge without a wall) ---
         self.interactive_near = (
@@ -1046,6 +1049,20 @@ class FlyModel:
         self.inject_corrective_current(error_dict, reward_signal)
         return error_dict
 
+    def report_movement(self, displacement: float, expected: float = 40.0) -> None:
+        """EVO R11: displacement-based dopamine feedback for the mushroom body.
+
+        main.py feeds observed net displacement (game units over the last
+        ~2.4 s burst window).  Moving ≈ reward, being stuck ≈ punishment:
+        the MB depresses KC→MBON synapses for scene/action contexts that keep
+        producing zero displacement — the network learns to stop choosing
+        'face the wall' without any new Python branch.
+        """
+        self.movement_reward = max(-1.0, min(1.0, displacement / max(expected, 1e-6) - 0.25))
+        # Blend into the reward signal consumed by the existing dopamine sum.
+        self.reward_signal = max(-1.0, min(1.0,
+            self.reward_signal * 0.5 + self.movement_reward * 0.5))
+
     def _compute_dopamine(self) -> float:
         """Compute proxy dopamine signal from available behavioral signals."""
         reward = 0.0
@@ -1252,6 +1269,19 @@ class FlyModel:
         # into jump motor nodes to bias toward an upward jump.
         if self.sky_score > 0.5:
             self.v[self.jump_nodes] += self.sky_score * 0.12
+
+        # ---- Opening azimuth → steering pool current injection (EVO R11) ----
+        # Directional openness drives the turn pools through the same current
+        # pathway as every other sensory channel; the LIF left/right
+        # competition — not a Python branch — decides which way to steer while
+        # escaping.  This replaces the earlier random escape_x symbolic choice.
+        if self.escape_mode and getattr(self, "opening_score", 0.0) > 0.2:
+            _open_inj = (min(0.20, self.opening_score * 0.3)
+                         * min(1.0, abs(self.opening_asymmetry) * 2.0))
+            if self.opening_asymmetry > 0:      # opening toward the left field
+                self.v[self.turn_left] += _open_inj
+            elif self.opening_asymmetry < 0:    # opening toward the right field
+                self.v[self.turn_right] += _open_inj
 
         # ---- Central Complex (CX) steering ----
         # The CX module maintains a heading compass, integrates optic flow,

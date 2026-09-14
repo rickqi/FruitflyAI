@@ -384,11 +384,14 @@ class TestEvoRound10:
         assert re.search(r"not reflex_override or bold_override", src), \
             "bold explore must be able to override an active reflex"
 
-    def test_cliff_low_conf_branch_gated_during_bold(self):
+    def test_cliff_low_conf_turn_branch_retired(self):
+        """EVO R11: the symbolic low-confidence cliff turn branch (x*1.5 /
+        y-20 per tick) is retired — directional openness now reaches the turn
+        pools as current injection."""
         src = self._src("main.py")
-        m = re.search(r"model\.flow_cliff < 0\.25[^:]*", src)
-        assert m and "forced_bold_explore" in m.group(0), \
-            "low-confidence cliff turn branch must be gated during bold explore"
+        assert "control.x = int(control.x * 1.5)" not in src, \
+            "low-conf cliff turn branch must stay retired"
+        assert "Directional openness" in self._src("retina.py")
 
     def test_bold_explore_has_own_decision_source(self):
         src = self._src("main.py")
@@ -396,3 +399,74 @@ class TestEvoRound10:
         # attribution must precede anomaly_reflex (bold overrides reflex)
         assert src.index('decision_source = "bold_explore"') < \
                src.index('decision_source = "anomaly_reflex"')
+
+    def test_opening_injection_wired_into_step(self):
+        """EVO R11: directional openness reaches the turn pools as current
+        injection inside model.step (neural competition, not control write)."""
+        src = self._src("model.py")
+        assert "opening_asymmetry" in src
+        assert "self.v[self.turn_left] += _open_inj" in src
+        assert "self.v[self.turn_right] += _open_inj" in src
+        assert "self.opening_asymmetry = float(flow.get(" in src
+
+    def test_movement_reward_report_api(self):
+        """EVO R11: displacement feedback API blends into the dopamine sum."""
+        src = self._src("model.py")
+        assert "def report_movement" in src
+        assert "self.movement_reward" in src
+        # displacement feedback must reach the dopamine computation
+        assert "self.reward_signal = max(-1.0, min(1.0," in src
+        assert "_reward_contrib" in src
+
+# ── EVO Round t4: Plasticity monitoring ──────────────────────────────────────
+
+class TestPlasticityMonitoring:
+    """Pins plasticity metrics in evolution.json and patterns."""
+
+    def test_dopamine_plateau_pattern_defined(self):
+        """dopamine_plateau pattern exists in the catalog."""
+        cat = _es.PatternCatalog()
+        ids = {p["id"] for p in cat.patterns}
+        assert "dopamine_plateau" in ids
+
+    def test_dopamine_plateau_has_correct_conditions(self):
+        cat = _es.PatternCatalog()
+        pat = next(p for p in cat.patterns if p["id"] == "dopamine_plateau")
+        cond = pat["conditions"]
+        assert "dopamine_gain_avg" in cond
+        assert "learning_progress" in cond
+        assert "stuck_duration" in cond
+
+    def test_plasticity_fields_in_sensor_sample(self):
+        """SensorSample includes plasticity tracking fields."""
+        from dataclasses import fields
+        field_names = {f.name for f in fields(_es.SensorSample)}
+        for name in ("dopamine_gain_avg", "learning_progress",
+                     "mushroom_weight_changes", "reward_trend",
+                     "error_gradient_mean", "gain_update_count"):
+            assert name in field_names, f"{name} missing from SensorSample"
+
+    def test_plasticity_metrics_in_get_metrics(self):
+        """get_metrics() exposes plasticity fields."""
+        c = _es.DataCollector(window_seconds=120)
+        bridge = {"x": 0, "y": 70, "jump": False, "pose": [0.0, 120.0, 0.0, 0.0]}
+        memory = {"stuck_duration": 10.0, "visited_cells": 50, "coverage_pct": 2.0,
+                  "anomaly_state": "idle", "health_score": 0.9, "reflex_active": False}
+        flow = {"wall_score": 0.1, "asymmetry": 0.02,
+                "dopamine_gain_avg": 1.8, "learning_progress": 0.03}
+        import time
+        c.sample(bridge, memory, flow, time.time())
+        m = c.get_metrics()
+        assert "dopamine_gain_avg" in m
+        assert "learning_progress" in m
+
+    def test_documenter_accepts_plasticity_metrics(self):
+        """SelfDocumenter.update() accepts plasticity_metrics kwarg without error."""
+        cat = _es.FixCatalog()
+        doc = _es.SelfDocumenter(cat)
+        doc.update(plasticity_metrics={
+            "dopamine_gain_avg": 1.8, "learning_progress": 0.03,
+            "mushroom_weight_changes": 5, "reward_trend": 0.5,
+        })
+        # Verify plasticity data was stored
+        assert doc.latest_plasticity.get("dopamine_gain_avg") == 1.8

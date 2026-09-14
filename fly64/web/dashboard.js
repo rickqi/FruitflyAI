@@ -187,24 +187,70 @@ if (typeof document !== 'undefined') {
 
 // ── P2 · Sector overlay + 4-lane causal timeline + jump-freeze replay ──
 
-// 16 sectors: 8 azimuth bands x upper/lower over the 256x128 preview.
-// Bit order matches backend: az0_upper, az0_lower, az1_upper, ...
+// 16 sectors: 8 azimuth bands x upper/lower, drawn in FISHEYE space.
+// The backend sectors are angular (8 x 33.75° bands over [-135°,+135°]); the
+// preview is an equidistant fisheye per eye (90° half-FOV in a 128px circle).
+// A pixel-uniform grid misaligns with both — instead we compute each preview
+// pixel's sector with the same projection math as retina.py (lines 244-257)
+// and render per-pixel: active sectors tinted cyan, sector boundaries as
+// subtle dark edges, outside-FOV pixels untouched. Every eye circle is fully
+// covered; no "black middle cells", no uncovered periphery.
+
+function buildSectorMap() {
+  const W = 256, H = 128, map = new Uint8Array(W * H); // 0 = outside FOV
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const eye = x < 128 ? 0 : 1;
+      const u = ((x % 128) + .5 - 64) / 64;
+      const v = (64 - y - .5) / 64;
+      const radius = Math.hypot(u, v);
+      if (radius > 1 || radius < 1e-6) continue;
+      const ang = radius * Math.PI / 2;
+      const s = Math.sin(ang) / radius;
+      const lx = u * s, ly = v * s, lz = Math.cos(ang);
+      const a = (eye === 0 ? -63.25 : 63.25) * Math.PI / 180;
+      const rx = Math.cos(a) * lx + Math.sin(a) * lz;
+      const ry = ly;
+      const rz = -Math.sin(a) * lx + Math.cos(a) * lz;
+      const az = Math.atan2(rx, rz) * 180 / Math.PI;
+      const el = Math.asin(Math.max(-1, Math.min(1, ry))) * 180 / Math.PI;
+      if (Math.abs(el) > 72) continue;
+      if (eye === 0 ? (az < -135 || az > 8.5) : (az < -8.5 || az > 135)) continue;
+      const band = Math.min(7, Math.max(0, Math.floor((az + 135) / 33.75)));
+      // Bit order matches backend: az{i}_upper = i*2, az{i}_lower = i*2+1
+      map[y * W + x] = band * 2 + (el >= 0 ? 0 : 1) + 1;   // 1..16
+    }
+  }
+  return map;
+}
+
+let SECTOR_MAP = null;
 function drawSectors(row) {
   const cv = $('retinaOverlay'); if (!cv) return;
   const ctx = cv.getContext('2d');
   ctx.clearRect(0, 0, cv.width, cv.height);
   if (!Number.isInteger(row?.sector_active)) return;
-  const bw = cv.width / 8, bh = cv.height / 2;
-  for (let i = 0; i < 16; i++) {
-    const x = Math.floor(i / 2) * bw, y = (i % 2) * bh;
-    ctx.strokeStyle = '#354250';
-    ctx.strokeRect(x + .5, y + .5, bw - 1, bh - 1);
-    if (row.sector_active >> i & 1) {
-      ctx.strokeStyle = CYAN; ctx.lineWidth = 2;
-      ctx.strokeRect(x + 1.5, y + 1.5, bw - 3, bh - 3);
-      ctx.lineWidth = 1;
+  if (!SECTOR_MAP) SECTOR_MAP = buildSectorMap();
+  const W = cv.width, H = cv.height;
+  const img = ctx.createImageData(W, H);
+  const d = img.data;
+  for (let i = 0; i < W * H; i++) {
+    const s = SECTOR_MAP[i];
+    if (!s) continue;
+    const active = (row.sector_active >> (s - 1)) & 1;
+    const x = i % W, y = (i / W) | 0;
+    const l = x > 0 ? SECTOR_MAP[i - 1] : 0;
+    const t = y > 0 ? SECTOR_MAP[i - W] : 0;
+    const edge = (l && l !== s) || (t && t !== s);
+    const o = i * 4;
+    if (active) {
+      d[o] = 108; d[o + 1] = 218; d[o + 2] = 237;            // CYAN #6cdaed
+      d[o + 3] = edge ? 230 : 78;                            // fill + strong edge
+    } else if (edge) {
+      d[o] = 53; d[o + 1] = 66; d[o + 2] = 80; d[o + 3] = 190; // #354250 boundary
     }
   }
+  ctx.putImageData(img, 0, 0);
 }
 
 // 120s ring buffer, 0.25s sampling, filled from every arriving row.

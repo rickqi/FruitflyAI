@@ -1076,6 +1076,20 @@ class SphericalRetina:
         _c_mean = _center_vals.mean() if _center_vals.size > 0 else 0.0
         _p_mean = _peri_vals.mean() if _peri_vals.size > 0 else 0.0
         opening_score = max(0.0, min(1.0, (_p_mean - _c_mean) * 3.0))
+        # ---- Directional openness (EVO R11) ----
+        # Which side of the field is more open: the outermost azimuth bands
+        # (az0,1 = left; az6,7 = right) going dark relative to the centre
+        # bands signals an opening on that side.  Positive opening_asymmetry
+        # = opening toward the LEFT visual field.  Consumed by model.step as
+        # steering-pool current injection — the LIF left/right competition,
+        # not a Python branch, decides the escape direction.
+        _left_mean = float(np.mean([sectors_16.get(f"az{i}_upper", 0.0) +
+                                    sectors_16.get(f"az{i}_lower", 0.0) for i in (0, 1)]))
+        _right_mean = float(np.mean([sectors_16.get(f"az{i}_upper", 0.0) +
+                                     sectors_16.get(f"az{i}_lower", 0.0) for i in (6, 7)]))
+        open_left = max(0.0, min(1.0, (_c_mean - _left_mean) * 3.0))
+        open_right = max(0.0, min(1.0, (_c_mean - _right_mean) * 3.0))
+        opening_asymmetry = open_left - open_right
         # sky_score: upper sectors bright, low temporal energy (on_raw small)
         sky_score = max(0.0, min(1.0, (_upper_mean - 0.1) * 2.0 * (1.0 - min(on_raw, 0.2) * 5.0)))
 
@@ -1158,6 +1172,10 @@ class SphericalRetina:
             # Door frame detection from vertical edge pairs
             "door_frame_score": round(door_frame_score, 4),
             "opening_width": round(opening_width, 4),
+            # Directional openness (EVO R11): opening azimuth asymmetry
+            "opening_left": round(open_left, 4),
+            "opening_right": round(open_right, 4),
+            "opening_asymmetry": round(opening_asymmetry, 4),
             # New multi-channel raw means
             "on_raw": on_raw,
             "off_raw": off_raw,

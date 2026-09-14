@@ -146,6 +146,24 @@
       "tags": ["corner", "proprioception", "corollary_discharge", "blind_spot"],
       "rollback_strategy": "revert_added_block",
       "threshold_justification": "expected>25 units/tick = meaningful forward command, moved<3 = static, >15 frames = not transient; reverse+turn physically un-wedges from 90-degree corners where asymmetry guidance is zero"
+    },
+    {
+      "id": "dopamine_plateau",
+      "name": "Dopamine gain plateau — Learning saturation detected",
+      "version": "1.0.0",
+      "description": "Dopamine-gated gain has reached a maximum plateau without further improvement in error gradient. The plasticity proxy may be saturated — suggests exploring a new strategy or resetting gains.",
+      "conditions": {
+        "dopamine_gain_avg": {"min": 2.0},
+        "learning_progress": {"max": 0.05},
+        "stuck_duration": {"min": 60}
+      },
+      "diagnosis": "Dopamine gain saturated at ceiling (>=2.0) while learning_progress (mean abs error gradient) stagnates below 0.05. The gain modulation cannot further improve motor adaptation — consider resetting gains or switching to a new exploration strategy.",
+      "fix_template": "# Reset dopamine gains to break plateau\n# File: fly64/fly64/model.py\n# model.dopamine_gain.reset_gains() to restart adaptation",
+      "fix_files": ["fly64/fly64/model.py"],
+      "severity": "medium",
+      "tags": ["plasticity", "dopamine", "plateau", "t4"],
+      "rollback_strategy": "revert_value",
+      "threshold_justification": "dopamine_gain_avg>=2.0=near ceiling (GAIN_MAX=2.5), learning_progress<0.05=minimal error gradient (converged), stuck>60s=sufficient run time"
     }
   ]
 }

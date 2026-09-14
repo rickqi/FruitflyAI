@@ -35,8 +35,8 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.4.0"
-SKILL_VERSION = "2.7.0"   # must mirror fly64/skills/evolution_skill.py SKILL_VERSION
+BRAIN_VERSION = "2.5.0"
+SKILL_VERSION = "2.8.0"   # must mirror fly64/skills/evolution_skill.py SKILL_VERSION
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
 _evo_iter_counter = 0
@@ -575,6 +575,10 @@ async def run(args) -> None:
     cliff_recovery_timer: float = 0.0
     cliff_turn_bias: float = 0.0
     previous_anomaly_state: str = ""
+    # EVO R11: displacement feedback window (~2.4 s at 50 Hz) — feeds the
+    # mushroom body's dopamine signal so zero-displacement escape contexts
+    # are learned as punishers (network-level fix for circling).
+    _pose_hist: list = []
     # ---- Plasticity monitoring buffer (t4) ----
     _error_gradient_buffer = deque(maxlen=100)
     _plasticity_metrics = {
@@ -631,6 +635,16 @@ async def run(args) -> None:
                 last_frame_seq = seq
             model.escape_mode = memory_ctrl.escape_behavior
             pose_ev = bridge.frame_metadata.get("pose", [0, 0, 0, 0])
+            # EVO R11: displacement feedback for the mushroom body — a burst
+            # window (~2.4 s) of near-zero displacement becomes a dopamine
+            # punishment, teaching the MB that this scene/action context is
+            # unproductive (network-level circling fix).
+            _pose_hist.append((model.step_count * model.dt, pose_ev[0], pose_ev[2]))
+            if len(_pose_hist) >= 120:
+                _t0, _x0, _z0 = _pose_hist[0]
+                _disp = ((pose_ev[0] - _x0) ** 2 + (pose_ev[2] - _z0) ** 2) ** 0.5
+                model.report_movement(_disp)
+                _pose_hist.clear()
             heading = pose_ev[3]
             control, spikes = model.step(frame, model.step_count * model.dt,
                                          novelty=memory_ctrl.novelty,
@@ -721,17 +735,12 @@ async def run(args) -> None:
                     cliff_triggered = True
                     cliff_turn_bias = float(turn_dir)
                     cliff_recovery_timer = 0.0
-                # 2. Low-confidence cliff: raw cliff low but no rapid drop
-                #    (suppressed on ramps).  EVO R10: also suppressed during
-                #    forced bold explore — this branch's per-tick turning is a
-                #    main contributor to the circling dead-loop.
-                elif ((not is_ramp or ramp_stuck_override) and model.flow_cliff < 0.25
-                      and not memory_ctrl.forced_bold_explore):
-                    control.x = int(control.x * 1.5)
-                    control.y = max(0, control.y - 20)
-                    cliff_triggered = True
-                    cliff_turn_bias = control.x * 0.3
-                    cliff_recovery_timer = 0.0
+                # 2. Low-confidence cliff branch RETIRED (EVO R11): its
+                #    per-tick x*1.5 / y-20 turning was the main contributor to
+                #    the circling dead-loop.  Directional openness now reaches
+                #    the turn pools as current injection (model.step), so the
+                #    LIF competition steers away from dark/chasm fields
+                #    without a symbolic override.  See agent.md EVO R11.
                 # 3. Cliff recovery: was True, now False
                 elif previous_cliff_confirmed and not model.cliff_confirmed:
                     cliff_recovery_timer += model.dt
