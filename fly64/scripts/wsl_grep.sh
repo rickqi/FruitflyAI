@@ -1,0 +1,1 @@
+grep -n 'dopamine_gain_avg\|learning_progress\|mushroom_weight\|reward_trend\|error_gradient_mean\|gain_update_count' /root/fly64/fly64/main.py | grep -v '_plasticity_metrics' | grep -v '\.bak' | grep -v 'def '

@@ -75,6 +75,25 @@ D:\codes\flygym\
 
 # 变更日志
 
+## 2026-09-14: EVO Round 17 — Brain v2.11.0（MBON 饱和稳态缩放 + breakout_hint 反射移相 + mbon_saturation 模式）
+
+**触发**：R16 部署后健康检查发现：① `mb_mbon_forward=1.0` 饱和（正多巴胺持续再膨胀，forward 关联过拟合）；② anomaly_reflex 级联改写 control 使脑内 breakout 突破电流无法体现（heading 恒 ±29.45°/s 回归）。
+
+**能力边界判定**：
+- ✅ 稳态突触缩放 → 纯神经机制（/postsynaptic scaling），MBON 柱自缩回动态范围
+- ✅ breakout_hint → 反射层感知门控（脑的编织检测信号调制反射相位预算），反射保留所有权、决策不移 Python
+- ✅ `mbon_saturation` 模式 → 填补"饱和持续"检测盲区
+
+**变更**：
+- `mushroom_body.py`：`_saturation_frames`/`saturation_events`/`saturation_frames_threshold=50`/`scale_factor=0.9`——|MBON|≥0.98 持续 50 帧 → 该柱活跃突触 ×0.9（encode 内自动）
+- `memory.py` ReflexController：`breakout_hint` 参数（0-1）→ `_breakout_scale`——micro_loop 转向相位 ÷scale（最短 0.15s）、前进取余；hint 来自脑的 TurnAdaptation 归一化 breakout 电平
+- `main.py`：反射调用点传入 breakout_hint；`skills/default_patterns.json`+`DEFAULT_PATTERNS` 新增 `mbon_saturation`
+- 测试：`tests/test_mbon_saturation.py` 6 用例（饱和缩放触发/事件计数/动态范围回归/原始相位预算保持/hint 满偏缩短转向相/交替涌现）
+
+**PIN**：`test_mbon_saturation` 6/6 + 全量 384 passed 零新增失败。R17 部署后 dashboards 可观测：`mb_mbon_*` 饱和时 homeostatic scaling 自动收缩、反射转向相位在脑报告编织时自动缩短。
+
+---
+
 ## 2026-09-14: t16 监控界面优化轮 — Brain v2.10.1（P0+P1 可见性与布局 + P2 首项）
 
 **触发**：t15 监控界面布局分析（纯分析）发现的 P0 可见性缺口与 P1 层级问题。

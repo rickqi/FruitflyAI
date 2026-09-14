@@ -1174,7 +1174,8 @@ class ReflexController:
 
     def update(self, dt: float, anomaly_state: dict,
                rng_choice, stuck_duration: float = 0.0,
-               pos: tuple[float, float] | None = None) -> str:
+               pos: tuple[float, float] | None = None,
+               breakout_hint: float = 0.0) -> str:
         """Tick the reflex controller.
 
         Parameters
@@ -1215,7 +1216,8 @@ class ReflexController:
             if self._cooldowns[state_name] <= 0.0:
                 return self._start_reflex(state_name, rng_choice,
                                           stuck_duration=stuck_duration,
-                                          pos=pos)
+                                          pos=pos,
+                                          breakout_hint=breakout_hint)
 
         return ""
 
@@ -1235,17 +1237,24 @@ class ReflexController:
 
     def _start_reflex(self, reflex_type: str, rng_choice,
                       stuck_duration: float = 0.0,
-                      pos: tuple[float, float] | None = None) -> str:
+                      pos: tuple[float, float] | None = None,
+                      breakout_hint: float = 0.0) -> str:
         """Begin a new reflex activation.
 
         Adaptive cooldown (EVO R6): the longer the fly has been stuck, the
         shorter the post-reflex cooldown — prolonged stuck periods allow more
         frequent reflex attempts.  Scale: 1.0 at 0s down to 0.25 at >=90s.
 
+        EVO R17: ``breakout_hint`` (0-1, the brain's TurnAdaptation
+        oscillation signal) shifts the micro_loop reflex phase budget toward
+        the forward burst — the reflex keeps ownership of the escape, but
+        the brain's weave-detector biases how long the turn phase lasts.
+
         Returns the reflex type string.
         """
         self._active_reflex = reflex_type
         self._phase_timer = 0.0
+        self._breakout_scale = 1.0 + max(0.0, min(1.0, breakout_hint))
         adaptive = max(0.25, 1.0 - stuck_duration / 120.0)
         self._cooldowns[reflex_type] = (self.cooldown_duration
                                         * self._aggressive_cooldown_factor
@@ -1311,11 +1320,16 @@ class ReflexController:
                 self._phase_timer = 0.0
 
         elif rt == self.MICRO_LOOP:
-            # Phase 1: turn (0.5s), Phase 2: forward burst (remaining)
-            if self._reflex_phase == "turn" and timer >= 0.5:
+            # Phase 1: turn, Phase 2: forward burst.
+            # EVO R17: a strong brain breakout_hint shortens the turn phase
+            # (÷ breakout scale) and hands the budget to the forward burst —
+            # the reflex keeps ownership, the brain biases the mix.
+            turn_dur = max(0.15, 0.5 / self._breakout_scale)
+            burst_dur = max(0.5, self.micro_loop_duration - turn_dur)
+            if self._reflex_phase == "turn" and timer >= turn_dur:
                 self._reflex_phase = "burst"
                 self._phase_timer = 0.0
-            elif self._reflex_phase == "burst" and timer >= self.micro_loop_duration - 0.5:
+            elif self._reflex_phase == "burst" and timer >= burst_dur:
                 self._active_reflex = ""
                 self._phase_timer = 0.0
 

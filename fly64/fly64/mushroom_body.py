@@ -124,6 +124,15 @@ class MushroomBody:
         # based on overlap between current KC activity and recent history.
         self.familiarity = 0.0
 
+        # EVO R17: homeostatic saturation guard.  A MBON column pinned at
+        # |tanh|≈1 for a sustained period means its KC→MBON weights ran
+        # away; synaptic scaling multiplicatively shrinks the column back
+        # into its dynamic range (biological: postsynaptic scaling).
+        self._saturation_frames = np.zeros(n_mbon, dtype=np.int32)
+        self.saturation_frames_threshold = 50
+        self.saturation_scale_factor = 0.9
+        self.saturation_events = 0
+
     def encode(self, scene_sig: np.ndarray) -> np.ndarray:
         """Encode scene signature through Kenyon Cells -> produce MBON outputs.
 
@@ -186,6 +195,21 @@ class MushroomBody:
         # MBON = Sigma_i W[i,j] * KC[i] — weighted sum, tanh-clipped to [-1, 1]
         raw_mbon = self.kc_activity @ self.weights  # (N_MBONS,)
         self.mbon_outputs = np.tanh(raw_mbon).astype(np.float32)
+
+        # ---- Homeostatic synaptic scaling (EVO R17) ----
+        # A MBON column pinned at |output|≈1 means runaway weights; scale
+        # that column's active synapses down 10% once saturation persists
+        # past the frame threshold.  Purely postsynaptic homeostasis.
+        sat = np.abs(self.mbon_outputs) >= 0.98
+        self._saturation_frames = np.where(
+            sat, self._saturation_frames + 1, 0).astype(np.int32)
+        for j in np.flatnonzero(
+                self._saturation_frames >= self.saturation_frames_threshold):
+            active = self.kc_activity > 0
+            if active.any():
+                self.weights[active, j] *= self.saturation_scale_factor
+            self._saturation_frames[j] = 0
+            self.saturation_events += 1
 
         # ---- Eligibility trace update ----
         # E(t) = E(t-1) * decay + KC_activity . MBON_outputs^T

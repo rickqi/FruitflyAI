@@ -35,7 +35,7 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.10.1"
+BRAIN_VERSION = "2.11.0"
 SKILL_VERSION = "3.0.0"   # must mirror fly64/skills/evolution_skill.py SKILL_VERSION
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
@@ -870,12 +870,20 @@ async def run(args) -> None:
             # ---- Reflex escape circuits (after cliff, before normal escape) ----
             reflex_override = False
             _pose_r = bridge.frame_metadata.get("pose", [0, 0, 0, 0])
+            # EVO R17: the brain's weave-detector (TurnAdaptation breakout
+            # level, normalised 0-1) biases the reflex phase mix toward the
+            # forward burst — sensory gating, decision stays reflex/brain.
+            _ta = getattr(model, "_turn_adapt", None)
+            _hint = 0.0
+            if _ta is not None:
+                _hint = min(1.0, _ta.breakout_drive() / max(_ta.breakout_gain, 1e-6))
             reflex_active = memory_ctrl.reflex.update(
                 model.dt,
                 memory_ctrl.anomaly_state,
                 model.rng.integers,
                 stuck_duration=memory_ctrl.stuck_duration,
                 pos=(_pose_r[0], _pose_r[2]),
+                breakout_hint=_hint,
             )
             if reflex_active:
                 action = memory_ctrl.reflex_action

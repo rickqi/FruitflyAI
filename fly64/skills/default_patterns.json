@@ -357,6 +357,37 @@
       ],
       "rollback_strategy": "revert_value",
       "threshold_justification": "loop_score>=0.95=window almost all revisits (weave is certain), escape_behavior=true=brain is trying to escape, stuck>45s=earlier than the detector-gated variant so the signal path can act first"
+    },
+    {
+      "id": "mbon_saturation",
+      "name": "MBON saturation — 蘑菇体输出饱和",
+      "version": "1.0.0",
+      "description": "A MBON channel is pinned near |1.0| (tanh ceiling) while circling persists: the KC-to-MBON weights for that column have run away. Homeostatic synaptic scaling should self-correct; persistent saturation means the scaling is not firing.",
+      "conditions": {
+        "mb_mbon_forward": {
+          "min": 0.95
+        },
+        "loop_score": {
+          "min": 0.8
+        },
+        "stuck_duration": {
+          "min": 60
+        }
+      },
+      "diagnosis": "forward MBON saturated at ceiling while behaviour still loops. The built-in homeostatic synaptic scaling should shrink the column; persistent saturation indicates the guard is not triggering or dopamine keeps re-inflating it.",
+      "fix_template": "# Verify homeostatic scaling in mushroom_body.py saturation guard",
+      "fix_files": [
+        "fly64/fly64/mushroom_body.py"
+      ],
+      "severity": "medium",
+      "tags": [
+        "mb",
+        "saturation",
+        "homeostasis",
+        "brain_first"
+      ],
+      "rollback_strategy": "revert_value",
+      "threshold_justification": "mb_mbon_forward>=0.95=tanh ceiling, loop_score>=0.8=still weaving, stuck>60s=sustained"
     }
   ]
 }

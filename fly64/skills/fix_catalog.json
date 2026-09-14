@@ -3,11 +3,11 @@
   "meta": {
     "skill_name": "evolution_skill",
     "skill_version": "3.0.0",
-    "total_fixes": 9,
+    "total_fixes": 10,
     "effective_count": 0,
-    "ineffective_count": 3,
+    "ineffective_count": 4,
     "pending_count": 6,
-    "last_updated": "2026-09-14T15:53:26.944472+00:00"
+    "last_updated": "2026-09-14T16:15:04.947500+00:00"
   },
   "fixes": [
     {
@@ -186,6 +186,26 @@
       "post_fix_coverage": 0.1,
       "effective": false,
       "effectiveness_score": 0.0,
+      "reverted": false,
+      "reverted_at": null,
+      "notes": ""
+    },
+    {
+      "id": "fix_0010",
+      "pattern_id": "circle_loop",
+      "pattern_name": "Circle loop — 无障碍转圈",
+      "pattern_version": "1.0.0",
+      "diagnosis": "Terrain classifier false-positive 'cliff'; cliff avoidance overrides straight-forward escape.",
+      "fix_template": "# Fix: Add ground_angle gate before cliff avoidance\n# File: fly64/fly64/main.py\n# Find: {cliff_trigger_line}\n# Replace: {cliff_trigger_replace}\n",
+      "severity": "high",
+      "applied_at": "2026-09-14T16:14:04.530629+00:00",
+      "version": 10,
+      "baseline_stuck": 120.08,
+      "baseline_coverage": 4.4,
+      "post_fix_stuck": 125.64,
+      "post_fix_coverage": 4.5,
+      "effective": false,
+      "effectiveness_score": 0.0068181818181817936,
       "reverted": false,
       "reverted_at": null,
       "notes": ""
