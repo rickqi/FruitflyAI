@@ -74,6 +74,32 @@ D:\codes\flygym\
 
 # 变更日志
 
+## 2026-09-14: EVO R11 完成轮 — 教练策略键接入行为管线（commit f0d86f7）
+
+**变更**：coach 下发的策略键真正被行为管线消费——`bold_explore_stuck_s` → micro_loop 突破阈值、`turn_bias` → bold 转向幅度、`escape.stuck_threshold_s` → memory.py 时长型教练逃脱条件（经 main.py 热重载推送）；skills.md 记录 Brain 2.6.1 / Skill 2.9.1 当前版本；并发更新后复验 R11 接线完好（opening injection / report_movement / bold_override 均在场）。
+
+---
+
+## 2026-09-14: LLM 教练链路 T1/T2/T3（commit 8ec44b2）
+
+- **T1**：dialogue consult 携带实时上下文（原为空 `{}`）；local_diagnosis 产出可执行建议（bold 占空比、零位移 90° 转向、室内 cliff 脱敏）
+- **T2**：GLM http 传输经 root-only `plugin/llm.env` 配置（consolidate.sh source，永不入库），实测 GLM-5.3-flash 返回可执行 coach 建议+策略
+- **T3**：subagent 文件握手并发应答者验证（过期响应 unlink 拒绝为设计行为）；`.gitignore` 加入 `llm.env`
+
+---
+
+## 2026-09-14: MHR 插件 LLM 按键决策 + main.py 对话暂停等待模式（commit 1d00cac，Brain 2.4.0，团队 fly64-mhr-llm-button t1-t4 全通过）
+
+**功能**：对话出现→暂停大脑→worker 线程截屏→GLM `consult_dialogue(frame_b64)` 决策（上限 600s）→执行 press_a/press_b/none；超时/异常双保险回退自主按 A。
+
+**变更**：
+- `plugin/llm_consult.py`：`consult_dialogue()` → `{"action","reason"}`，6 类非法输出安全降级 none；`plugin/strategy_writer.py`：`write_dialogue_decision()` 原子合并 `dialogue_decision`
+- `main.py`：对话分支暂停等待状态机（episode 一次性消费、12 tick 按键保持、600s belt-and-braces 强制 A）；`/flow.json` 新增 `llm_decision{status,action,reason,episode,wait_s}`
+- `bridge.py`/`model.py`：B 键传输 `B_BUTTON=0x4000`（模拟器未识别时优雅降级）；web 面板 `llmDecisionPill` 三态显示
+- **测试**：`test_plugin_mhr.py` 28 + `test_dialogue_llm_decision.py` 31（解析/超时回退/原子写/状态机/telemetry 全覆盖，离线 mock）；t3 审查 pass + t4 独立复核 pass（59/59 复跑）
+
+---
+
 ## 2026-09-14: EVO Round 13 — Brain v2.6.1（转圈死循环修复：进度门控 + 镜像交替 + loop_score 感官卫生）
 
 **触发**：马里奥 stuck=1063s / anomaly=micro_loop conf=1.0 持续 973s / heading 29.5°/s 持续转向 / loop_score 病态值 104.976。EvolutionSkill Findings=0（模式目录盲区）+ neural_viz 因果字段缺失（0/876 行），由人工遥测快照定位根因。
