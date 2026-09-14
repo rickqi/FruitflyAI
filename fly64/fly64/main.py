@@ -35,7 +35,7 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.9.0"
+BRAIN_VERSION = "2.9.1"
 SKILL_VERSION = "3.0.0"   # must mirror fly64/skills/evolution_skill.py SKILL_VERSION
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
@@ -888,8 +888,19 @@ async def run(args) -> None:
                         and memory_ctrl.forced_bold_explore)
             if memory_ctrl.escape_behavior and (bold_now or not reflex_override):
                 model.escape_jump_drive = memory_ctrl.fallen
-                model.bold_turn_drive = (memory_ctrl.reflex.bold_direction()
-                                         if bold_now else 0.0)
+                if bold_now:
+                    # t13 fix①: the coach key exploration.turn_bias was a dead
+                    # write (no consumer).  Unit conversion + clamp: legacy
+                    # ±69 angle scale and coach 0-1 strength both normalise
+                    # to a [0.2, 1.0] fraction of the max turn-pool current
+                    # (0.2 floor prevents a coach-0 from dead-throttling the
+                    # breakout; the LIF competition still steers).
+                    _bias = float(getattr(memory_ctrl, "bold_turn_bias", 69.0))
+                    _mag = max(0.2, min(1.0, abs(_bias) / 69.0))
+                    model.bold_turn_drive = (memory_ctrl.reflex.bold_direction()
+                                             * _mag)
+                else:
+                    model.bold_turn_drive = 0.0
             else:
                 model.escape_jump_drive = False
                 model.bold_turn_drive = 0.0

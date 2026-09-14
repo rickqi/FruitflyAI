@@ -1557,13 +1557,20 @@ class MemoryController:
         #     visited_cells already in the hundreds), leaving the fly circling
         #     forever in a dead-end.
         # Coach-tunable (EVO R11 follow-up): GLM strategy advice hot-reloads
-        # bold_explore_stuck_s via main.py — how long a persistent micro_loop
+        # bold_explore_stuck_s via main.py — how long a persistent anomaly
         # must last before breakout (default 60 s).
+        # t13 fix②: previously only micro_loop qualified; now ANY anomaly
+        # persisting past the coach threshold also breaks out (a 100 s
+        # wall_stuck is just as deadlocked as a 100 s micro_loop).
+        # micro_loop keeps its original semantics via the first clause.
+        _bx_stuck_s = getattr(self, "bold_explore_stuck_s", 60.0)
         micro_loop_stuck = (self._latest_anomaly_state == "micro_loop"
-                            and self._latest_anomaly_dur > getattr(
-                                self, "bold_explore_stuck_s", 60.0))
+                            and self._latest_anomaly_dur > _bx_stuck_s)
+        persistent_anomaly_stuck = (self.anomaly.active
+                                    and self._latest_anomaly_state != "micro_loop"
+                                    and self._latest_anomaly_dur > _bx_stuck_s)
         if ((scene_change_rate < 0.05 and self.spatial.visited_cells < 20)
-                or micro_loop_stuck):
+                or micro_loop_stuck or persistent_anomaly_stuck):
             self._scene_low_duration += self._bold_explore_dt
         else:
             self._scene_low_duration = 0.0

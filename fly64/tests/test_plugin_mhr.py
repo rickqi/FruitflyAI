@@ -370,3 +370,54 @@ class TestDialogueDecision:
         assert "renderLlmDecision" in web_src
         html_src = (PROJECT / "web" / "index.html").read_text("utf-8")
         assert 'id="llmDecisionPill"' in html_src
+
+
+# ── t13: coach-advice effectiveness (dead key, trigger, prompt, 400) ───
+
+class TestCoachAdviceEffectiveness:
+    def test_png_conversion_of_raw_frame(self):
+        import base64 as b64mod
+        import numpy as np
+        from plugin.llm_consult import raw_rgb_b64_to_png_b64
+        h, w = 256, 384
+        raw = np.zeros((h, w, 3), np.uint8)
+        raw[0, 0] = (255, 0, 0)
+        out = raw_rgb_b64_to_png_b64(b64mod.b64encode(raw.tobytes()).decode())
+        assert b64mod.b64decode(out)[:8] == b"\x89PNG\r\n\x1a\n"
+        assert b64mod.b64decode(out)[-8:-4] == b"IEND"
+
+    def test_png_passthrough_for_non_raw_payload(self):
+        from plugin.llm_consult import raw_rgb_b64_to_png_b64
+        assert raw_rgb_b64_to_png_b64(GOOD_FRAME) == GOOD_FRAME
+
+    def test_build_request_converts_frame_to_png(self):
+        import base64 as b64mod
+        import numpy as np
+        from plugin.llm_consult import build_consult_request
+        raw = np.zeros((256, 384, 3), np.uint8)
+        req = build_consult_request({}, b64mod.b64encode(raw.tobytes()).decode())
+        assert b64mod.b64decode(req["frame_b64"])[:4] == b"\x89PNG"
+        assert req["image"].startswith("data:image/png;base64,")
+
+    def test_prompt_has_semantic_card(self):
+        from plugin.llm_consult import DIALOGUE_PROMPT_TEMPLATE, PROMPT_TEMPLATE
+        for key in ("bold_explore_stuck_s", "turn_bias", "stuck_threshold_s"):
+            assert key in PROMPT_TEMPLATE
+        assert "秒" in PROMPT_TEMPLATE and "0-1" in PROMPT_TEMPLATE
+        assert "不要反向调参" in PROMPT_TEMPLATE
+        # dialogue prompt untouched by the card
+        assert "策略参数" not in DIALOGUE_PROMPT_TEMPLATE
+
+    def test_bold_turn_bias_consumed_with_unit_clamp(self):
+        src = (PROJECT / "fly64" / "main.py").read_text(encoding="utf-8")
+        assert 'getattr(memory_ctrl, "bold_turn_bias"' in src
+        assert "max(0.2, min(1.0" in src          # clamp, 0 cannot dead-throttle
+        assert "* _mag" in src                    # amplitude reaches the drive
+        model_src = (PROJECT / "fly64" / "model.py").read_text("utf-8")
+        assert "self.bold_turn_drive" in model_src
+
+    def test_bold_explore_trigger_relaxed_to_any_anomaly(self):
+        mem_src = (PROJECT / "fly64" / "memory.py").read_text("utf-8")
+        assert "persistent_anomaly_stuck" in mem_src
+        assert "micro_loop_stuck" in mem_src      # original path kept
+        assert 'self._latest_anomaly_state != "micro_loop"' in mem_src

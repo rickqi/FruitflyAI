@@ -75,6 +75,42 @@ D:\codes\flygym\
 
 # 变更日志
 
+## 2026-09-14: t13 修复轮 — Brain v2.9.1（LLM Coach Advice 生效性：死键接线 + 触发放宽 + prompt 语义卡 + HTTP 400 根修）
+
+**触发**：本轮分析确认 Coach Advice"说了就算"承诺四处断点——GLM 建议四个环节中三个不生效。
+
+**四项根因与修复**：
+1. **死键接线**：`memory_ctrl.bold_turn_bias`（main.py 热重载写入）无任何消费者。修复：接入 `model.bold_turn_drive` 转向池电流幅度——单位换算 `|bias|/69`（兼容 legacy ±69 角度制与 coach 0-1 强度制），钳位 **[0.2, 1.0]**（0.2 下限防 coach-0 死锁突围），模型侧按 `0.35×|drive|` 注入脉冲前电流，LIF 竞争执行方向。
+2. **触发链放宽**：`bold_explore_stuck_s` 原仅对 `anomaly_state=="micro_loop"` 生效（memory.py）。修复：新增 `persistent_anomaly_stuck`——**任意持续异常**（anomaly.active 且 dur 超阈值）均触发突围；micro_loop 原语义保留。
+3. **prompt 语义卡**：`PROMPT_TEMPLATE` 增加策略参数语义说明（bold_explore_stuck_s=秒，越小越快突围；turn_bias=0-1 转向强度，禁止填 69 类角度值；stuck_threshold_s=秒，越小越快逃逸），杜绝 LLM 反向调参。
+4. **HTTP 400 根修**：根因是 main.py `frame_to_b64` 上送的是**裸 RGB 字节**，而请求体标注 `data:image/png` ——GLM 解码失败回 400。修复：`llm_consult.raw_rgb_b64_to_png_b64()` 纯 stdlib（zlib+struct）PNG 编码器，`build_consult_request` 内自动转换（非 384×256×3 裸帧原样透传）；`_dispatch_http` 捕获 HTTPError 并透出 API 错误体（原裸"HTTP 400"掩盖根因一轮）。
+
+**版本**：Brain 2.9.0→**2.9.1**（SKILL 3.0.0 镜像不变）；skills.md 当前版本行同步。
+
+**回归**：新增 `TestCoachAdviceEffectiveness` 6 用例（PNG 转换 magic/IEND、非裸帧透传、请求体 PNG 化、语义卡三键+单位+方向、turn_bias 消费点+钳位、触发放宽+micro_loop 保留）；py_compile 4 模块 OK；全量 403 passed / 23 failed（与基线一致，零新增，含 R14 在途轮既有失败）。
+
+---
+
+## 2026-09-14: EVO Round 15 — Brain v2.9.0（悬崖对峙修复：FailureMemory 切向电流 + DAN 强化 + cliff_standoff 模式）
+
+**触发**：R14 自发交替消除持续转圈后，暴露下一层问题——**悬崖边缘对峙驻留**：terrain=cliff + cliff_confirmed + escape=True + loop_score=1.0（窗口全重访），马里奥停在已知坠崖边界。EvolutionSkill Findings=0（无对应模式）。
+
+**能力边界判定**：三项修复全部为**感知/学习**性质（standoff 计时=感觉、切向符号选择=novelty 择优感知、DAN=误差信号），转向执行仍由 LIF 竞争决定——零 Python 控制判断新增。
+
+**变更**：
+- `memory.py` FailureMemory：`nearest_failure_vector(x,z,radius)`（半径内最近失败格单位向量）
+- `memory.py` MemoryController：`_cliff_standoff_s` 计时（cliff_detected 确认 + escape）、`cliff_standoff_s` 属性、`cliff_tangent_bias(x,z,heading)`（FailureMemory 失败格→±90° 切向候选→novelty 择优→±1 感知符号；平局确定性取 +1）
+- `model.py`：镜像字段 + step 内**切向电流注入**（confirmed cliff 且 bias≠0 → turn 池 ±0.15 + forward −0.08，spike 前）+ `_compute_dopamine` 对峙>20s → 惩罚 0.45（DAN→MB 学习"该场景+前进→坏"）+ reset_scene 清零
+- `main.py`：镜像 standoff/tangent + flow.json 暴露 `danger_red_index/sky_blue_index/emd_on_down/target_count/mb_assoc_count/cliff_standoff_s`
+- `evolution_skill.py`：SensorSample 新增 `cliff_standoff_s/danger_red_index/emd_on_down/target_count/assoc_count` + DEFAULT_PATTERNS 新增 `cliff_standoff`；`default_patterns.json` 同步
+- 测试修缮：`test_mushroom_body` 种子化去 flaky；`test_preemptive_avoidance_order` 对齐 audit A1 删除语义；`skills.md` 版本 3.0.0
+
+**PIN**：`tests/test_cliff_standoff.py` 9 用例（对峙累积/清零/无失败格=0/正对=±1/背后=0/fresh 择优/DAN 惩罚/无对峙不罚/模式入目录），9/9；全量 361 passed、14 failed 均为既有问题，**零新增失败**。
+
+**教训**：`cliff.update` 返回 dict 的确认标志是 `cliff_detected`（无 `cliff_confirmed` 键）——用错键使 standoff 恒 0，是首轮调试的主要根因。
+
+---
+
 ## 2026-09-14: P1 进化轮 — Brain v2.8.0（去 Python 化：删除 11 个 A 类旁路点，行为决策回归 LIF 网络）
 
 **触发**：脑模型替代判断分支审计轮（t7 审计 + t8 逐项核实）。根因=**双轨旁路**：main.py 在 LIF 解码后直接改写 control（~35 处）、model.py 解码后符号调制绕过池竞争——五大神经基质（HRC/LC4、反射四电路、CX 环吸引子、MB、多巴胺增益）均已在但被旁路。
