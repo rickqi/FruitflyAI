@@ -1134,6 +1134,34 @@ if (typeof document !== 'undefined') {
 
 let lastHelpB64 = '';
 
+// Raw-RGB base64 → browser-decodable data URI.  Accepts either an already
+// encoded image (PNG magic returned as-is) or a raw w*h*3 byte string, which
+// is painted through a canvas + toDataURL.  This is the conversion the coach
+// snapshot thumbnail needs (backend sends raw RGB, no PNG header).
+function snapshotDataUri(b64, w, h, label) {
+  try {
+    const bin = atob(b64);
+    const n = bin.length;
+    if (n > 8 && bin.charCodeAt(0) === 0x89 && bin.charCodeAt(1) === 0x50)
+      return 'data:image/png;base64,' + b64;           // already PNG/JPEG/etc.
+    if (n !== w * h * 3) return '';
+    const rgb = new Uint8Array(n);
+    for (let i = 0; i < n; i++) rgb[i] = bin.charCodeAt(i);
+    const cv = document.createElement('canvas');
+    cv.width = w; cv.height = h;
+    const ctx = cv.getContext('2d');
+    const frame = ctx.createImageData(w, h);
+    for (let i = 0, j = 0; i < n; i += 3, j += 4) {
+      frame.data[j] = rgb[i]; frame.data[j + 1] = rgb[i + 1];
+      frame.data[j + 2] = rgb[i + 2]; frame.data[j + 3] = 255;
+    }
+    ctx.putImageData(frame, 0, 0);
+    const img = $('helpFrame');
+    if (img) img.title = 'coach snapshot · ' + label + ' · ' + w + '×' + h;
+    return cv.toDataURL('image/png');
+  } catch (error) { return ''; }
+}
+
 export function renderHelpSnapshot(d) {
   const pill = $('helpPill');
   const panel = $('helpPanel');
@@ -1156,9 +1184,22 @@ export function renderHelpSnapshot(d) {
   if (dl) dl.innerHTML = fields.map(([k, v]) =>
     `<dt>${k}</dt><dd title="${String(v).replace(/"/g, '&quot;')}">${v}</dd>`).join('');
   const img = $('helpFrame');
-  if (img && d.frame_b64 && d.frame_b64 !== lastHelpB64) {
-    lastHelpB64 = d.frame_b64;
-    img.src = 'data:image/png;base64,' + d.frame_b64;
+  if (img) {
+    // Backend contract: frame_b64 / screen_b64 are RAW RGB byte strings
+    // (128×128×3 forward cubemap face, 320×240×3 game screen) — NOT PNG.
+    // Prefixing them with data:image/png never decoded, which is why the
+    // coach snapshot had no thumbnail.  screen_b64 (real game view showing
+    // Mario) is preferred; the cubemap face is the fallback.
+    const src = d.screen_b64 ? snapshotDataUri(d.screen_b64, 320, 240, 'screen')
+              : d.frame_b64 ? snapshotDataUri(d.frame_b64, 128, 128, 'cubemap face')
+              : '';
+    if (src && src !== lastHelpB64) {
+      lastHelpB64 = src;
+      img.src = src;
+      img.hidden = false;
+    } else if (!src) {
+      img.removeAttribute('src');
+    }
   }
   const rl = $('helpReasonLabel');
   if (rl) rl.textContent = d.help_reason || '';
