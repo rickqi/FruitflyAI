@@ -50,9 +50,10 @@ footer{font-size:12px;color:var(--muted);padding:3px 0;background:var(--bg);posi
    Footer spans both. Compresses total scroll height ~40%.
    Applied via body.layout-wide; dashboard.js turns it on automatically at
    ≥1400px (auto mode) or per the user's manual Layout toggle (persisted). */
-body.layout-wide main{max-width:1800px;grid-template-columns:1fr 1fr;
+body.layout-wide main{max-width:1800px;grid-template-columns:minmax(0,1fr) minmax(0,1fr);
 grid-template-areas:"vision memory" "causal timeline" "motor events" "brain events" "footer footer";
 grid-template-rows:var(--row-memory) var(--row-timeline) var(--row-motor) var(--row-brain) var(--row-footer)}
+body.layout-wide section,body.layout-wide footer{min-width:0}
 body.layout-wide .area-vision{grid-area:vision}body.layout-wide .area-causal{grid-area:causal}body.layout-wide .area-motor{grid-area:motor}body.layout-wide .area-brain{grid-area:brain}body.layout-wide .area-memory{grid-area:memory}body.layout-wide .area-timeline{grid-area:timeline}body.layout-wide .area-events{grid-area:events}body.layout-wide .area-footer{grid-area:footer}
 body.layout-wide .area-events{display:grid;grid-template-rows:auto 1fr;align-content:start}
 /* Layout toggle button */

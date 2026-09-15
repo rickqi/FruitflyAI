@@ -21,7 +21,7 @@ if (typeof window === 'object') {
 // it. Auto follows matchMedia so plain resizing keeps working, Wide/Single
 // override it and persist in localStorage('fly64.layout').
 const LAYOUT_KEY = 'fly64.layout';
-const wideMQ = (typeof matchMedia === 'object') ? matchMedia('(min-width:1400px)') : null;
+const wideMQ = (typeof matchMedia === 'function') ? matchMedia('(min-width:1400px)') : null;
 function layoutMode() {
   return (typeof localStorage === 'object' && localStorage.getItem(LAYOUT_KEY)) || 'auto';
 }
