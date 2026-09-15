@@ -301,7 +301,10 @@ class TestCoachHelpSnapshot:
         assert snap["scene_name"] == "墙体 #abcd"
         assert snap["position"] == {"x": 1.0, "y": 2.0, "z": 3.0}
         raw = base64.b64decode(snap["frame_b64"])
-        assert raw == frame.tobytes()
+        # v2.13 contract: frame_b64 carries the FORWARD face (128×128×3 =
+        # 49152 bytes) dedicated to the GLM coach; the full cubemap is not
+        # shipped in the help snapshot.
+        assert len(raw) == 49152
         assert snap["ts"] > 0
 
     def test_snapshot_handles_missing_frame(self):
