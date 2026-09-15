@@ -1078,53 +1078,92 @@ Round 4/5 正是**能力边界判定的实战示范**：钥匙门的"行为层"�
 
 ## 🔧 常见问题
 
-### Q: 游戏崩溃（Segmentation fault）
-**原因**: GLEW 未正确初始化。确保：
-```bash
-# 在 fly64_vision.c 中添加 glewInit()
-# 已在 patches/sm64ex-fly64.patch 中包含此修复
-```
+> 以下按"游戏与画面 / 部署与同步 / 版本与进化记录 / EVO 循环与 pattern / 教官层 / 测试"分类，全部来自实战事故与当前代码实况（Brain v2.13.3）。
 
-### Q: Frame difference 没有变化
-**原因**: 合成世界场景变化太小。已在 SyntheticWorld 中添加高频闪烁。
+### 游戏与画面
 
-### Q: 脑数据下载慢
-**原因**: Google Cloud Storage 带宽限制。使用 curl（非 aria2c）可避免文件截断。
+#### Q: 游戏崩溃（Segmentation fault）
+**原因**: GLEW 未正确初始化。已在 `patches/sm64ex-fly64.patch` 中包含 `glewInit()` 修复；编译前确认补丁已应用（`git apply ../../patches/sm64ex-fly64.patch`）。另见 `config/sm64config.txt` 预设。
 
-### Q: 仪表板 "Connecting..."
-**原因**: WebSocket 连接未建立。检查浏览器是否可访问端口 8766。
+#### Q: Vision 面板 "Difference = brightness, not flow"，帧差异图"没变化"
+**这不是 bug**：帧差异图显示的**就是亮度差**（面板字面标注），真正的运动信号由 T4/T5 式 HRC 与 4 方向 EMD 计算（R8 起）——看 `flow.json` 的 `emd_*` 与 `heading_rate`。合成模式下 SyntheticWorld 已内置高频闪烁；若 `emd_on_*` 恒 0，先确认帧源（`frame_age` 与是否 `--synthetic` 联查）。
 
-### Q: 启动即崩溃 `FileNotFoundError: web/monitor-preview.html`
-**原因**: 只同步了 `fly64/` Python 包而没同步 `web/` 静态目录（跨机/跨容器部署时的常见漏项）。
-**修复**: `cp -r web/. <目标>/web/`——`start_http()` 启动时要预读该页，缺文件会直接中断启动。
+#### Q: 仪表板出现红色 **SM64⛔ FROZEN** 徽章
+**含义**（t19）：`SeqlockWatchdog` 检测到共享内存帧 seq 停滞 >5s——SM64 已死或冻结，但大脑还在 tick，画面会静默卡住。
+**处理**: 按启动契约重启 SM64（`setsid nohup env FLY64_BRIDGE=… ./build/us_pc/sm64.us.f3dex2e --skip-intro …`，见 agent.md 启动契约）；seq 恢复前进后徽章自动复位。**禁止**托管后台 job 直接启动游戏（两次事故根源）。
 
-### Q: 版本号显示 X，但新能力不生效
-**原因**: `BRAIN_VERSION` 是**手写常量**，与代码内容可能脱节（例如标签已是 2.11.0，但 `mushroom_body.py` 还是旧版没有 R17 饱和守卫）。
+#### Q: 仪表板 "Connecting..."
+WebSocket 未建立，检查 8766 端口可达性；从 Windows 浏览器访问 WSL 内仪表板经 wslrelay 转发（127.0.0.1 的 8765/8766 都要通）。若页面已打开但数据长期不更新，先看是否有 SM64⛔ FROZEN 徽章（桥冻结而非连接问题）。
+
+### 部署与同步
+
+#### Q: 启动即崩溃 `FileNotFoundError: web/monitor-preview.html`
+**原因**: 只同步了 `fly64/` Python 包而漏了 `web/` 静态目录（跨机/跨容器部署常见漏项）——`start_http()` 启动时预读全部静态资产，缺一个文件就中断启动。
+**修复**: `cp -r web/. <目标>/web/`。**根治**: 同步必须三目录齐发——`fly64/`（代码）+ `web/`（资产）+ `skills/`（pattern/记录）。
+
+#### Q: 版本号显示 X，但新能力不生效
+**原因**: `BRAIN_VERSION` 是手写常量，与代码内容可能脱节（实例：标签 2.13.3 而 `mushroom_body.py` 缺 R17 饱和守卫；标签 2.10.0 实为 2.9.1 代码——均实际发生过）。
 **排查**:
 ```bash
-grep -n 'BRAIN_VERSION = ' fly64/main.py                       # 标签
-grep -c saturation_frames_threshold fly64/mushroom_body.py    # R17 特征是否在
-grep -n 'breakout_gain: float' fly64/model.py                 # R16 特征是否在
+grep -n 'BRAIN_VERSION = ' fly64/main.py
+python -m pytest tests/test_mbon_saturation.py -q     # R17 特征存在性（有测试即安）
+python fly64/skills/evolution_skill.py --history-check
 ```
-**修复**: 同步完整的 `fly64/` + `web/` + `skills/` 后**重启脑模型**（Python 代码无热加载，只有 `web/` 静态资产与 `active_strategy.json` 是热的）。
+**修复**: 三目录完整同步（见上）+ 重启脑模型。**热加载边界**：只有 `web/` 静态资产、`active_strategy.json`（每 600 tick）、`coach_advice.json` 是热的；其余 Python 代码必须重启。
 
-### Q: 同时跑了两套 EVO 循环，`fix_catalog.json` 被并发写坏
-**原因**: 重复启动（例如手工启动 + 后台任务各一份），两个进程各自持有内存中的 catalog 并覆盖落盘，`evolution_log.jsonl` 里迭代号出现交错跳变。
-**排查**: `Get-CimInstance Win32_Process -Filter "Name like 'python%'" | ? { $_.CommandLine -match 'evolution_skill' }`（注意 Windows venv 下 launcher 与真实解释器会成对出现，是**一个**逻辑循环）。
-**修复**: 只保留一个循环（或用 `scripts/` 下的锁定启动器模式），重启后 `fix_catalog.json` 会从磁盘重新加载。
+#### Q: WSL↔Windows 同步后代码损坏 / plugin 包被清空
+**原因**: rsync `--delete` 且排除规则不全（曾把 `plugin/` 清得只剩 `__pycache__`）。
+**修复**: 禁用 `--delete`；排除规则必须同时覆盖 `venv`、`__pycache__`、`runtime`、`artifacts`、`plugin/llm.env`（root-only 秘密）。每轮前后跑 `fly64/tests/sync_inventory.sh` 盘点差异（agent.md 规则 12）。
 
-### Q: 某个 fix 被判 ineffective，但代码明明改了
+#### Q: `check_version.py` 报 `ModuleNotFoundError: No module named 'fly64'`
+**修复**: `PYTHONPATH=<fly64 根目录> python tests/check_version.py`（pytest.ini 已设 pythonpath，直接 `pytest` 不受影响）。
+
+### 版本与进化记录
+
+#### Q: 某个 fix 被判 ineffective，但代码明明改了
 **原因**: 60s 验证窗口**横跨了脑模型重启**——基线属于旧会话，post-fix 值属于新会话，两者不可比。
-**处理**: 跨会话的旧 fix 应以 `reverted=true` + notes 标记（不进入有效率统计）；新能力的公平验证需要同会话内、修复代码已加载后再观测。
+**处理**: 跨会话旧 fix 以 `reverted=true` + notes 标记（不进有效率统计）；公平验证需同会话内、修复代码已加载后再观测。注意 `record_verification` 只回写**同进程**内的 fix 记录。
 
-### Q: 仪表板 `EVO #0` 是不是 EVO 没在跑？
-**不一定**。`evo_iter` 只统计**游戏内按需 EVO 路径**（escape 触发且间隔 >10s 才 +1）；外部常驻循环不写该字段，其进度看 `skills/evolution_log.jsonl` 的迭代号与 `/flow.json` 的 `evo_findings`。
+#### Q: 两个 EVO 循环并发写坏 `fix_catalog.json` / `evolution_history.json`
+**原因**: 重复启动——两个进程各自持有内存态并覆盖落盘，`evolution_log.jsonl` 迭代号交错跳变；`evolution_history.json` 还有 AUTO id 撞号与记录丢失风险。
+**排查**: Windows 下 `Get-CimInstance Win32_Process -Filter "Name like 'python%'" | ? { $_.CommandLine -match 'evolution_skill' }` 计数应为 **2**（venv launcher + 真实解释器成对出现 = 一个逻辑循环）；4 = 两个循环，异常。
+**修复**: 只保留一个循环再重启。**演进方向**：给循环加单实例锁（参照 `scripts/locked_launcher.py`）。
 
-### Q: pattern 一直不触发 / 明明卡住却无 findings
+#### Q: 仪表板 `EVO #0` 是不是 EVO 没在跑？
+**不一定**。`evo_iter` 只统计**游戏内按需 EVO 路径**（escape 触发且间隔 >10s 才 +1）；外部常驻循环不写该字段。看真实进度：`skills/evolution_log.jsonl` 迭代号 + `/flow.json` 的 `evo_findings` + `evolution_history.json` 的 AUTO 记录。
+
+#### Q: 某条进化记录是 `brain_update_auto`，只有版本号没有原因？
+**设计如此**（agent.md 规则 15）：常驻循环只负责"第一时间留痕"（版本变化不可遗漏），**完整记录（trigger/changes/tests）必须由执行进化的 agent 补全**——把该条升级为正式记录或另追加一条人工完整记录，然后 `--history-md` 再生成 README 档案表。
+
+### EVO 循环与 pattern
+
+#### Q: pattern 一直不触发 / 明明卡住却无 findings
 **排查顺序**:
-1. 看该 pattern 的条件字段是否在 telemetry 中——若缺失，`DiagnosisEngine` 会额外产出一条 `telemetry_gap` finding（自诊断）；
-2. 看阈值是否真的达到（如 `micro_loop_weave` 要求 `anomaly_state=micro_loop` 且 `stuck≥60s`，而分类器可能仍报 `idle`——此时应由纯行为信号的 `micro_loop_weave_signal` 命中）；
-3. 用 `python3 -m skills.evolution_skill --max-iterations 1` 手工跑一轮看 findings/errors。
+1. **字段缺失**：`DiagnosisEngine` 会产出 `telemetry_gap` finding（自诊断）——若它列出的字段在 `main.py` 里存在，则是 **skill 采集层漏映射**（实例：`mb_mbon_forward` 曾在 flow_json 有、采集层无），补 `SensorSample`+`get_metrics`；
+2. **阈值未达**：如 `micro_loop_weave` 要求 `anomaly_state=micro_loop` 且 `stuck≥60s`，分类器报 `idle` 时应由纯行为信号的 `micro_loop_weave_signal`（`loop_score≥0.95` + escape + stuck≥45s）命中；
+3. **死值遥测**：字段在但恒为默认占位值——当前自诊断测不出"字段在但数据是假的"（已知盲区，见"视觉处理瓶颈"新问题节）；
+4. 手工跑一轮：`python3 skills/evolution_skill.py --max-iterations 1` 看 findings/errors。
+
+#### Q: `mbon_saturation` 反复触发（AUTO-0002 类），正常吗？
+**含义**: forward MBON 输出贴 `tanh` 顶（≥0.95）而行为仍在绕圈——R17 稳态缩放未阻止饱和，或 R18 DAN 再膨胀压过了缩放。
+**排查**: `flow.json` 的 `mb_weight_std`/`mb_saturation_events`/`mb_dopamine` 三联看饱和是否持续；持续触发说明 R18 的 `DAN_*` 平衡点仍偏高，需再塑形（这是当前**进行中**的问题，见"视觉处理瓶颈"新问题节）。
+
+#### Q: `below_ground_stuck` 反复触发
+指向一个**真实待修缺陷**：坠落判定阈值 `Y < -100` 过宽（SM64 地面 Y=120，Y<50 已是虚空/水下）。AUTO-0003 已留档建议改 `Y < 50`——执行修改后按规则 15 回填完整记录（代码与记录同 commit）。
+
+### 教官层（LLM）
+
+#### Q: 仪表板显示 `LLM none`，coach 没反应
+**含义**: 无 LLM 传输配置，自治服务降级 `local_diagnosis` 本地诊断（自治不依赖 LLM）。
+**配置**: 方式 A `plugin/llm.env`（`FLY64_LLM_BASE_URL`/`FLY64_LLM_API_KEY`/`FLY64_LLM_MODEL=glm-5.3-flash`，consolidate.sh 自动 source，不入库）；方式 B subagent 文件握手（依赖 DSH 会话，120s 超时降级）。降级状态看 `plugin/service_status.json` 的 `health.degraded`。
+
+#### Q: 教官建议为空 / 咨询超时
+**排查**: `plugin/service.log` 找 `local_diagnosis`（降级成功）或 ConsultError；subagent 模式检查 `.consult_request.json` 是否被 host agent 消费（响应写 `.consult_response.json`）；`runtime/coach_frames/` 可回看教练当时的画面（t21）。
+
+### 测试
+
+#### Q: pytest 大量失败，是我改坏的吗？
+**基线对照法**（制度化流程）：`git stash`（或 `git worktree` 对照 HEAD）后重跑同一子集，逐项一致 = 既存基线失败，零新增即通过。当前已知 Windows 环境基线：`test_bridge` 兼容项、部分 retina/invariants 项。另：pytest 报 `PermissionError ... pytest-current` 是共享临时目录的 Windows 环境问题，把 `TMP`/`TEMP` 指到本地目录即可消除（测试本身全绿）。
 
 ## 📜 许可证
 
