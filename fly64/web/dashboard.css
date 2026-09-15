@@ -101,6 +101,17 @@ body.layout-wide .area-events{display:grid;grid-template-rows:auto 1fr;align-con
 #strategyPanel .note-stat{margin-right:12px;font-size:11px;color:var(--ink)}
 #strategyPanel .note-stat b{color:var(--cyan);font-weight:500}
 
+/* ── t21 wrap-up: consult frame thumbnails in the Coach Help panel ────
+   Panel geometry is unchanged: this strip lives in the lower slack of
+   #helpPanel (max-height 200px; help-body capped to 118px here so the
+   strip fits without pushing existing content). */
+#helpPanel .help-body{max-height:118px}
+.help-frames{display:flex;gap:6px;align-items:flex-end;padding:3px 6px 4px;border-top:1px dashed #1a2430;overflow-x:auto}
+.help-frames a{display:flex;flex-direction:column;align-items:center;gap:1px;text-decoration:none;flex:0 0 auto}
+.help-frames img{height:34px;max-width:70px;object-fit:contain;border:1px solid #2a6a78;border-radius:2px;image-rendering:pixelated;background:#000}
+.help-frames a:hover img{border-color:var(--cyan)}
+.help-frames .frame-name{font-size:8px;color:var(--muted);max-width:72px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
 /* ── t16 P1-4: ≤800px single-column usability ───────────────────────── */
 @media(max-width:800px){
   body{height:auto}

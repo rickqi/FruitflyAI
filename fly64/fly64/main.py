@@ -148,6 +148,40 @@ class DashboardHTTP(BaseHTTPRequestHandler):
                 body, mime = _strat.read_bytes(), "application/json"
             except OSError:
                 body, mime = b'{"mode": "mirror"}', "application/json"
+        elif path == "/coach_frames" or path.startswith("/coach_frames/"):
+            # t21 wrap-up UI: read-only static endpoint for the consult
+            # frame snapshots.  Directory traversal is blocked by resolving
+            # against the coach_frames dir and rejecting escapes; only
+            # *.png files are ever served.
+            frames_dir = (Path(__file__).resolve().parent.parent
+                          / "runtime" / "coach_frames")
+            name = path[len("/coach_frames/"):].strip() if path != "/coach_frames" else ""
+            if not name:
+                try:
+                    names = sorted((f.name for f in frames_dir.glob("*.png")),
+                                   reverse=True)[:50]
+                    body, mime = json.dumps({"frames": names}).encode(), "application/json"
+                except OSError:
+                    body, mime = b'{"frames": []}', "application/json"
+            elif (".." in name or "/" in name or "\\" in name
+                    or not name.endswith(".png")):
+                body, mime = b"forbidden", "text/plain"
+                self.send_response(403)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            else:
+                fp = (frames_dir / name).resolve()
+                if (fp.parent == frames_dir.resolve() and fp.is_file()):
+                    body, mime = fp.read_bytes(), "image/png"
+                else:
+                    body, mime = b"not found", "text/plain"
+                    self.send_response(404)
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
         elif path in self.assets:
             # Hot-reload: web assets are read from disk per request, so
             # publishing a page never requires restarting the main process.

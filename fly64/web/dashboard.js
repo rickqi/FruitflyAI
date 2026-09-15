@@ -1255,3 +1255,35 @@ if (typeof document !== 'undefined') {
   updateCoachStrategy();
   setInterval(updateCoachStrategy, 5000);
 }
+
+// ── Consult frame thumbnails (t21 wrap-up UI) ────────────────────────
+// Lists runtime/coach_frames/*.png via /coach_frames (JSON index) and
+// renders thumbnails inside the Coach Help Snapshot panel; clicking one
+// opens the full-size frame (/coach_frames/<name>) in a new tab.
+
+async function updateCoachFrames() {
+  const host = $('coachFrames');
+  if (!host) return;
+  try {
+    const r = await fetch('/coach_frames');
+    if (!r.ok) return;
+    const d = await r.json();
+    const frames = Array.isArray(d.frames) ? d.frames : [];
+    if (!frames.length) { host.innerHTML = '<span class="muted">No consult frames yet</span>'; return; }
+    host.innerHTML = frames.slice(0, 8).map(f => {
+      const m = /coach_(\d+(?:\.\d+)?)_(.+)\.png$/.exec(f);
+      const t = m ? new Date(parseFloat(m[1]) * 1000).toLocaleString() : '';
+      const reason = m ? m[2] : f;
+      const safe = f.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+      return '<a href="/coach_frames/' + safe + '" target="_blank" rel="noopener" title="'
+        + (t ? t + ' · ' : '') + reason + '">'
+        + '<img src="/coach_frames/' + safe + '" alt="consult frame">'
+        + '<span class="frame-name">' + reason + '</span></a>';
+    }).join('');
+  } catch (_) {}
+}
+
+if (typeof document !== 'undefined') {
+  updateCoachFrames();
+  setInterval(updateCoachFrames, 5000);
+}
