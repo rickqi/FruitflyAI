@@ -38,6 +38,11 @@ import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer
 
 const $=id=>document.getElementById(id),wrap=$('canvasWrap');
 let pts=[],playing=0,pos=0,spd=0.5,anim=null,mini=true;
+// follow=true: cursor rides the newest live point (default on Live source).
+// Cleared by ▶ play / slider scrub so the full recorded path can be replayed
+// without the poller yanking the cursor back to the head every 2 s (the
+// flicker + "can't play" bug); ⟲ reset restores it.
+let follow=true;
 // diagnostics hook (module scope is otherwise closed to external tooling)
 window.__liveState=()=>({n:pts.length,pos:Math.round(pos),playing,lastT:pts.length?pts[pts.length-1].t:null});
 
@@ -84,6 +89,14 @@ function fitView(){
   dotMat.size=Math.max(8,25*s);dotMat.needsUpdate=true;
 }
 
+// Reuse the GPU buffer when the point count is unchanged (avoids allocating a
+// fresh attribute every poll = the flicker source); allocate only on growth.
+function setPts(geo, flat){
+  const a=geo.getAttribute('position');
+  if(a && a.count===flat.length/3){a.array.set(flat);a.needsUpdate=true;}
+  else geo.setAttribute('position',new THREE.Float32BufferAttribute(flat,3));
+}
+
 function loadTrajectory(data, head){
   // head=true → live follow (cursor rides the newest point)
   pts=data;
@@ -94,9 +107,9 @@ function loadTrajectory(data, head){
   pos = head ? pts.length-1 : 0;
   $('slider').max=pts.length-1;
   if(pts.length<2)return;
-  pathGeo.setAttribute('position',new THREE.Float32BufferAttribute(pts.flatMap(p=>[p.x,p.y,p.z]),3));
+  setPts(pathGeo, pts.flatMap(p=>[p.x,p.y,p.z]));
   const step=Math.max(1,Math.floor(pts.length/2000));
-  dotGeo.setAttribute('position',new THREE.Float32BufferAttribute(pts.filter((_,i)=>i%step===0).flatMap(p=>[p.x,p.y,p.z]),3));
+  setPts(dotGeo, pts.filter((_,i)=>i%step===0).flatMap(p=>[p.x,p.y,p.z]));
   sL.position.set(pts[0].x,pts[0].y+200,pts[0].z);
   eL.position.set(pts[pts.length-1].x,pts[pts.length-1].y+200,pts[pts.length-1].z);
   fitView();update();
@@ -115,6 +128,7 @@ async function loadFile(name){
   try{
     let data;
     if(name==='__live__'){const r=await fetch('/trajectory.json');if(!r.ok)throw Error('HTTP '+r.status);data=await r.json();
+      follow=true;   // re-selecting Live restores head-follow
       await refreshMemoryOverlay(data);
       loadTrajectory(data, true);
       setLive(true);
@@ -147,12 +161,12 @@ async function refreshLive(){
     const fresh = d.filter(p=>p.t>lastT);
     if(!fresh.length) return;                 // nothing new since last poll
     pts = pts.concat(fresh).slice(-6000);   // match backend retention (whole session)
-    pathGeo.setAttribute('position',new THREE.Float32BufferAttribute(pts.flatMap(p=>[p.x,p.y,p.z]),3));
+    setPts(pathGeo, pts.flatMap(p=>[p.x,p.y,p.z]));
     const step=Math.max(1,Math.floor(pts.length/2000));
-    dotGeo.setAttribute('position',new THREE.Float32BufferAttribute(pts.filter((_,i)=>i%step===0).flatMap(p=>[p.x,p.y,p.z]),3));
+    setPts(dotGeo, pts.filter((_,i)=>i%step===0).flatMap(p=>[p.x,p.y,p.z]));
     eL.position.set(pts[pts.length-1].x,pts[pts.length-1].y+200,pts[pts.length-1].z);
     $('slider').max=pts.length-1;
-    if(pos>=pts.length-1-fresh.length) pos=pts.length-1;   // follow head
+    if(follow) pos=pts.length-1;   // ride the head ONLY in follow mode
     update();
   }catch(_){/* transient network blip — keep last good frame */}
 }
@@ -184,16 +198,17 @@ function update(){
 
 $('toggleView').onclick=()=>{mini=!mini;wrap.classList.toggle('mini',mini);$('toggleView').textContent=mini?'🗖':'✕';setTimeout(resize,50);if(mini)fitView();};
 sel.onchange=()=>{if(sel.value)loadFile(sel.value);};
-$('slider').oninput=function(){pos=+this.value;update();};
+$('slider').oninput=function(){follow=false;pos=+this.value;update();};
 $('playBtn').onclick=function(){
   if(playing){playing=0;cancelAnimationFrame(anim);this.textContent='▶';return;}
-  if(pos>=pts.length-1)pos=0;
+  follow=false;                                // replay the full path; poller keeps appending new points
+  if(follow||pos>=pts.length-1)pos=0;
   playing=1;this.textContent='⏸';spd=+$('speed').value;
   const step=()=>{if(!playing||pos>=pts.length-1){playing=0;$('playBtn').textContent='▶';return;}
     pos=Math.min(pos+spd,pts.length-1);update();anim=requestAnimationFrame(step);};
   anim=requestAnimationFrame(step);
 };
-$('resetBtn').onclick=function(){playing=0;cancelAnimationFrame(anim);$('playBtn').textContent='▶';pos=0;update();};
+$('resetBtn').onclick=function(){playing=0;cancelAnimationFrame(anim);$('playBtn').textContent='▶';if(sel.value==='__live__'){follow=true;pos=pts.length-1;}else pos=0;update();};
 function animate(){requestAnimationFrame(animate);ctrl.update();renderer.render(scene,camera);lr.render(scene,camera);}
 animate();
 window.addEventListener('resize',resize);
