@@ -14,6 +14,7 @@ input[type=range]{flex:1;min-width:100px;accent-color:#6cdaed;height:4px}
 #info{position:absolute;top:8px;left:10px;z-index:10;background:rgba(11,16,21,.8);padding:4px 10px;border-radius:6px;border:1px solid #354250;pointer-events:none;font-size:12px}
 #info h2{margin:0;font-size:13px;color:#6cdaed}
 #frameInfo{color:#ffca72;margin-left:6px}
+#liveDot{font-size:11px;font-weight:bold;margin-left:6px}
 #stats{position:absolute;top:8px;right:10px;z-index:10;background:rgba(11,16,21,.8);padding:4px 8px;border-radius:6px;border:1px solid #354250;font-size:11px;line-height:1.5;pointer-events:none;min-width:100px}
 #stats .l{color:#6cdaed}#stats .v{color:#f0f4f8}
 #toggleView{position:fixed;bottom:52px;right:20px;z-index:9999;background:rgba(11,16,21,.85);border:1px solid #354250;border-radius:6px;color:#b0bdcc;cursor:pointer;padding:5px 10px;font-size:13px}
@@ -21,7 +22,7 @@ input[type=range]{flex:1;min-width:100px;accent-color:#6cdaed;height:4px}
 #fileSelect{max-width:200px}
 #errorMsg{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:20;background:#2a1515;color:#ff6b6b;padding:14px;border-radius:6px;border:1px solid #ff6b6b;display:none;font-size:13px}
 </style></head><body>
-<div id="canvasWrap"><div id="info"><h2>🪰 Fly64 3D</h2><span id="frameInfo">0/0</span><div id="memInfo" style="color:#7dff9d;font-size:11px"></div></div><div id="stats"></div><div id="errorMsg"></div></div>
+<div id="canvasWrap"><div id="info"><h2>🪰 Fly64 3D</h2><span id="liveDot">🟢 LIVE</span> <span id="frameInfo">0/0</span><div id="memInfo" style="color:#7dff9d;font-size:11px"></div></div><div id="stats"></div><div id="errorMsg"></div></div>
 <div id="toggleView">🗖</div>
 <div class="controls">
 <button id="playBtn">▶</button><button id="resetBtn">⟲</button>
@@ -81,10 +82,14 @@ function fitView(){
   dotMat.size=Math.max(8,25*s);dotMat.needsUpdate=true;
 }
 
-function loadTrajectory(data){
-  pts=data;pos=0;
-  if(!pts||!pts.length){$('errorMsg').textContent='Empty trajectory';$('errorMsg').style.display='block';return;}
+function loadTrajectory(data, head){
+  // head=true → live follow (cursor rides the newest point)
+  pts=data;
+  if(!pts||!pts.length){
+    if(head){$('frameInfo').textContent='waiting for points…';return;}  // live: not an error, points not sampled yet
+    $('errorMsg').textContent='Empty trajectory';$('errorMsg').style.display='block';return;}
   $('errorMsg').style.display='none';
+  pos = head ? pts.length-1 : 0;
   $('slider').max=pts.length-1;
   if(pts.length<2)return;
   pathGeo.setAttribute('position',new THREE.Float32BufferAttribute(pts.flatMap(p=>[p.x,p.y,p.z]),3));
@@ -98,7 +103,7 @@ function loadTrajectory(data){
 async function loadList(){
   try{const r=await fetch('/trajectory-list.json');if(!r.ok)throw Error('HTTP '+r.status);
     const list=await r.json();
-    let html='<option value="__live__" selected>🔴 Live (current session)</option>';
+    let html='<option value="__live__" selected>🟢 Live (current session · auto-refresh)</option>';
     if(list.length)html+=list.map(f=>'<option value="'+f.name+'">'+f.name.replace(/\.trajectory\.npz$/,'').slice(-30)+' ('+(f.size/1024|0)+'KB)</option>').join('');
     sel.innerHTML=html;
     loadFile('__live__');}catch(e){sel.innerHTML='<option>Error loading list</option>';$('errorMsg').textContent='List error: '+e.message;$('errorMsg').style.display='block';}
@@ -108,19 +113,46 @@ async function loadFile(name){
   try{
     let data;
     if(name==='__live__'){const r=await fetch('/trajectory.json');if(!r.ok)throw Error('HTTP '+r.status);data=await r.json();
-      try{const m=await fetch('/memory.json');if(m.ok){const mem=await m.json();
-        if(Array.isArray(mem.recent_path)&&mem.recent_path.length){
-          const y0=(data[0]||{y:0}).y;
-          memGeo.setAttribute('position',new THREE.Float32BufferAttribute(
-            mem.recent_path.flatMap(c=>[c.x,y0,c.z]),3));
-          memDots.visible=true;
-          $('memInfo').textContent='🧠 memory path: '+mem.recent_path.length+' cells · '
-            +(mem.adjacency_edges??'?')+' edges · noveltyDir '+(mem.cx_novelty_direction??'—');
-        }}}catch(_){}}
-    else{const r=await fetch('/trajectory-load?file='+encodeURIComponent(name));if(!r.ok)throw Error('HTTP '+r.status);data=await r.json();}
-    loadTrajectory(data);
+      await refreshMemoryOverlay(data);
+      loadTrajectory(data, true);
+      setLive(true);
+      $('frameInfo').textContent = (pts.length? pos+'/'+(pts.length-1) : 'waiting for points…');
+    }
+    else{setLive(false);const r=await fetch('/trajectory-load?file='+encodeURIComponent(name));if(!r.ok)throw Error('HTTP '+r.status);data=await r.json();
+      memDots.visible=false;$('memInfo').textContent='';
+      loadTrajectory(data, false);}
   }catch(e){$('errorMsg').textContent='Load error: '+e.message;$('errorMsg').style.display='block';}
 }
+
+// ── Live polling: re-fetch trajectory + memory footprint every 2 s while the
+// Live source is selected.  Playing state pauses polling so replay is stable.
+let liveTimer=null;
+function setLive(on){
+  if(liveTimer){clearInterval(liveTimer);liveTimer=null;}
+  $('liveDot').textContent = on ? '🟢 LIVE' : '📄 REPLAY';
+  if(on) liveTimer=setInterval(refreshLive, 2000);
+}
+async function refreshLive(){
+  if(sel.value!=='__live__'||playing) return;
+  try{
+    const r=await fetch('/trajectory.json'); if(!r.ok) return;
+    const d=await r.json();
+    if(!d||!d.length){$('frameInfo').textContent='waiting for points…';return;}
+    await refreshMemoryOverlay(d);
+    loadTrajectory(d, true);   // cursor follows the newest point
+  }catch(_){/* transient network blip — keep last good frame */}
+}
+async function refreshMemoryOverlay(traj){
+  try{const m=await fetch('/memory.json');if(!m.ok)return;const mem=await m.json();
+    if(Array.isArray(mem.recent_path)&&mem.recent_path.length){
+      const y0=(traj[0]||{y:0}).y;
+      memGeo.setAttribute('position',new THREE.Float32BufferAttribute(
+        mem.recent_path.flatMap(c=>[c.x,y0,c.z]),3));
+      memDots.visible=true;
+      $('memInfo').textContent='🧠 memory path: '+mem.recent_path.length+' cells · '
+        +(mem.adjacency_edges??'?')+' edges · noveltyDir '+(mem.cx_novelty_direction??'—');
+    }}catch(_){}}
+
 
 function update(){
   if(!pts||!pts.length)return;
