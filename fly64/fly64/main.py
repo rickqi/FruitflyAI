@@ -35,7 +35,7 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.13.0"
+BRAIN_VERSION = "2.13.1"
 SKILL_VERSION = "3.0.0"   # must mirror fly64/skills/evolution_skill.py SKILL_VERSION
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
@@ -1215,8 +1215,11 @@ async def run(args) -> None:
                                         if (_sx or _sy) else None)
                 # EVO R20 (CX-3): multi-source goal vectors (sensory) — the
                 # CX does the vector competition and picks the heading.
-                model.cx_goal_vectors = memory_ctrl.navigation_vectors(
-                    pose[0], pose[2], pose[3], model.cx_novelty_direction)
+                try:
+                    model.cx_goal_vectors = memory_ctrl.navigation_vectors(
+                        pose[0], pose[2], pose[3], model.cx_novelty_direction)
+                except Exception:
+                    model.cx_goal_vectors = None
                 # Periodic scene-database persistence (every ~600 ticks ≈ 12s)
                 scene_save_counter += 1
                 if scene_save_counter >= 600:

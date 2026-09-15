@@ -8,7 +8,7 @@ Each cycle executes the closed loop:
 
 Data comes from the Fly64 dashboard HTTP endpoints (same sources the
 EvolutionSkill uses).  When the brain model is in an unsolvable state
-(stuck > 120s, anomaly active, no reflex), the plugin escalates to
+(stuck > 60s, anomaly active, no reflex), the plugin escalates to
 GLM-5.3-flash with the current game frame and writes the recommendation
 to ``skills/active_strategy.json`` for hot-reload by the brain, plus
 ``skills/coach_advice.json`` for the dashboard.
@@ -37,7 +37,7 @@ except ImportError:  # direct execution from fly64/
 PLUGIN_DIR = Path(__file__).resolve().parent
 DEFAULT_DASHBOARD = "http://127.0.0.1:8765"
 DEFAULT_INTERVAL = 10.0
-STUCK_HELP_THRESHOLD = 120.0
+STUCK_HELP_THRESHOLD = 60.0  # t20: lowered from 120s — coach intervenes earlier
 
 HELP_TRIGGER_ENV = "FLY64_HELP_TRIGGER"  # optional JSON file to force consult
 
@@ -87,7 +87,7 @@ class PluginRunner:
         """Decide whether the brain is in an unsolvable state.
 
         Trigger: dashboard /help.json has an active help_reason, OR
-        (stuck > 120s AND anomaly active AND no reflex active) — the same
+        (stuck > 60s AND anomaly active AND no reflex active) — the same
         CoachConsult escalation conditions.  Returns the consult context.
         """
         help_snap = snapshot.get("help")

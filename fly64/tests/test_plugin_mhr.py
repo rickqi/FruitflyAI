@@ -133,11 +133,27 @@ class TestCycle:
         assert out["context"]["help_reason"] == "interaction_blocked"
 
     def test_stuck_threshold_boundary(self, tmp_path):
-        mem = dict(MEM_OK, stuck_duration=119.0)
+        # t20: threshold lowered 120s -> 60s (coach intervenes earlier)
+        mem = dict(MEM_OK, stuck_duration=59.0)
         r = make_runner(tmp_path, {"/memory.json": mem})
         assert r.check_help_needed({"memory": mem, "help": {}}) is None
-        mem2 = dict(MEM_OK, stuck_duration=121.0, anomaly_state="micro_loop")
+        mem2 = dict(MEM_OK, stuck_duration=61.0, anomaly_state="micro_loop")
         ctx = r.check_help_needed({"memory": mem2, "help": {}})
+        assert ctx and ctx["help_reason"] == "unsolvable_stuck"
+
+    def test_stuck_help_threshold_60_contract(self, tmp_path):
+        # t20 acceptance: 70s -> consult, 50s -> no consult, 70 <= old
+        # 120s bound also triggers under the new threshold
+        from plugin.runner import STUCK_HELP_THRESHOLD
+        assert STUCK_HELP_THRESHOLD == 60.0
+        r = make_runner(tmp_path, {})
+        m70 = dict(MEM_OK, stuck_duration=70.0, anomaly_state="micro_loop")
+        ctx = r.check_help_needed({"memory": m70, "help": {}})
+        assert ctx and ctx["help_reason"] == "unsolvable_stuck"
+        m50 = dict(MEM_OK, stuck_duration=50.0, anomaly_state="micro_loop")
+        assert r.check_help_needed({"memory": m50, "help": {}}) is None
+        m110 = dict(MEM_OK, stuck_duration=110.0, anomaly_state="micro_loop")
+        ctx = r.check_help_needed({"memory": m110, "help": {}})
         assert ctx and ctx["help_reason"] == "unsolvable_stuck"
 
     def test_frame_captured_into_request(self, tmp_path):

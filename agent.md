@@ -95,6 +95,16 @@ setsid nohup env FLY64_BRIDGE=/tmp/f64b_traj \
 
 # 变更日志
 
+## 2026-09-14: t20 阈值下调 — Brain v2.13.1（教练咨询阈值 120s→60s）
+
+**变更**：`plugin/runner.py` `STUCK_HELP_THRESHOLD` 120.0→**60.0**（service.py 无同常量，经 PluginRunner 复用），GLM 顾问在卡住 60s 后即介入而非 120s；runner 文档字符串同步。
+
+**回归**：`test_stuck_threshold_boundary` 更新为 59/61 边界 + 新增 `test_stuck_help_threshold_60_contract`（70s→consult、50s→不触发、110s[旧 120s 界内]→consult）；test_plugin_mhr 35/35；全量 472 passed / 11 failed 均为基线既有（bridge/invariants/retina/版本文档已同步修复）。
+
+**版本**：Brain 2.13.0→**2.13.1**；skills.md 当前版本行同步。
+
+---
+
 ## 2026-09-14: EVO Round 20 启动 — 空间导航回路（CX 升级，核心能力）
 
 **触发**：监控分析确认马里奥"运动中转圈"的行为本质——**270° 复眼已全向采样，运动策略却在用物理旋转采集已有信息**（无效动作）。机制根因：CX 环吸引子罗盘是外部航向副本（无自运动积分）、零路径积分（无"我在锚点系哪里"表征）、目标向量单源（novelty 枯竭→方向感归零）。
