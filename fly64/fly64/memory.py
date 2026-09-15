@@ -281,6 +281,10 @@ class SpatialMemoryMap:
         self._window_flags: deque[bool] = deque()
         self._coverage_history: deque[tuple[int, float]] = deque(maxlen=6000)
         self._last_coverage_tick = 0
+        # L1 topology: traversal graph — {(cell_a, cell_b): step_count} with
+        # a < b.  Every cell *transition* (not every tick) records one edge
+        # step, turning the visit-count footprint into a traversable map.
+        self._adj: dict[tuple[tuple[int, int], tuple[int, int]], int] = {}
 
         # Scene database for landmark revisit detection
         self._scene_db = SceneDatabase()
@@ -308,7 +312,12 @@ class SpatialMemoryMap:
         """Record a visit; returns the novelty of the visited cell (0–1)."""
         self._total_ticks += 1
         key = self._key(x, z)
+        prev_cell = self._current_cell
         self._current_cell = key
+        # Topology: a cell *transition* (A→B, A≠B) records one traversal step.
+        if prev_cell is not None and prev_cell != key:
+            edge = (prev_cell, key) if prev_cell < key else (key, prev_cell)
+            self._adj[edge] = self._adj.get(edge, 0) + 1
 
         # Track revisits in rolling window — exact counting: a visit is a
         # "revisit" when the same key already exists in the current window;
@@ -589,6 +598,63 @@ class SpatialMemoryMap:
         pct_per_tick = (last_pct - first_pct) / delta_ticks
         return round(pct_per_tick * 1000, 4)  # per 1000 ticks
 
+    def recent_path(self, n: int = 80) -> list[dict]:
+        """Last *n* distinct cell centres actually walked through (oldest first).
+
+        This is the short-term **ordered path memory** — the ordered trail the
+        dashboard trajectory view and any future planner can consume.  Only
+        cell *transitions* are kept (consecutive duplicates collapse).
+        """
+        cells = [k for i, k in enumerate(self._history) if i == 0 or k != self._history[i - 1]]
+        return [{"x": k[0] * self.cell_size + self.cell_size * 0.5,
+                 "z": k[1] * self.cell_size + self.cell_size * 0.5}
+                for k in cells[-n:]]
+
+    @property
+    def adjacency_count(self) -> int:
+        """Number of distinct traversed cell-to-cell edges (map connectivity)."""
+        return len(self._adj)
+
+    @property
+    def traversal_steps(self) -> int:
+        """Total recorded cell transitions (= sum of all edge counts)."""
+        return sum(self._adj.values())
+
+    def save_state(self, path: str | Path) -> None:
+        """Persist the visited-cell map + traversal graph (pickle).
+
+        ``recency`` is not saved — it is recomputed from visits on load so a
+        restored map starts "fresh" instead of carrying stale decay weights.
+        """
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        data = {"v": 1,
+                "cells": {f"{k[0]},{k[1]}": int(v) for k, v in self._cells.items()},
+                "adj": {f"{a[0]},{a[1]}|{b[0]},{b[1]}": c for (a, b), c in self._adj.items()}}
+        with open(p, "wb") as f:
+            pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+    def load_state(self, path: str | Path) -> int:
+        """Restore a saved visit map. Returns number of cells restored."""
+        p = Path(path)
+        try:
+            with open(p, "rb") as f:
+                data = pickle.load(f)
+            if not isinstance(data, dict) or data.get("v") != 1:
+                return 0
+            self._cells = {tuple(int(x) for x in k.split(",")): np.uint16(v)
+                           for k, v in data["cells"].items()}
+            self._recency = {k: 1.0 for k in self._cells}
+            self._last_tick = {k: 0 for k in self._cells}
+            self._adj = {}
+            for s, c in data.get("adj", {}).items():
+                a, b = s.split("|")
+                self._adj[((tuple(int(x) for x in a.split(","))),
+                           (tuple(int(x) for x in b.split(","))))] = int(c)
+            return len(self._cells)
+        except Exception:
+            return 0
+
     def reset(self) -> None:
         self._cells.clear()
         self._recency.clear()
@@ -599,6 +665,7 @@ class SpatialMemoryMap:
         self._revisit_count = 0
         self._coverage_history.clear()
         self._last_coverage_tick = 0
+        self._adj.clear()
 
     def reset_scene_db(self) -> None:
         """Clear the scene database (landmark signatures)."""
@@ -1882,22 +1949,30 @@ class MemoryController:
     # ── Scene signature persistence ───────────────────────────────────
 
     SCENE_DB_PATH = Path(__file__).resolve().parent.parent / "artifacts" / "scene_db.pkl"
+    SPATIAL_MAP_PATH = Path(__file__).resolve().parent.parent / "artifacts" / "spatial_map.pkl"
 
     def save_scene_db(self, path: str | Path | None = None) -> None:
-        """Persist scene signatures to disk (pickle)."""
+        """Persist scene signatures + the spatial visit map/traversal graph."""
         p = Path(path) if path else self.SCENE_DB_PATH
         p.parent.mkdir(parents=True, exist_ok=True)
         try:
             self.spatial._scene_db.save(p)
         except Exception:
             pass
+        try:
+            self.spatial.save_state(self.SPATIAL_MAP_PATH)
+        except Exception:
+            pass
 
     def load_scene_db(self, path: str | Path | None = None) -> int:
-        """Load previously saved scene signatures. Returns count loaded."""
+        """Load previously saved scene signatures + spatial map. Returns count loaded."""
         p = Path(path) if path else self.SCENE_DB_PATH
+        n = 0
         try:
             db = SceneDatabase.load(p)
             self.spatial._scene_db = db
-            return db.size
+            n = db.size
         except Exception:
             return 0
+        self.spatial.load_state(self.SPATIAL_MAP_PATH)
+        return n

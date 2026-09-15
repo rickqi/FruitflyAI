@@ -1177,6 +1177,18 @@ async def run(args) -> None:
                 model.cliff_standoff_s = memory_ctrl.cliff_standoff_s
                 model.cliff_tangent_bias = memory_ctrl.cliff_tangent_bias(
                     pose[0], pose[2], pose[3])
+                # L1 spatial-memory → CX: sample the visit map in the 4
+                # directions relative to heading and hand the CX goal columns a
+                # turn bias toward fresher ground.  Brain-first sensory gate
+                # only — the LIF network still owns the heading decision.
+                try:
+                    model.cx_novelty_direction = memory_ctrl.spatial.novelty_direction(
+                        pose[0], pose[2], pose[3],
+                        dead_end_keys=set(memory_ctrl.dead_end_cells),
+                        scene_change_rate=model.scene_change_rate,
+                        forced_bold_explore=bool(getattr(memory_ctrl, "forced_bold_explore", False)))
+                except Exception:
+                    pass
                 # EVO R19: restlessness inputs (loop pressure) + recognition
                 model.loop_score = memory_ctrl.spatial.loop_score
                 model.scene_danger = scene_recognizer.danger_level()

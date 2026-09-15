@@ -14,6 +14,24 @@ FAIL_COUNTER="$PROJECT/plugin/.watchdog_fails"
 MAX_FAILS=3
 SERVICE_ARGS="--interval 10"
 
+# EVO R12-followup: resolve the game's CURRENT bridge so the restarted
+# service monitors the bridge that is actually being written (stale default
+# caused permanent "bridge stale" false alarms after game restarts).
+resolve_bridge() {
+  for _p in $(pgrep -f "us_pc.*skip-intro" 2>/dev/null); do
+    _b=$(tr '\0' '\n' < /proc/"$_p"/environ 2>/dev/null | grep '^FLY64_BRIDGE=' | cut -d= -f2 || true)
+    if [[ -n "${_b:-}" ]]; then
+      echo "$_b"; return
+    fi
+  done
+  echo "/tmp/f64b"
+}
+BRIDGE=$(resolve_bridge)
+SERVICE_ARGS="--interval 10 --bridge-path $BRIDGE"
+
+# LLM consultant env (API key) — root-only file, never committed.
+[[ -f "$PROJECT/plugin/llm.env" ]] && source "$PROJECT/plugin/llm.env"
+
 log() { echo "$(date '+%Y-%m-%dT%H:%M:%S') [watchdog] $*" >> "$WATCHDOG_LOG"; }
 
 is_alive() {
