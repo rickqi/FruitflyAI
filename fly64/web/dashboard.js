@@ -1051,6 +1051,10 @@ async function updateSceneDisplay() {
         (det ? ' <span class="motion-warn">⚠ moving object</span>' : ' <span class="motion-clear">(clear)</span>');
     }
     renderLlmDecision(d.llm_decision);
+    // t19: SM64 freeze watchdog — red pill while the shared-memory bridge
+    // is stale (frame seq stagnant >5s while the brain keeps ticking).
+    const bs = $('bridgeStalePill');
+    if (bs) bs.hidden = !d.bridge_stale;
   } catch (_) {}
 }
 

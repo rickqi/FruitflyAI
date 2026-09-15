@@ -35,7 +35,7 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.12.0"
+BRAIN_VERSION = "2.12.1"
 SKILL_VERSION = "3.0.0"   # must mirror fly64/skills/evolution_skill.py SKILL_VERSION
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
@@ -1298,6 +1298,10 @@ async def run(args) -> None:
                     "door_frame_score": round(model.door_frame_score, 4),
                     "opening_width": round(model.opening_width, 4),
                     "tick": model.step_count,
+                    # t19: SM64 freeze watchdog — seqlock frame seq stagnant
+                    # >5 s means the game producer is dead/frozen while the
+                    # brain keeps ticking; dashboard shows a red pill.
+                    "bridge_stale": bool(bridge.stale),
                     # Multi-channel retina summary values
                     "on": round(model.on_energy, 4),
                     "off": round(model.off_energy, 4),

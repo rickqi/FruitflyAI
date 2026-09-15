@@ -81,6 +81,10 @@ body.layout-wide .area-events{display:grid;grid-template-rows:auto 1fr;align-con
 /* ── t16: global status pills in header (P0-1/P1-1) ─────────────────── */
 .status-pills{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 
+/* ── t19: SM64 frozen bridge alarm pill ─────────────────────────────── */
+@keyframes stalePulse{0%,100%{opacity:1}50%{opacity:.35}}
+.stale-pill{padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;white-space:nowrap;background:#8b2020;color:#fff;border:1px solid var(--red);animation:stalePulse 1.2s ease-in-out infinite}
+
 /* ── t16 P1-2: terrain / environment chips in the scene line ────────── */
 #sceneName .chip{display:inline-block;padding:1px 6px;margin-left:4px;border:1px solid #2a6a78;border-radius:8px;font-size:11px;font-weight:400;color:var(--cyan);vertical-align:1px}
 #sceneName .chip-warn{border-color:#8a6a20;color:var(--gold)}

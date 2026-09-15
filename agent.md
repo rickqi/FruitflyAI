@@ -64,7 +64,7 @@ D:\codes\flygym\
 
 | 组件 | 位置 | 状态 |
 |------|------|------|
-| 脑模型 | WSL PID # | **v2.6.0** (Round 12 自治基底常驻服务) |
+| 脑模型 | WSL 常驻 | **v2.12.0**（R19 躁动电流+识别→行为闭环）|
 | SM64 游戏 | WSL PID # | 运行中 |
 | 仪表板 | http://127.0.0.1:8765/ | ✅ |
 | 3D 轨迹 | http://127.0.0.1:8765/trajectory.html | ✅ |
@@ -91,6 +91,22 @@ setsid nohup env FLY64_BRIDGE=/tmp/f64b_traj \
 ---
 
 # 变更日志
+
+## 2026-09-14: t19 结构修复一 — Brain v2.12.1（seqlock 停更看门狗：SM64 冻结检测 + 仪表板告警）
+
+**触发**：SM64 被宿主 shell 连带 kill 后共享内存桥停更，但脑继续 tick、监控面板视觉画布静默冻结——SM64 存活无监护。
+
+**修复**：
+- `bridge.py` 新增 `SeqlockWatchdog`（纯逻辑类，无 mmap 依赖可单测）：每次 `read_frame` 喂入帧 seq，**同一 even seq 停滞 >5s → `bridge.stale=True`**；seq 前进即复位（单调性防误报）；撕裂读（3 次校验失败）也喂入 last seq 让停滞累计
+- `main.py` flow.json 透出 `bridge_stale` 字段
+- 仪表板 header 状态栏新增红色脉冲徽章 **SM64⛔ FROZEN**（`.stale-pill` + stalePulse 动画），条件 `flow.bridge_stale`
+- 可选 auto-restart 未做（按任务书先检测与展示；restart 契约已由 t18 consolidate.sh 固化）
+
+**版本**：Brain 2.12.0→**2.12.1**（SKILL 3.0.0 镜像不变）。
+
+**回归**：新增 `tests/test_seqlock_watchdog.py` 9 用例（新鲜帧不误报/4.9s 临界不触发/5.1s 触发/单调推进 2000 帧零误报/撕裂读累计/seq 复位恢复/bridge·main·dashboard 三处接线）；9/9 通过；py_compile 通过；test_bridge 2 失败为已知 Windows 环境基线。部署后 WSL 实测双态：SM64 存活 stale=false；`kill -STOP` 冻结游戏 >5s 后 stale=true、恢复 CONT 后复位。
+
+---
 
 ## 2026-09-14: t18 结构修复二 — 启动契约固化（consolidate.sh + 文档，纯文档/脚本）
 

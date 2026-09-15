@@ -33,6 +33,36 @@ else:
         raise RuntimeError("Fly64 shared-memory bridge targets macOS/Linux only")
 
 
+class SeqlockWatchdog:
+    """Detect a frozen SM64 producer via frame-seq stagnation (t19).
+
+    Pure-logic class so it is unit-testable without an mmap bridge: feed it
+    the frame sequence number each read; if the seq stops advancing for
+    longer than *stale_after* seconds the bridge is stale (SM64 killed or
+    frozen while the brain keeps ticking).
+    """
+
+    def __init__(self, stale_after: float = 5.0):
+        self.stale_after = float(stale_after)
+        self.last_seq: int | None = None
+        self.last_progress: float | None = None
+        self.stale = False
+
+    def update(self, seq: int, now: float) -> bool:
+        """Feed the latest frame seq; returns current stale flag."""
+        if seq != self.last_seq:
+            self.last_seq = seq
+            self.last_progress = now
+        self.stale = (self.last_progress is not None
+                      and (now - self.last_progress) > self.stale_after)
+        return self.stale
+
+    def reset(self) -> None:
+        self.last_seq = None
+        self.last_progress = None
+        self.stale = False
+
+
 class SharedBridge:
     """Versioned, single-producer/single-consumer mmap shared with sm64ex."""
 
@@ -48,6 +78,9 @@ class SharedBridge:
         self.mm = mmap.mmap(self._file.fileno(), FILE_SIZE)
         self._last_frame = (0, bytes(FRAME_BYTES))
         self.frame_metadata = dict(pose=[0., 0., 0., 0.], game_frame=0, render_ms=0.)
+        # t19: SM64 freeze watchdog — True when the frame seq stops advancing
+        # for >5 s (read_frame feeds it every tick).
+        self.seqlock_watchdog = SeqlockWatchdog()
         if create:
             self.mm[:HEADER_SIZE] = bytes(HEADER_SIZE)
             self._write_header(0, 0, time.clock_gettime_ns(time.CLOCK_MONOTONIC), 0, 0, 0, 1)
@@ -55,12 +88,18 @@ class SharedBridge:
             self.close()
             raise ValueError("incompatible Fly64 bridge")
 
+    @property
+    def stale(self) -> bool:
+        """True when SM64 frame production is frozen (t19 watchdog)."""
+        return self.seqlock_watchdog.stale
+
     def _write_header(self, frame_seq, control_seq, heartbeat_ns, x, y, buttons, enabled):
         self.mm[: HEADER.size] = HEADER.pack(
             MAGIC, 2, frame_seq, control_seq, enabled, heartbeat_ns, x, y, buttons, 0
         )
 
     def read_frame(self) -> tuple[int, bytes]:
+        now = time.monotonic()
         for _ in range(3):
             before = struct.unpack_from("<I", self.mm, 12)[0]
             _memory_barrier()
@@ -71,7 +110,12 @@ class SharedBridge:
             if before == after and before % 2 == 0:
                 self._last_frame = before, pixels
                 self.frame_metadata = dict(pose=list(pose[:4]), game_frame=pose[4], render_ms=pose[5])
+                # t19: seqlock freeze watchdog — same even seq for >5s means
+                # SM64 stopped producing frames while the brain keeps ticking.
+                self.seqlock_watchdog.update(before, now)
                 return self._last_frame
+        # Torn reads 3× — feed the last known seq so stagnation still accrues.
+        self.seqlock_watchdog.update(self._last_frame[0], now)
         return self._last_frame
 
     def write_control(self, x: int, y: int, jump: bool, enabled: bool = True,
