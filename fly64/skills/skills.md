@@ -53,10 +53,14 @@ skill 具备**自我更新迭代**能力，通过受控进化循环固定能力�
 | **17** | **2.11.0** | **⚖️ MBON 饱和稳态突触缩放 + breakout_hint 反射相位调制 + DAN 信号塑形常量化**（探索奖励 0.50→0.30 压低饱和平衡点）| mb_mbon_forward=1.0 饱和 + 反射级联遮蔽突破电流 |
 | **18** | **2.11.x** | **🎚️ DAN 信号塑形常量化**：多巴胺权重提升为 `DAN_*` 类级常量（单点调参），探索奖励 0.50→0.30 压低 forward MBON 饱和平衡点 | mb_mbon_forward=1.0 持续：正多巴胺再膨胀 vs 稳态缩放失衡 |
 | **19** | **2.12.0** | **🔥 躁动电流 restlessness_level + 识别→行为闭环（danger_level 谨慎电流）+ 遥测小补**（fg_fraction/mb_weight_std/mb_saturation_events 入 flow.json）| 监控实况：识别"致命熔岩地"但行为无反应、悬崖边驻留 61s、novelty 枯竭 |
+| **20** | **2.8.0** | **🧹 P1 神经接管（Neural Takeover）**：删除 11 个 A 类 Python 判断分支（逃逸五阶段状态机 → 反射电流+CX 转向；legacy 对话脉冲 → LLM 路径；重复流调制/novelty 网格/bold-explore/health boost 等旁路），行为回归 LIF 网络竞争决策 | 审计结论（t7-t9）：双轨并行——神经基质全部已在但被代码旁路，KPI 45→18 写入行 |
+| **21** | **2.9.1** | **🤖 Coach Advice 端到端闭环**：dead key bold_turn_bias → 转向池电流接线；触发放宽（任意异常皆可突围）；prompt 语义卡（7 键单位/方向/范围）；HTTP 400 根修（裸 RGB 标 PNG→stdlib PNG 编码器）| "教练说了就算"对操作员是黑盒 → coach 链路全通 |
+| **22** | **2.10.1** | **🖥️ 监控界面 P0+P1 优化**：教练策略消费折叠面板（/active_strategy.json 端点）；LLM 倒计时全局状态栏；dialogue 因果分支（⏸ DIALOGUE PAUSED）；forced_bold/reflex_ineffective 徽章；@media 800px 响应式；flow.json 双拉取合并 | t15 UI 审计：55 字段仅展示 21、llmDecisionPill 埋页尾 9-pill 堆 |
+| **23** | **2.12.1** | **🛡️ 结构修复**：seqlock 停更看门狗（同帧停滞 >5s → SM64⛔ FROZEN 红色脉冲徽章）；启动契约 setsid 固化（consolidate.sh + agent.md/README.md 警示）| SM64 被托管后台 job 连带 kill → 桥冻结 → 仪表板静默卡死（事后分析发现）|
 
 进化迭代历史在仪表板实时可见（`/evolution.json`：Brain 版本徽章、EVO 计数、每轮能力列表）。
 
-> 当前版本：BRAIN_VERSION **2.12.0** / SKILL_VERSION **3.0.0**（R13 转圈死循环修复 → R15 悬崖对峙 → R16 震荡突破+skill 层复明+常驻 EVO → R17 MBON 稳态缩放+breakout_hint → R18 DAN 塑形 → R19 躁动电流+识别→行为闭环）。
+> 当前版本：BRAIN_VERSION **2.12.1** / SKILL_VERSION **3.0.0**（R19 躁动电流+识别→行为闭环 → R20 P1 神经接管删代码旁路 → R21 Coach Advice 端到端闭环 → R22 监控界面 P0+P1 优化 → R23 seqlock 停更看门狗+启动契约固化）。
 
 ## 二期门禁：12 小时稳定自动聘雇（2026-09-14 决策）
 
