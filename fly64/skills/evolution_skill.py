@@ -14,7 +14,7 @@ Key features:
 
 from __future__ import annotations
 
-import json, math, os, sys, time, argparse, textwrap, urllib.request, urllib.error
+import json, math, os, re, sys, time, argparse, textwrap, urllib.request, urllib.error
 from collections import deque
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
@@ -36,8 +36,124 @@ DASHBOARD_BASE = "http://127.0.0.1:8765"
 FIX_CATALOG_PATH = SKILL_DIR / "fix_catalog.json"
 DEFAULT_PATTERNS_PATH = SKILL_DIR / "default_patterns.json"
 EVOLUTION_LOG_PATH = SKILL_DIR / "evolution_log.jsonl"
+EVOLUTION_HISTORY_PATH = SKILL_DIR / "evolution_history.json"
 SKILL_README_PATH = SKILL_DIR / "README.md"
 FIX_LOG_PATH = SKILL_DIR / "fix_log.json"
+
+
+class EvolutionHistory:
+    """Canonical evolution record store (evolution_history.json).
+
+    Mandatory-record contract (agent.md rule 15): every brain/skill evolution
+    (version bump, capability change, structural fix) MUST have a complete
+    record here — version, time, trigger, changes, tests, source.  The
+    resident skill loop auto-appends a compact ``brain_update`` record when it
+    observes a dashboard brain_version change; that auto record does NOT
+    exempt the human/agent from writing the full trigger/changes/tests entry.
+
+    Design: load-once / append-in-memory / atomic save.  Corrupt files are
+    quarantined (renamed .corrupt) and restarted rather than crashing the
+    loop — losing telemetry must never take down recording.
+    """
+
+    def __init__(self, path: Path = EVOLUTION_HISTORY_PATH):
+        self.path = path
+        self.records: list[dict] = []
+        self.canonical: dict = {}
+        self._seq = 0
+        self.load()
+
+    def load(self):
+        if not self.path.exists():
+            return
+        try:
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+            self.records = data.get("records", [])
+            self.canonical = data.get("canonical_versions", {})
+            self._seq = len([r for r in self.records if str(r.get("id", "")).startswith("AUTO-")])
+        except Exception:
+            try:
+                self.path.rename(self.path.with_suffix(".json.corrupt"))
+            except Exception:
+                pass
+            self.records, self.canonical, self._seq = [], {}, 0
+
+    def save(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps({
+            "$schema": "fly64/evolution-history/1.0",
+            "canonical_versions": self.canonical,
+            "records": self.records,
+        }, indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(self.path)
+
+    def _next_id(self) -> str:
+        self._seq += 1
+        return f"AUTO-{self._seq:04d}"
+
+    def append(self, record: dict) -> dict:
+        rec = {"id": record.get("id") or self._next_id(),
+               "recorded_at": datetime.now(timezone.utc).isoformat()}
+        rec.update(record)
+        self.records.append(rec)
+        self.save()
+        return rec
+
+    def record_brain_version(self, new_version: str, old_version,
+                             reason: str = "dashboard brain_version change",
+                             source: str = "resident skill loop") -> Optional[dict]:
+        """Auto-record a brain model version change (deduped on last known)."""
+        last_brain = self.canonical.get("brain")
+        if new_version == last_brain or new_version == old_version:
+            return None
+        rec = self.append({
+            "id": self._next_id(),
+            "kind": "brain_update_auto",
+            "round": None,
+            "brain_version": new_version,
+            "previous_version": old_version,
+            "skill_version": SKILL_VERSION,
+            "trigger": reason,
+            "changes": ["(auto-recorded version change — full trigger/changes/tests "
+                        "entry REQUIRED from the evolving agent, agent.md rule 15)"],
+            "tests": None,
+            "source": source,
+        })
+        self.canonical["brain"] = new_version
+        self.canonical["as_of"] = rec["recorded_at"]
+        self.save()
+        return rec
+
+    def record_fix(self, fix_entry, finding) -> dict:
+        return self.append({
+            "kind": "skill_fix",
+            "round": None,
+            "brain_version": self.canonical.get("brain"),
+            "skill_version": SKILL_VERSION,
+            "fix_id": fix_entry.id,
+            "pattern_id": finding.pattern_id,
+            "severity": finding.severity,
+            "trigger": finding.diagnosis,
+            "changes": [fix_entry.fix_template.split("\n")[0] if fix_entry.fix_template else ""],
+            "current_values": finding.current_values,
+            "baseline": {"stuck": fix_entry.baseline_stuck, "coverage": fix_entry.baseline_coverage},
+            "source": "resident skill loop (auto_fix)",
+        })
+
+    def record_verification(self, result) -> Optional[dict]:
+        for rec in reversed(self.records):
+            if rec.get("kind") == "skill_fix" and rec.get("fix_id") == result.fix_id:
+                rec["verification"] = {
+                    "passed": result.passed,
+                    "effectiveness_score": result.effectiveness_score,
+                    "stuck_reduction_pct": result.stuck_reduction_pct,
+                    "observed_seconds": result.observation_seconds,
+                    "verified_at": datetime.now(timezone.utc).isoformat(),
+                }
+                self.save()
+                return rec
+        return None
 
 PATTERN_SCHEMA = {
     "$schema": "http://json-schema.org/draft-07/schema#",
@@ -253,6 +369,7 @@ class SensorSample:
     danger_red_index: float = 0.0
     target_count: int = 0
     assoc_count: int = 0
+    mb_mbon_forward: float = 0.0
     loop_score: float = 0.0
     emd_on_down: float = 0.0
     tau: Optional[float] = None
@@ -377,6 +494,7 @@ class DataCollector:
             emd_on_down=float(flow.get("emd_on_down", 0.0)),
             target_count=int(flow.get("target_count", 0) or 0),
             assoc_count=int(flow.get("mb_assoc_count", 0) or 0),
+            mb_mbon_forward=float(flow.get("mb_mbon_forward", 0.0) or 0.0),
             loop_score=float(memory.get("loop_score", 0.0)),
             cliff_confirmed=bool(flow.get("cliff_confirmed", False)),
             tau=flow.get("tau"),
@@ -471,6 +589,7 @@ class DataCollector:
                 emd_on_down=s.emd_on_down,
                 target_count=s.target_count,
                 assoc_count=s.assoc_count,
+                mb_mbon_forward=s.mb_mbon_forward,
                 cliff_standoff_s=s.cliff_standoff_s,
                 # ── EVO R17: control-derived condition fields (closes telemetry_gap) ──
                 control_magnitude=abs(s.control[0]) + abs(s.control[1]),
@@ -974,6 +1093,29 @@ class EvolutionPipeline:
         self.fix_catalog = FixCatalog(path=fix_catalog_path)
         self.verification_engine = VerificationEngine(self.collector, self.fix_catalog, window=verification_window)
         self.documenter = SelfDocumenter(self.fix_catalog, readme_path, pattern_catalog=self.pattern_catalog)
+        self.history = EvolutionHistory()
+        self._last_brain_version: Optional[str] = self.history.canonical.get("brain")
+
+    def check_brain_version(self, flow: Optional[dict]) -> Optional[dict]:
+        """Detect a dashboard brain_version change and auto-record it.
+
+        First observation in a process lifetime only primes the tracker
+        (no record) — the canonical file is the source of truth for what
+        has already been recorded.
+        """
+        if not flow:
+            return None
+        v = flow.get("brain_version")
+        if not v:
+            return None
+        if self._last_brain_version is None:
+            self._last_brain_version = v
+            return None
+        if v == self._last_brain_version:
+            return None
+        rec = self.history.record_brain_version(v, self._last_brain_version)
+        self._last_brain_version = v
+        return rec
 
     def run_one_cycle(self, bridge=None, memory=None, flow=None) -> CycleResult:
         result = CycleResult()
@@ -983,6 +1125,14 @@ class EvolutionPipeline:
             if not all([bridge, memory, flow]):
                 result.errors.append("Data unavailable"); return result
             self.collector.sample(bridge, memory, flow, t)
+            try:
+                bv = self.check_brain_version(flow)
+                if bv:
+                    result.errors.append(
+                        f"Brain version change recorded: {bv.get('previous_version')} -> {bv.get('brain_version')} "
+                        f"(evolution_history.json {bv.get('id')})")
+            except Exception as e:
+                result.errors.append(f"History: {e}")
         except Exception as e: result.errors.append(f"Monitor: {e}"); return result
         try: result.findings = self.diagnosis_engine.evaluate()
         except Exception as e: result.errors.append(f"Diagnose: {e}"); return result
@@ -992,10 +1142,19 @@ class EvolutionPipeline:
                     entry = self.fix_catalog.record_fix(f)
                     self.verification_engine.start(entry)
                     result.applied_fixes.append(entry)
+                    try:
+                        self.history.record_fix(entry, f)
+                    except Exception as e:
+                        result.errors.append(f"History: {e}")
         except Exception as e: result.errors.append(f"Fix: {e}")
         try:
             v = self.verification_engine.tick()
-            if v: result.verifications.append(v)
+            if v:
+                result.verifications.append(v)
+                try:
+                    self.history.record_verification(v)
+                except Exception as e:
+                    result.errors.append(f"History: {e}")
         except Exception as e: result.errors.append(f"Verify: {e}")
         try:
             s = self.documenter.cycle_summary(result.findings, result.verifications)
@@ -1045,7 +1204,26 @@ def main():
     p.add_argument("--window", type=int, default=120)
     p.add_argument("--verify-window", type=int, default=60)
     p.add_argument("--patterns", type=str)
+    p.add_argument("--history-check", action="store_true",
+                   help="Print canonical evolution versions + last records and validate "
+                        "against main.py BRAIN_VERSION (agent.md rule 15 enforcement).")
     args = p.parse_args()
+
+    if args.history_check:
+        hist = EvolutionHistory()
+        print(json.dumps(hist.canonical, ensure_ascii=False, indent=2))
+        for r in hist.records[-5:]:
+            print(json.dumps({k: r.get(k) for k in
+                              ("id", "recorded_at", "kind", "round", "brain_version",
+                               "trigger")}, ensure_ascii=False))
+        brain = re.search(r'BRAIN_VERSION\s*=\s*"([^"]+)"',
+                          (SKILL_DIR.parent / "fly64" / "main.py").read_text(encoding="utf-8"))
+        live = brain.group(1) if brain else None
+        canon = hist.canonical.get("brain")
+        ok = (live == canon)
+        print(f"BRAIN_VERSION(main.py)={live}  history.canonical.brain={canon}  "
+              f"{'OK' if ok else 'MISMATCH — append a record to evolution_history.json (agent.md rule 15)'}")
+        sys.exit(0 if ok else 1)
 
     resident = args.max_iterations <= 0
     print(f"Fly64 EvolutionSkill v{SKILL_VERSION}"

@@ -1,0 +1,661 @@
+{
+  "$schema": "fly64/evolution-history/1.0",
+  "canonical_versions": {
+    "brain": "2.13.3",
+    "skill": "3.0.0",
+    "as_of": "2026-09-15T21:01:28.080827+08:00"
+  },
+  "records": [
+    {
+      "id": "EVO-001",
+      "date": "2026-09-12",
+      "round": "R1",
+      "kind": "brain",
+      "brain_version": "1.0.0",
+      "skill_version": null,
+      "trigger": "无障碍平地上原地转圈（circle_loop）",
+      "changes": [
+        "circle_loop 地形门控：ground_angle 门控悬崖反射，平地不触发"
+      ],
+      "tests": "能力回归（早期 test_evolution_capability）",
+      "deployed": true,
+      "source": "agent.md/README 轮次表"
+    },
+    {
+      "id": "EVO-002",
+      "date": "2026-09-12",
+      "round": "R2",
+      "kind": "brain",
+      "brain_version": "1.0.x",
+      "skill_version": null,
+      "trigger": "斜坡卡死",
+      "changes": [
+        "斜坡脱困覆盖"
+      ],
+      "tests": "能力回归",
+      "deployed": true,
+      "source": "agent.md/README 轮次表"
+    },
+    {
+      "id": "EVO-003",
+      "date": "2026-09-13",
+      "round": "R3",
+      "kind": "brain",
+      "brain_version": "1.1.0",
+      "skill_version": null,
+      "trigger": "墙角视觉盲区卡死",
+      "changes": [
+        "伴发放电比较器（corollary discharge，视觉盲区补偿）"
+      ],
+      "tests": "能力回归",
+      "deployed": true,
+      "source": "agent.md/README 轮次表"
+    },
+    {
+      "id": "EVO-004",
+      "date": "2026-09-13",
+      "time": "15:28 +0800",
+      "round": "R4",
+      "kind": "brain",
+      "brain_version": "1.2.0",
+      "skill_version": null,
+      "trigger": "钥匙门提示场景；进化过程需仪表板可见",
+      "changes": [
+        "进化迭代展示 /evolution.json + 仪表板徽章",
+        "双区对话检测 + 场景命名 v2 + 全监控"
+      ],
+      "tests": "13 项回归",
+      "deployed": true,
+      "source": "commit dfd0e75"
+    },
+    {
+      "id": "EVO-005",
+      "date": "2026-09-13",
+      "time": "18:39 +0800",
+      "round": "R5",
+      "kind": "brain",
+      "brain_version": "1.3.0",
+      "skill_version": null,
+      "trigger": "上置提示框（钥匙门第二形态）重复交互",
+      "changes": [
+        "交互习惯化制度化（3 次无奖励→抑制 2 分钟并远离）",
+        "上置框双区检测"
+      ],
+      "tests": "16 项回归",
+      "deployed": true,
+      "source": "commit e1a6663"
+    },
+    {
+      "id": "EVO-006",
+      "date": "2026-09-13",
+      "time": "19:19 +0800",
+      "round": "R6",
+      "kind": "brain",
+      "brain_version": "1.4.0",
+      "skill_version": null,
+      "trigger": "固定 10s 反射冷却在长时间卡住下失效；fallen 恢复固定左转失败",
+      "changes": [
+        "自适应反射冷却 max(0.25, 1-stuck/120)，越卡越短下限 25%",
+        "坠落恢复初始方向随机化（镜像交替保留）"
+      ],
+      "tests": "capability 16→19 全绿",
+      "deployed": true,
+      "source": "commit 7a2baa0"
+    },
+    {
+      "id": "EVO-007",
+      "date": "2026-09-13",
+      "round": "R7",
+      "kind": "brain",
+      "brain_version": "2.0.0",
+      "skill_version": null,
+      "trigger": "FlyWire MaleCNS 差距分析：视觉覆盖 38% 过低",
+      "changes": [
+        "P1a 颜色/UV 视觉（danger_red/sky_blue）",
+        "P1b 4方向 EMD",
+        "P2 小目标追踪（中心-周边+卡尔曼+匈牙利匹配）",
+        "P3 多巴胺蘑菇体学习（2000 KC/5 MBON）",
+        "35 新信号，覆盖 38%→90%"
+      ],
+      "tests": "179/179 核心通过",
+      "deployed": true,
+      "source": "agent.md R7 章节"
+    },
+    {
+      "id": "EVO-008",
+      "date": "2026-09-13",
+      "time": "~22:03 +0800",
+      "round": "R8",
+      "kind": "brain",
+      "brain_version": "2.1.0",
+      "skill_version": "2.5.0",
+      "trigger": "brightness-not-flow：亮度差被误当运动",
+      "changes": [
+        "T4/T5 式 HRC 方向选择运动检测",
+        "LC4 looming 种群",
+        "自适应相关接入碰撞规避"
+      ],
+      "tests": "README 同步轮（71caeff）",
+      "deployed": true,
+      "source": "agent.md R8 章节 + commit 71caeff"
+    },
+    {
+      "id": "EVO-009",
+      "date": "2026-09-13",
+      "time": "22:35 +0800",
+      "round": "R9 制度化",
+      "kind": "infra",
+      "brain_version": null,
+      "skill_version": null,
+      "trigger": "R8 事故：合成模式 consolidate 静默断开游戏视觉",
+      "changes": [
+        "scripts/consolidate.sh 智能重启制度化（检测游戏进程→全模式+brain_version 校验）",
+        "诊断工具（ws_probe/eye frame dump/bridge checker/evo cycle runner）"
+      ],
+      "tests": null,
+      "deployed": true,
+      "source": "commit 9a3d6fa"
+    },
+    {
+      "id": "EVO-010",
+      "date": "2026-09-13",
+      "time": "23:25 +0800",
+      "round": "R9",
+      "kind": "brain",
+      "brain_version": "2.2.0",
+      "skill_version": "2.6.0",
+      "trigger": "室内场景被识别为天空·山坡（天花板灯/格纹误判）",
+      "changes": [
+        "retina enclosure_score 围闭度 + upper_blue 蓝色主导度",
+        "sky_score 蓝色门控 min(1,upper_blue×4)",
+        "terrain 新增 indoor 类 + 场景名室内标签"
+      ],
+      "tests": "test_retina +3",
+      "deployed": true,
+      "source": "commit 1f12cf0"
+    },
+    {
+      "id": "EVO-011",
+      "date": "2026-09-14",
+      "time": "03:20 +0800",
+      "round": "R10",
+      "kind": "brain",
+      "brain_version": "2.3.0",
+      "skill_version": "2.7.0",
+      "trigger": "497.9s micro_loop 零位移事件；bold 门控用全局 visited_cells<20 在老地图永不触发",
+      "changes": [
+        "local_breakout：micro_loop 持续>60s 也触发 forced_bold_explore",
+        "bold 期间覆盖活跃反射",
+        "decision_source=bold_explore 归因"
+      ],
+      "tests": "capability 31→35 全绿",
+      "deployed": true,
+      "source": "commit 322208f"
+    },
+    {
+      "id": "EVO-012",
+      "date": "2026-09-14",
+      "time": "11:06 +0800",
+      "round": "MHR-1",
+      "kind": "brain",
+      "brain_version": "2.4.0",
+      "skill_version": null,
+      "trigger": "对话场景需要 LLM 按键决策",
+      "changes": [
+        "plugin 对话 LLM 决策（press_a/b/none，600s 上限）",
+        "main.py 对话暂停等待状态机",
+        "bridge/model B 键传输",
+        "flow.json llm_decision 字段"
+      ],
+      "tests": "test_plugin_mhr 28 + test_dialogue_llm_decision 31",
+      "deployed": true,
+      "source": "commit 1d00cac"
+    },
+    {
+      "id": "EVO-013",
+      "date": "2026-09-14",
+      "time": "11:28 +0800",
+      "round": "R11",
+      "kind": "brain",
+      "brain_version": "2.5.0",
+      "skill_version": "2.8.0",
+      "trigger": "escape_x 随机方向导致逃逸无效；撞墙行为需网络自行学习",
+      "changes": [
+        "方向性开口信号注入转向池电流（LIF 竞争决策突围方向，取代随机 escape_x）",
+        "report_movement() 位移多巴胺 API（零位移=惩罚）",
+        "退役低置信悬崖符号转向分支"
+      ],
+      "tests": "46 green",
+      "deployed": true,
+      "source": "commit fa0b1b3"
+    },
+    {
+      "id": "EVO-014",
+      "date": "2026-09-14",
+      "time": "21:12 +0800",
+      "round": "R11 完成",
+      "kind": "brain",
+      "brain_version": "2.6.1",
+      "skill_version": "2.9.1",
+      "trigger": "coach 策略键为死写入无消费者",
+      "changes": [
+        "bold_explore_stuck_s→micro_loop 突破阈值",
+        "turn_bias→bold 转向幅度",
+        "escape.stuck_threshold_s→时长型逃脱条件（热重载）"
+      ],
+      "tests": "R11 接线复验",
+      "deployed": true,
+      "source": "commit ebe37cc"
+    },
+    {
+      "id": "EVO-015",
+      "date": "2026-09-14",
+      "time": "~13:00 +0800",
+      "round": "R12",
+      "kind": "infra",
+      "brain_version": "2.6.0",
+      "skill_version": "2.9.0",
+      "trigger": "10s 循环依赖 DSH 会话，会话结束即停——自治不能依赖外部会话",
+      "changes": [
+        "plugin/service.py 常驻服务（健康自检/心跳/LLM 双传输降级 local_diagnosis）",
+        "plugin/watchdog.sh 存活监控",
+        "consolidate.sh 连带重启自治循环"
+      ],
+      "tests": "test_service 10 + autonomy_regression 13",
+      "deployed": true,
+      "source": "agent.md R12 章节"
+    },
+    {
+      "id": "EVO-016",
+      "date": "2026-09-14",
+      "time": "15:15 +0800",
+      "round": "R12 follow-up",
+      "kind": "brain",
+      "brain_version": "2.6.0",
+      "skill_version": null,
+      "trigger": "反射活跃掩盖真实卡死（497.9s/0u 事件类）：help 判定被 reflex_active 短路",
+      "changes": [
+        "reflex_ineffective 判据：反射活跃但 60s 位移<30u → 判无效",
+        "check_help_needed 升级 help_reason=reflex_ineffective_stuck"
+      ],
+      "tests": "4 PIN + 24 autonomy green",
+      "deployed": true,
+      "source": "commit ce56cb2"
+    },
+    {
+      "id": "EVO-017",
+      "date": "2026-09-14",
+      "round": "R13a",
+      "kind": "brain",
+      "brain_version": "2.6.1",
+      "skill_version": "2.9.1",
+      "trigger": "stuck=1063s/micro_loop 973s/loop_score 病态 104.9——自适应冷却触底引发反射风暴死循环",
+      "changes": [
+        "loop_score 精确滚动窗口计数（修复病态值）",
+        "micro_loop 重触发位移<30u 镜像翻转转向（自发交替）"
+      ],
+      "tests": "test_spin_loop_fix 7/7",
+      "deployed": true,
+      "source": "agent.md R13 章节",
+      "notes": "与 EVO-018 并发会话双编号 Round 13"
+    },
+    {
+      "id": "EVO-018",
+      "date": "2026-09-14",
+      "time": "21:42 +0800",
+      "round": "R13b",
+      "kind": "brain",
+      "brain_version": "2.7.0",
+      "skill_version": "3.0.0",
+      "trigger": "对话暂停场景缺乏可观测性与负反馈学习",
+      "changes": [
+        "对话暂停等待场景标签（对话暂停等待 #hash）",
+        "蘑菇体挫折多巴胺 add_setback（PPL1 样负 DA）",
+        "llm_consult 自加载 plugin/llm.env",
+        "memory.json 增 dialogue_active/scene_label"
+      ],
+      "tests": "5 PIN，70+ green",
+      "deployed": true,
+      "source": "commit e130693",
+      "notes": "双编号 Round 13 之二；SKILL 3.0.0 由此起"
+    },
+    {
+      "id": "EVO-019",
+      "date": "2026-09-14",
+      "time": "22:03 +0800",
+      "round": "P1 接管",
+      "kind": "brain",
+      "brain_version": "2.8.0",
+      "skill_version": "3.0.0",
+      "trigger": "双轨旁路：main.py ~35 处直接改写 control，五大神经基质被旁路",
+      "changes": [
+        "删除 11 处 A 类 Python 旁路（A1-A9/B10/C10）",
+        "行为决策回归 LIF 网络",
+        "decision_source 移除 collision/bold_explore（剩 6 级）"
+      ],
+      "tests": "355 passed / 25 failed 与 HEAD 基线一致零新增",
+      "deployed": true,
+      "source": "commit 1c30a17"
+    },
+    {
+      "id": "EVO-020",
+      "date": "2026-09-14",
+      "time": "22:35 +0800",
+      "round": "R14/R15",
+      "kind": "brain",
+      "brain_version": "2.9.0",
+      "skill_version": "3.0.0",
+      "trigger": "恒向转圈→原地编织；悬崖边缘对峙驻留（EscapeSkill findings=0）",
+      "changes": [
+        "TurnAdaptation 自发交替 + MB 异常镜像（R14）",
+        "FailureMemory 最近失败向量 + cliff_standoff 计时 + 切向绕行电流 + DAN 对峙惩罚（R15）",
+        "pattern 新增 cliff_standoff"
+      ],
+      "tests": "test_cliff_standoff 9/9",
+      "deployed": true,
+      "source": "commits 6a6f798 + agent.md R15",
+      "notes": "R14/R15 并发编号指向同一版本窗口"
+    },
+    {
+      "id": "EVO-021",
+      "date": "2026-09-14",
+      "time": "22:57 +0800",
+      "round": "t13",
+      "kind": "brain",
+      "brain_version": "2.9.1",
+      "skill_version": "3.0.0",
+      "trigger": "Coach Advice 四环节三处不生效（死键/触发窄/prompt 语义/HTTP 400）",
+      "changes": [
+        "bold_turn_bias 接入转向池电流（钳位 0.2-1.0）",
+        "persistent_anomaly_stuck 放宽触发",
+        "prompt 策略参数语义卡",
+        "裸 RGB→PNG 编码根修 400"
+      ],
+      "tests": "TestCoachAdviceEffectiveness 6 用例",
+      "deployed": true,
+      "source": "commit 6ea8ff2"
+    },
+    {
+      "id": "EVO-022",
+      "date": "2026-09-14",
+      "time": "23:56 +0800",
+      "round": "R16",
+      "kind": "brain+skill",
+      "brain_version": "2.10.0",
+      "skill_version": "3.0.0",
+      "trigger": "交替把转圈变成原地编织（缺 forward 突破）；flow.json 缺 5 个因果键致 skill 检测永不命中；字段缺失被静默跳过",
+      "changes": [
+        "TurnAdaptation.breakout_drive 振荡→forward 突破电流",
+        "flow_json 暴露 decision_source/cliff_conf/门控/hrc_*/mb_*",
+        "DiagnosisEngine 显式 telemetry_gap finding",
+        "pattern 新增 micro_loop_weave/cliff_standoff",
+        "常驻 EVO 循环 --max-iterations 0",
+        "SceneRecognizer 在线校准+unknown 记账"
+      ],
+      "tests": "384 passed 零新增失败",
+      "deployed": true,
+      "source": "commit 6e1751b"
+    },
+    {
+      "id": "EVO-023",
+      "date": "2026-09-15",
+      "time": "00:17 +0800",
+      "round": "t16",
+      "kind": "brain+skill",
+      "brain_version": "2.10.1",
+      "skill_version": "3.0.0",
+      "trigger": "t15 监控布局分析发现的 P0 可见性缺口",
+      "changes": [
+        "header 状态胶囊条（brainVer/evoIter/health/anomaly/help/llmDecision）",
+        "/active_strategy.json 端点 + Coach Strategy Consumption 面板",
+        "对话暂停因果卡 + 800px 单列断点"
+      ],
+      "tests": "dashboard js/protocol 8/8",
+      "deployed": true,
+      "source": "commit 5a7a845"
+    },
+    {
+      "id": "EVO-024",
+      "date": "2026-09-15",
+      "time": "00:48 +0800",
+      "round": "R17",
+      "kind": "brain+skill",
+      "brain_version": "2.11.0",
+      "skill_version": "3.0.0",
+      "trigger": "mb_mbon_forward=1.0 饱和（正 DA 再膨胀 vs 稳态缩放平衡点贴顶）；anomaly_reflex 改写 control 使 breakout 电流无法体现",
+      "changes": [
+        "MBON 饱和稳态突触缩放（50 帧 |tanh|≥0.98 → 该柱 ×0.9）",
+        "breakout_hint 反射相位混合（脑编织检测调制 micro_loop 反射相位预算）",
+        "pattern 新增 mbon_saturation"
+      ],
+      "tests": "test_mbon_saturation 6/6，全量 384 passed",
+      "deployed": true,
+      "source": "commit 7c8802a"
+    },
+    {
+      "id": "EVO-025",
+      "date": "2026-09-15",
+      "time": "08:31 +0800",
+      "round": "R18",
+      "kind": "brain",
+      "brain_version": "2.11.x",
+      "skill_version": "3.0.0",
+      "trigger": "R17 后正多巴胺再膨胀与稳态缩放平衡点仍在天花板；探索奖励 0.5 持续 +DA 是膨胀主因",
+      "changes": [
+        "DAN 信号塑形：多巴胺权重提升为类常量 DAN_*（探索 0.50→0.30 等 8 项），单点调参"
+      ],
+      "tests": "test_dan_shaping 5/5",
+      "deployed": true,
+      "source": "commit 70261d1"
+    },
+    {
+      "id": "EVO-026",
+      "date": "2026-09-15",
+      "time": "09:01 +0800",
+      "round": "R19",
+      "kind": "brain",
+      "brain_version": "2.12.0",
+      "skill_version": "3.0.0",
+      "trigger": "熔岩地悬崖边驻留 61s：识别结果未驱动行为、静息状态 breakout 电流失效（TurnAdaptation 只响应转弯）",
+      "changes": [
+        "restlessness_level：对峙/环路压力累积为 forward 躁动电流（×0.12 spike 前注入）",
+        "scene_recognition danger_level：识别 danger/lava → forward 谨慎抑制 −0.06（识别→行为闭环）",
+        "flow.json 增 fg_fraction/mb_weight_std/mb_saturation_events"
+      ],
+      "tests": "test_restlessness 6/6",
+      "deployed": true,
+      "source": "commit f5e859a"
+    },
+    {
+      "id": "EVO-027",
+      "date": "2026-09-15",
+      "time": "13:09 +0800",
+      "round": "t19",
+      "kind": "infra",
+      "brain_version": "2.12.1",
+      "skill_version": "3.0.0",
+      "trigger": "SM64 被连带 kill 后桥停更，视觉画布静默冻结且无监护",
+      "changes": [
+        "bridge.py SeqlockWatchdog：同一 even seq 停滞>5s → stale",
+        "flow.json 增 bridge_stale",
+        "仪表板红色 SM64⛔ FROZEN 徽章"
+      ],
+      "tests": "test_seqlock_watchdog 9/9",
+      "deployed": true,
+      "source": "commit 50d22ae"
+    },
+    {
+      "id": "EVO-028",
+      "date": "2026-09-15",
+      "time": "13:05-14:30 +0800",
+      "round": "t18+R20",
+      "kind": "brain+infra",
+      "brain_version": "2.13.0",
+      "skill_version": "3.0.0",
+      "trigger": "启动契约事故（托管 job 连带 kill）；CX 罗盘是外部航向副本、零路径积分、目标向量单源",
+      "changes": [
+        "t18：setsid nohup 启动契约固化（consolidate.sh/agent.md/README）",
+        "R20 CX-1 罗盘自主化：自运动 bump 积分+天空方位软校正",
+        "R20 CX-3 多源目标向量竞争（novelty+覆盖空隙质心+反失败格+锚点返回）"
+      ],
+      "tests": "CX PIN 用例",
+      "deployed": true,
+      "source": "commits 654b436/a09555b/2c5ae94"
+    },
+    {
+      "id": "EVO-029",
+      "date": "2026-09-15",
+      "time": "15:29 +0800",
+      "round": "t20",
+      "kind": "skill",
+      "brain_version": "2.13.1",
+      "skill_version": "3.0.0",
+      "trigger": "教练介入太晚：120s 阈值下马里奥已深陷",
+      "changes": [
+        "plugin STUCK_HELP_THRESHOLD 120→60s"
+      ],
+      "tests": "阈值边界 3 用例，472 passed",
+      "deployed": true,
+      "source": "commit 0f953f1"
+    },
+    {
+      "id": "EVO-030",
+      "date": "2026-09-15",
+      "time": "15:44 +0800",
+      "round": "t21",
+      "kind": "skill",
+      "brain_version": "2.13.2",
+      "skill_version": "3.0.0",
+      "trigger": "无法验证 GLM 是否真在读屏；屏幕文字语义丢失",
+      "changes": [
+        "prompt 增读屏指令 what_i_see（逐条列出可见文字）",
+        "parse/sanitize/落盘全链路透传",
+        "Coach 面板 advice 增 👁 屏幕 行"
+      ],
+      "tests": "TestWhatISee 6 用例，478 passed",
+      "deployed": true,
+      "source": "commit e61a402"
+    },
+    {
+      "id": "EVO-031",
+      "date": "2026-09-15",
+      "time": "15:52 +0800",
+      "round": "t21 收尾",
+      "kind": "skill",
+      "brain_version": "2.13.3",
+      "skill_version": "3.0.0",
+      "trigger": "回溯无法知道教练当时看到了什么画面",
+      "changes": [
+        "save_consult_frame：consult 前帧留存 runtime/coach_frames/coach_{ts}_{reason}.png",
+        "非 PNG 魔数拒绝"
+      ],
+      "tests": "TestConsultFrameSnapshot 4 用例，482 passed",
+      "deployed": true,
+      "source": "commit c74f883"
+    },
+    {
+      "id": "EVO-032",
+      "date": "2026-09-15",
+      "time": "16:44 +0800",
+      "round": "R21",
+      "kind": "brain+skill",
+      "brain_version": "2.13.3",
+      "skill_version": "3.0.0",
+      "trigger": "runner 读 scene_name 但 memory_json 只有 scene_label；面板看不到 fallen_recovery 策略细节",
+      "changes": [
+        "memory_json 增 scene_name 键",
+        "updateCoachStrategy 渲染 fallen_recovery mode/climb_period/persist_seconds"
+      ],
+      "tests": null,
+      "deployed": true,
+      "source": "commit 7559761",
+      "notes": "当前 HEAD"
+    },
+    {
+      "id": "EVO-033",
+      "date": "2026-09-15",
+      "time": "21:01:28 +0800",
+      "round": "R22-skill",
+      "kind": "skill",
+      "brain_version": "2.13.3",
+      "skill_version": "3.0.0",
+      "trigger": "并发会话致记录源三处矛盾（README 停在 R17/v2.11.0、skills.md 版本行过期、轮次双编号）；且 resident loop 首轮即以 telemetry_gap 自诊断抓到真实回归：mbon_saturation pattern 所需 mb_mbon_forward 未被 skill 采集层映射（main.py 已暴露，skill 漏收）；进化过程本身无强制记录载体",
+      "changes": [
+        "EvolutionHistory 记录器：brain_version 变化自动补录 brain_update_auto / record_fix / record_verification，损坏隔离+原子写出",
+        "--history-check 强制校验（canonical vs main.py BRAIN_VERSION，不一致非零退出）",
+        "回填 32 条权威轮次记录（R1→R21+t/MHR，含双编号 numbering_notes）",
+        "SensorSample/get_metrics 补 mb_mbon_forward 映射（telemetry_gap 归零）",
+        "agent.md 规则 15 进化记录强制契约 + skills.md RECORD 步骤与版本行修正 + README EVO 章节更新至 R1–21/v2.13.3"
+      ],
+      "tests": "tests/test_evolution_history.py 12/12；--history-check OK；check_version.py OK（2.13.3 三处一致）；live 实证 AUTO-0002=mbon_saturation 首次真实触发",
+      "source": "本次会话（记录契约实现 + 遥测补盲）"
+    },
+    {
+      "id": "AUTO-0001",
+      "recorded_at": "2026-09-15T11:14:24.706289+00:00",
+      "kind": "skill_fix",
+      "round": null,
+      "brain_version": "2.13.3",
+      "skill_version": "3.0.0",
+      "fix_id": "fix_0014",
+      "pattern_id": "telemetry_gap",
+      "severity": "low",
+      "trigger": "Patterns skipped because their condition fields are absent from telemetry: ['mb_mbon_forward'] (patterns: ['mbon_saturation']). Expose the keys in main.py flow_json so the patterns can evaluate.",
+      "changes": [
+        "# Expose missing condition keys in main.py flow_json/memory_json"
+      ],
+      "current_values": {
+        "missing_fields": [
+          "mb_mbon_forward"
+        ],
+        "patterns": [
+          "mbon_saturation"
+        ]
+      },
+      "baseline": {
+        "stuck": 74.16,
+        "coverage": 30.8
+      },
+      "source": "resident skill loop (auto_fix)",
+      "verification": {
+        "passed": false,
+        "effectiveness_score": 0.0,
+        "stuck_reduction_pct": 0,
+        "observed_seconds": 60.4,
+        "verified_at": "2026-09-15T11:15:25.131221+00:00"
+      }
+    },
+    {
+      "id": "AUTO-0002",
+      "recorded_at": "2026-09-15T11:39:39.163222+00:00",
+      "kind": "skill_fix",
+      "round": null,
+      "brain_version": "2.13.3",
+      "skill_version": "3.0.0",
+      "fix_id": "fix_0015",
+      "pattern_id": "mbon_saturation",
+      "severity": "medium",
+      "trigger": "forward MBON saturated at ceiling while behaviour still loops. The built-in homeostatic synaptic scaling should shrink the column; persistent saturation indicates the guard is not triggering or dopamine keeps re-inflating it.",
+      "changes": [
+        "# Verify homeostatic scaling in mushroom_body.py saturation guard"
+      ],
+      "current_values": {
+        "mb_mbon_forward": 0.9687,
+        "loop_score": 0.986,
+        "stuck_duration": 216.6
+      },
+      "baseline": {
+        "stuck": 216.6,
+        "coverage": 30.8
+      },
+      "source": "resident skill loop (auto_fix)",
+      "verification": {
+        "passed": false,
+        "effectiveness_score": 0.0,
+        "stuck_reduction_pct": 0,
+        "observed_seconds": 60.3,
+        "verified_at": "2026-09-15T11:40:39.507408+00:00"
+      }
+    }
+  ]
+}

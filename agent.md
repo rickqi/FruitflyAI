@@ -23,6 +23,7 @@
 12. **WSL↔Windows 双向同步是基本能力**：WSL `/root/fly64` 是运行时真实来源（并发进化会话可能直接推进 WSL 代码），Windows 仓库是版本化真实来源。每轮开始/结束运行 `fly64/tests/sync_inventory.sh` 盘点差异并回收（WSL→Windows 回收进化成果；Windows→WSL 下发修复）。PIN 测试断言**当前**实现形态——重构后同步更新 PIN，而不是回退代码
 13. **CPU 观察**：脑模型 CPU 持续 >600% 时，检查 HRC/EMD 计算的帧沿节流是否生效（compute_flow/compute_emd 仅应在 10Hz 帧沿执行）
 14. **stuck_ramp 高发地形（熔岩/斜坡）调参通道**：教官经 `escape.stuck_threshold_s` 热重载（active_strategy.json）调低 escape 触发秒数，无需改代码
+15. **进化记录强制契约（evolution_history.json，强制）**：每次脑模型/Skill 进化（版本递增、能力变更、结构性修复）**必须**向 `fly64/skills/evolution_history.json` 追加一条完整记录——`round`（轮次）、`date`/`time`（时间）、`kind`（brain/skill/infra）、`brain_version`/`skill_version`（版本）、`trigger`（触发原因）、`changes`（变更清单）、`tests`（回归结果）、`source`（commit 或文档出处）——并与 agent.md 变更日志、skills.md 轮次表三处同步。EvolutionSkill 常驻循环会自动检测仪表板 `brain_version` 变化并补录 `brain_update_auto` 记录，但**自动记录只含版本变化，不豁免完整记录义务**（原因/变更/测试必须由执行进化的 agent 人工补全）。校验：`python fly64/skills/evolution_skill.py --history-check` 必须 OK（比对 main.py `BRAIN_VERSION` 与 history canonical 版本，不一致即失败）。禁止无记录的版本递增
 
 ## 项目结构
 
@@ -67,7 +68,7 @@ D:\codes\flygym\
 
 | 组件 | 位置 | 状态 |
 |------|------|------|
-| 脑模型 | WSL 常驻 | **v2.12.0**（R19 躁动电流+识别→行为闭环）|
+| 脑模型 | WSL 常驻 | **v2.13.3**（R21 coach strategy visibility；历史全记录见 fly64/skills/evolution_history.json）|
 | SM64 游戏 | WSL PID # | 运行中 |
 | 仪表板 | http://127.0.0.1:8765/ | ✅ |
 | 3D 轨迹 | http://127.0.0.1:8765/trajectory.html | ✅ |
@@ -94,6 +95,21 @@ setsid nohup env FLY64_BRIDGE=/tmp/f64b_traj \
 ---
 
 # 变更日志
+
+## 2026-09-15: R22-skill — 进化记录强制契约落地（EvolutionHistory + 遥测补盲，Brain 2.13.3 不变）
+
+**触发**：①并发会话致记录源三处矛盾（README 停在 R17/v2.11.0、skills.md 版本行过期、轮次双编号）；②常驻循环首轮 telemetry_gap 自诊断抓到真实回归——`mbon_saturation` pattern 所需 `mb_mbon_forward` 在 main.py 已暴露但 skill 采集层漏收；③进化过程本身无强制记录载体。
+
+**变更**：
+- `skills/evolution_history.json`（新）：进化权威记录，回填 **32 条**（R1→R21 + t/MHR 全量，含双编号 `numbering_notes`）
+- `skills/evolution_skill.py`：`EvolutionHistory` 记录器——brain_version 变化自动补录 `brain_update_auto`、`record_fix`/`record_verification`、损坏隔离+原子写出；CLI `--history-check` 强制校验（canonical vs main.py，不一致非零退出）；SensorSample/get_metrics 补 `mb_mbon_forward` 映射（telemetry_gap 归零）
+- `agent.md` 规则 **15**：进化记录强制契约（完整记录义务 + 三处同步 + `--history-check` 必须 OK + 禁止无记录的版本递增）；`skills.md` RECORD 步骤与版本行（2.13.1→2.13.3）同步；README EVO 章节更新至 R1–21/v2.13.3 并新增"进化记录强制契约"小节
+
+**回归**：`tests/test_evolution_history.py` 12/12；`--history-check` OK；`check_version.py` OK（2.13.3 三处一致）。**live 实证**：AUTO-0002 = `mbon_saturation` 首次真实触发（forward MBON 饱和贴顶）——检测链路修复→pattern 复活→首次命中→自动记录，同一小时闭环。
+
+**版本**：Brain **2.13.3** 不变（本轮纯 skill/infra）；Skill 3.0.0。记录：`evolution_history.json` EVO-033。
+
+---
 
 ## 2026-09-14: t21 收尾补丁 — Brain v2.13.3（consult 截图快照留存 runtime/coach_frames/）
 

@@ -327,9 +327,10 @@ cat runtime/phase2_gate.json      # 连续稳定 ≥12h 后由 scripts/phase2_ga
 
 | 组件 | 说明 |
 |------|------|
-| `skills/evolution_skill.py` | **EVO v3.0.0**：Monitor→Diagnose→Fix→Verify→Document 五阶段闭环 + 常驻循环 + pattern 匹配 + fix 效果量化 |
+| `skills/evolution_skill.py` | **EVO v3.0.0**：Monitor→Diagnose→Fix→Verify→Document 五阶段闭环 + 常驻循环 + pattern 匹配 + fix 效果量化 + **`EvolutionHistory` 进化记录器**（脑模型版本变化自动补录 + fix/verification 记录 + `--history-check` 强制校验） | |
 | `skills/default_patterns.json` | pattern 目录（13 条，JSON Schema draft-07 校验），含 `telemetry_gap` 遥测自诊断 |
 | `skills/fix_catalog.json` · `skills/evolution_log.jsonl` | 修复条目（基线/结果/effective 判定）与逐轮执行日志 |
+| `skills/evolution_history.json` | **进化权威记录**：R1→R21 全部轮次的结构化档案（版本/时间/触发/变更/测试/来源，32 条），agent.md 规则 15 强制契约的数据载体 |
 | `skills/neural_viz_skill.py` | 离线因果链路分析技能（cliff 误报/门控抖动/preempt 风暴/信号→行动延迟检测 + Markdown 报告） |
 | `skills/evolution_agent.py` | 早期独立版进化 agent（监视→诊断→修复生成→效果跟踪）；现行主线为 `evolution_skill.py` |
 | `skills/skills.md` | EVO 操作手册（七步制度、pattern 细则、门禁与部署约定） |
@@ -759,7 +760,7 @@ Unlocated: 26,062 (15.6%)
 
 由此形成当前可观测的行为瓶颈：**锁门前 stuck→escape 死循环**（stuck 101s+，coverage 0%），逃脱逻辑在语义死角内无法自解。
 
-### 技能自我进化闭环（EVO Round 1–17，Brain v1.0.0 → v2.11.0，Skill v3.0.0）
+### 技能自我进化闭环（EVO Round 1–21，Brain v1.0.0 → v2.13.3，Skill v3.0.0）
 
 EvolutionSkill 具备**自我更新迭代**能力，七步循环已制度化：
 
@@ -793,6 +794,20 @@ python3 fly64/skills/evolution_skill.py --auto-fix --interval 10 --max-iteration
 ```
 
 > **修复语义**：`--auto-fix` 负责"记录 + 量化验证"，即把 pattern 的 `fix_template`（精确到文件与代码块）写入 catalog 并测量效果；**实际代码改动仍需按 fix_template 执行**（人工或 agent），brain 侧改动经重启（CONSOLIDATE）后生效——这正是"验证窗口横跨重启会导致 verdict 失效"这一已知口径问题的来源，跨会话的旧 fix 会被标记 `reverted` 以免污染有效率统计。
+
+**进化记录强制契约（`skills/evolution_history.json`，agent.md 规则 15）**：每次脑模型/Skill 进化必须产生一条完整结构化记录——版本、时间、触发原因、变更清单、测试、来源，全部留档：
+
+| 记录方式 | 内容 | 义务 |
+|---------|------|------|
+| **人工/agent（完整记录）** | 进化执行者写入 `round`/`date`/`time`/`kind`/`brain_version`/`skill_version`/`trigger`/`changes`/`tests`/`source` | **强制**，与 agent.md 变更日志、skills.md 轮次表三处同步 |
+| **自动记录（EvolutionSkill）** | 常驻循环检测到仪表板 `brain_version` 变化 → 自动追加 `brain_update_auto`（旧→新版本 + 时间）；fix 记录（`record_fix`）与验证结果（`record_verification`）也自动追加 | 自动记录只含版本变化，**不豁免完整记录义务** |
+
+```bash
+# 强制校验：canonical 版本 vs main.py BRAIN_VERSION，不一致即非零退出
+python3 fly64/skills/evolution_skill.py --history-check
+```
+
+当前记录含 **32 条权威轮次记录**（R1→R21 + t 系列 + MHR），含历史上并发会话造成的轮次双编号说明（`numbering_notes`）。PIN 回归：`tests/test_evolution_history.py`（12 用例：持久化/损坏恢复/版本变化去重/fix+verification 记录/schema 校验）。
 
 **近期新增 pattern**（R16/R17 + 遥测自诊断）：
 
@@ -830,6 +845,13 @@ python3 fly64/skills/evolution_skill.py --auto-fix --interval 10 --max-iteration
 | 17 | 2.11.0 | MBON 饱和稳态突触缩放（50 帧 `tanh` 绝对值 ≥0.98 → 该列 ×0.9）+ `breakout_hint` 反射相位混合（编织检测偏置 micro_loop 反射朝前冲爆发）+ `mbon_saturation` pattern | MBON 列饱和、输出贴顶学习停滞 |
 | 18 | 2.11.x | DAN 信号塑形：多巴胺权重常量化（`DAN_*` 单点调参），探索奖励 0.50→0.30 压低 forward MBON 饱和平衡点 | `mb_mbon_forward=1.0` 贴顶：正多巴胺再膨胀 vs 稳态缩放失衡 |
 | 19 | 2.12.0 | 躁动电流 `restlessness_level`（对峙秒数/环路压力 → forward 池驱动，逃逸动机随困留累积）+ 识别→行为闭环（danger 标签 → forward 谨慎抑制）+ 遥测小补（`fg_fraction`/`mb_weight_std`/`mb_saturation_events`）| 监控实况：识别"致命熔岩地"却驻留崖边 61s、novelty 枯竭、静息时突破电流失效 |
+| t19 | 2.12.1 | seqlock 停更看门狗（`SeqlockWatchdog`：桥 seq 停滞 >5s → `bridge_stale` + 仪表板 SM64⛔ FROZEN 徽章）| SM64 被连带 kill 后视觉画布静默冻结且无监护 |
+| 20 | 2.13.0 | CX 空间导航回路：CX-1 罗盘自主化（自运动 bump 积分 + 天空方位软校正）+ CX-3 多源目标向量竞争（novelty+覆盖空隙质心+反失败格+锚点返回 → FB 式向量合成）| CX 罗盘是外部航向副本、零路径积分、目标向量单源（novelty 枯竭→方向感归零）|
+| t18 | — | 启动契约固化：脑/SM64 必须 `setsid nohup` 脱离宿主 shell（consolidate.sh/agent.md/README 三处）| 托管后台 job 回收时游戏与大脑被连带 kill → 桥冻结（两次事故）|
+| t20 | 2.13.1 | 教练咨询阈值 120s→60s | 120s 阈值下马里奥已深陷，教练介入太晚 |
+| 21 | 2.13.2 | GLM 教练显式读屏 `what_i_see`（prompt 指令 + 解析 + advice "👁 屏幕"行全链路）| 无法验证教练是否真在看屏幕；屏幕文字语义丢失 |
+| 21 | 2.13.3 | consult 帧留存 `runtime/coach_frames/`（PNG 魔数校验）+ Coach Help 面板缩略图 + `/coach_frames` 端点 | 回溯无法知道教练当时看到了什么画面 |
+| 21 | 2.13.3 | coach strategy visibility：memory_json 补 `scene_name` 键 + 面板渲染 fallen_recovery mode/climb_period/persist_seconds | runner 读 scene_name 但 memory_json 只有 scene_label；策略细节不可见 |
 
 Round 4/5 正是**能力边界判定的实战示范**：钥匙门的"行为层"问题（反复撞门）属内生能力群 → skill 自己进化出双区检测+习惯化解决；而"语义层"问题（文字内容不可读、需要钥匙的任务理解）超出内生边界 → 走 SEEK-HELP 向教官层求助（Phase 4）。
 
@@ -884,7 +906,7 @@ Round 4/5 正是**能力边界判定的实战示范**：钥匙门的"行为层"�
 | 六级决策级联 | ✅ | 对话→悬崖反射→异常反射→逃脱→跳跃→神经转向，附 `decision_source` 归因审计（碰撞/突破分支已随 P1 神经接管退役，见上表注） |
 | 因果链路可视化 | ✅ | 决策解释卡/扇区叠加/时间轴/回放（本变更） |
 | 场景识别与命名 | ✅ | 分位特征 profile 匹配 + 在线校准 + `scene_label`（如"致命熔岩地 #f3f9"）/`scene_id`/`revisit_count` |
-| 技能自我进化闭环 | ✅ | 七步制度化循环（EXECUTE→DETECT→LEARN→PIN→VERSION→CONSOLIDATE→RECORD）+ v3.0.0 五阶段执行管线（Monitor→Diagnose→Fix→Verify→Document，13 条 pattern / 60s 效果验证 / `telemetry_gap` 自诊断 / 常驻循环），已完成 17 轮（Brain v1.0.0→v2.11.0，Skill v3.0.0），每轮能力经回归测试固化、重启生效、仪表板 `/evolution.json` 实时展示 |
+| 技能自我进化闭环 | ✅ | 七步制度化循环（EXECUTE→DETECT→LEARN→PIN→VERSION→CONSOLIDATE→RECORD）+ v3.0.0 五阶段执行管线（Monitor→Diagnose→Fix→Verify→Document，13 条 pattern / 60s 效果验证 / `telemetry_gap` 自诊断 / 常驻循环），已完成 21 轮（Brain v1.0.0→**v2.13.3**，Skill v3.0.0），每轮能力经回归测试固化、重启生效、仪表板 `/evolution.json` 实时展示；**进化记录强制契约**：全量逐轮记录见 `skills/evolution_history.json`（agent.md 规则 15） |
 | LLM 教官层（多模态） | ✅ | MHR 插件 10s 周期：求助判定 → GLM-5.3-flash 看帧咨询 → 策略热加载 + 仪表板展示；不可用时降级本地诊断 |
 | 自治常驻服务 | ✅ | `plugin/service.py` 心跳自检 + watchdog 自动重启 + `consolidate.sh` 联动；二期门禁要求连续稳定 ≥12h |
 | 社交寻助能力 | 🔧 制度化 | SEEK-HELP 分支 + 结构化求助单 + 社交三指标自训练（Skill v2.4.0 引入，随教官层插件落地，待实战触发） |

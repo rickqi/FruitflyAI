@@ -1503,11 +1503,21 @@ class FlyModel:
         if _rest > 0.0:
             self.v[self.forward] += _rest * 0.12
 
-        # EVO R19 · recognition → behaviour closure: a recognised DANGEROUS
+        # EVO R21 · recognition → behaviour closure: a recognised DANGEROUS
         # scene (lava/hell tags) suppresses forward drive — caution current.
         # Direction selection stays with the turn-pool competition.
         if self.scene_danger > 0.0:
             self.v[self.forward] -= self.scene_danger * 0.06
+
+        # EVO R22 · spontaneous forward recovery when learner helplessness
+        # has suppressed the forward MBON but the fly is still stuck.
+        # This provides a mild "trying again" current that decays quickly
+        # if movement produces no result, but may trigger forward once.
+        _stuck = getattr(self, "stuck_duration", 0.0)
+        _mb_fwd = getattr(self, "mb_mbon_forward", 0.0)
+        if _stuck > 30.0 and _mb_fwd < 0.05:
+            _rec = min(1.0, (_stuck - 30.0) / 30.0)
+            self.v[self.forward] += _rec * 0.08
 
         fired = self.v >= self.threshold
         self.v[fired] = self.reset

@@ -27,7 +27,12 @@ skill 具备**自我更新迭代**能力，通过受控进化循环固定能力�
                 在位 → 完整模式接游戏桥（读 FLY64_BRIDGE env）；无游戏 →
                 才回退 --synthetic。禁止无脑 --synthetic（EVO R8 事故教训：
                 synthetic 重启导致视觉输入与游戏画面静默断连）
-7. RECORD       agent.md 闭环总结 + 推送；仪表板 /evolution.json 实时展示
+7. RECORD       agent.md 闭环总结 + 推送；仪表板 /evolution.json 实时展示。
+                ⚠️ 强制（agent.md 规则 15）：同时向 skills/evolution_history.json
+                追加完整结构化记录（round/date/time/kind/brain_version/
+                skill_version/trigger/changes/tests/source）。常驻循环只自动
+                补录 brain_update_auto（仅版本变化），完整记录必须人工/agent
+                填写。校验：--history-check 必须 OK
 ```
 
 **已完成的进化轮次**：
@@ -60,7 +65,7 @@ skill 具备**自我更新迭代**能力，通过受控进化循环固定能力�
 
 进化迭代历史在仪表板实时可见（`/evolution.json`：Brain 版本徽章、EVO 计数、每轮能力列表）。
 
-> 当前版本：BRAIN_VERSION **2.13.1** / SKILL_VERSION **3.0.0**（R19 躁动电流+识别→行为闭环 → R20 P1 神经接管删代码旁路 → R21 Coach Advice 端到端闭环 → R22 监控界面 P0+P1 优化 → R23 seqlock 停更看门狗+启动契约固化 → t20 教练咨询阈值 120s→60s）。
+> 当前版本：BRAIN_VERSION **2.13.3** / SKILL_VERSION **3.0.0**（R17 MBON 稳态缩放 → R18 DAN 塑形 → R19 躁动电流 → R20 CX 罗盘自主+目标向量 → t20 咨询阈值 60s → t21 读屏+帧留存 → R21 coach strategy visibility。完整逐轮记录见 **skills/evolution_history.json**）。
 
 ## 二期门禁：12 小时稳定自动聘雇（2026-09-14 决策）
 
