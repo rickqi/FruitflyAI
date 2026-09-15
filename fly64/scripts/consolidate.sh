@@ -1,5 +1,26 @@
 #!/bin/bash
 # CONSOLIDATE smart restart (EVO R9 institutionalization).
+#
+# ── 启动契约（t18 结构修复，勿删）─────────────────────────────────────────
+# SM64 与大脑进程【必须】用 setsid 脱离宿主 shell 常驻：
+#
+#   # 大脑（FULL 模式，桥接现有游戏）：
+#   cd /root/fly64
+#   setsid nohup python3 -m fly64.main --bridge /tmp/f64b_traj \
+#     --record /tmp/f64r_traj.npz --no-browser --duration 0 \
+#     > /tmp/fly64.log 2>&1 < /dev/null &
+#
+#   # SM64 游戏：
+#   cd /root/fly64/.cache/sm64ex
+#   setsid nohup env FLY64_BRIDGE=/tmp/f64b_traj \
+#     ./build/us_pc/sm64.us.f3dex2e --skip-intro > /tmp/sm64.log 2>&1 < /dev/null &
+#
+# 【禁止】把它们作为托管后台 job（pwsh run_in_background / agent 后台 job /
+# 交互终端前台子进程）直接启动：宿主会话结束或 job 被回收时，SM64 与大脑
+# 作为其前台子进程会被连带 kill → 共享内存桥冻结 → 仪表板显示卡死。
+# 此事故已发生两次（两台进程同被回收）。手工调试跑完务必收尾，
+# 常驻运行一律 setsid + nohup + 输出重定向 + </dev/null。
+#
 # Rule: if the SM64 game process is alive, restart the brain in FULL mode on
 # the game's bridge so vision input matches the displayed game.  Only fall
 # back to --synthetic when no game is running (prevents the R8 incident where
@@ -47,9 +68,10 @@ fi
 echo "[consolidate] interpreter: $PY"
 
 cd "$PROJECT"
-PYTHONPATH="$PROJECT" nohup "$PY" -m fly64.main \
+# t18 启动契约：setsid 脱离宿主进程组，防宿主会话回收连带 kill。
+PYTHONPATH="$PROJECT" setsid nohup "$PY" -m fly64.main \
   --bridge "$BRIDGE" --record "$PROJECT/artifacts/latest-replay.npz" \
-  "${MODE_ARGS[@]}" > /tmp/fly64_consolidate.log 2>&1 &
+  "${MODE_ARGS[@]}" > /tmp/fly64_consolidate.log 2>&1 < /dev/null &
 disown
 sleep 8
 
@@ -84,9 +106,10 @@ if ./venv/bin/python -c "import numpy, scipy" 2>/dev/null; then
   APY=./venv/bin/python
 fi
 cd "$PROJECT"
-PYTHONPATH="$PROJECT" nohup "$APY" -m plugin.service --interval 10 \
+# t18 启动契约：autonomy 服务同样 setsid 常驻。
+PYTHONPATH="$PROJECT" setsid nohup "$APY" -m plugin.service --interval 10 \
   --bridge-path "$BRIDGE" \
-  > /tmp/fly64_service_start.log 2>&1 &
+  > /tmp/fly64_service_start.log 2>&1 < /dev/null &
 disown
 sleep 3
 if [[ -f "$AUTONOMY_PID_FILE" ]] && kill -0 "$(cat "$AUTONOMY_PID_FILE")" 2>/dev/null; then

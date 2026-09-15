@@ -71,9 +71,37 @@ D:\codes\flygym\
 | 空间记忆 | http://127.0.0.1:8765/memory.json | ✅ |
 | 轨迹 API | /trajectory.json /trajectory-list.json /trajectory-load | ✅ |
 
+### 启动契约（t18 结构修复，强制）
+
+**大脑与 SM64 必须用 `setsid nohup … &` 脱离宿主 shell 常驻**，输出重定向且 `</dev/null`：
+
+```bash
+# 大脑
+cd /root/fly64
+setsid nohup python3 -m fly64.main --bridge /tmp/f64b_traj \
+  --record /tmp/f64r_traj.npz --no-browser --duration 0 > /tmp/fly64.log 2>&1 < /dev/null &
+# SM64
+cd /root/fly64/.cache/sm64ex
+setsid nohup env FLY64_BRIDGE=/tmp/f64b_traj \
+  ./build/us_pc/sm64.us.f3dex2e --skip-intro > /tmp/sm64.log 2>&1 < /dev/null &
+```
+
+**禁止**在托管后台 job（pwsh `run_in_background` / agent 后台 job / 交互终端前台）中直接启动：宿主会话结束或 job 被回收时，SM64 与大脑作为前台子进程被连带 kill → 共享内存桥冻结 → 仪表板显示卡死。此事故已发生两次。规范化入口：`scripts/consolidate.sh`（已内置 setsid 启动）。
+
 ---
 
 # 变更日志
+
+## 2026-09-14: t18 结构修复二 — 启动契约固化（consolidate.sh + 文档，纯文档/脚本）
+
+**触发**：SM64 与大脑曾两次作为托管后台 job（pwsh `run_in_background` / agent 后台 job）的前台子进程被连带 kill → 共享内存桥冻结 → 仪表板显示卡死。属结构性知识缺口，需固化防复发。
+
+**变更（零 .py 代码）**：
+- `fly64/scripts/consolidate.sh`：头部新增「启动契约」注释块（大脑/SM64 规范 setsid nohup 命令 + 托管 job 跑路风险明示）；大脑与 autonomy 服务的实际启动行升级为 `setsid nohup … < /dev/null &`
+- `agent.md` 运行状态章节新增「启动契约（强制）」：大脑与 SM64 必须 setsid 脱离宿主 shell，禁止托管后台 job 直接启动
+- `fly64/README.md` 手动启动章节补充同样的契约警示
+
+**回归**：bash -n consolidate.sh 语法通过；无 .py 改动，测试套件不受影响。
 
 ## 2026-09-14: EVO Round 19 — Brain v2.12.0（躁动电流 + 识别→行为闭环 + 遥测小补）
 
