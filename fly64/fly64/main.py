@@ -1144,7 +1144,10 @@ async def run(args) -> None:
                 })
                 if len(DashboardHTTP.trajectory_points) > 6000:
                     DashboardHTTP.trajectory_points = DashboardHTTP.trajectory_points[-6000:]
-                DashboardHTTP.trajectory = json.dumps(DashboardHTTP.trajectory_points[-500:], default=str).encode()
+                # Serve the FULL retained buffer (6000 pts ≈ whole session) so
+                # the trajectory page window matches the dashboard session,
+                # not just the last ~500 publishes.
+                DashboardHTTP.trajectory = json.dumps(DashboardHTTP.trajectory_points, default=str).encode()
 
                 # Update spatial memory
                 memory_ctrl.update(

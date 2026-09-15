@@ -146,7 +146,7 @@ async function refreshLive(){
     const lastT = pts.length ? pts[pts.length-1].t : -1;
     const fresh = d.filter(p=>p.t>lastT);
     if(!fresh.length) return;                 // nothing new since last poll
-    pts = pts.concat(fresh).slice(-2000);
+    pts = pts.concat(fresh).slice(-6000);   // match backend retention (whole session)
     pathGeo.setAttribute('position',new THREE.Float32BufferAttribute(pts.flatMap(p=>[p.x,p.y,p.z]),3));
     const step=Math.max(1,Math.floor(pts.length/2000));
     dotGeo.setAttribute('position',new THREE.Float32BufferAttribute(pts.filter((_,i)=>i%step===0).flatMap(p=>[p.x,p.y,p.z]),3));
