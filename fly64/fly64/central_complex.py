@@ -87,6 +87,14 @@ class CentralComplex:
         # visual azimuth act as WEAK corrections, not the primary drive.
         self._col_accum = 0.0   # fractional column drift awaiting rollover
 
+        # EVO R20 · CX-2 锚点路径积分: displacement vector integrated in the
+        # anchor frame using the CX's own compass heading — gives the brain
+        # an egocentric "where am I relative to where I entered" signal.
+        self.anchor = None            # (x, z) world anchor
+        self.disp_x = 0.0             # integrated displacement from anchor
+        self.disp_z = 0.0
+        self.SPEED_TO_UNITS = 1.6     # forward_rate(Hz) → game-units/s calib
+
     def _roll_fractional(self, columns: float) -> None:
         """Rotate the compass bump by a fractional number of columns.
 
@@ -114,6 +122,24 @@ class CentralComplex:
         if whole != 0:
             self._roll_fractional(whole)
             self._col_accum -= whole
+
+    def set_anchor(self, x: float, z: float) -> None:
+        """EVO R20 (CX-2): re-anchor path integration at the current pose."""
+        self.anchor = (x, z)
+        self.disp_x = 0.0
+        self.disp_z = 0.0
+
+    @property
+    def anchor_distance(self) -> float:
+        """Integrated distance from the scene anchor (game units)."""
+        return float(np.hypot(self.disp_x, self.disp_z))
+
+    @property
+    def anchor_return_bearing(self) -> float | None:
+        """World-frame bearing FROM current position BACK TO the anchor."""
+        if self.anchor is None or (self.disp_x == 0 and self.disp_z == 0):
+            return None
+        return float(np.arctan2(-self.disp_x, -self.disp_z))
 
     def _weak_correction(self, azimuth_rad: float, weight: float) -> None:
         """Weakly pull the bump toward an azimuth (visual/sky compass)."""
@@ -157,7 +183,9 @@ class CentralComplex:
                novelty: float = 0.5,
                novelty_direction: float = 0.0,
                dt: float = 0.02,
-               visual_azimuth: float | None = None) -> float:
+               visual_azimuth: float | None = None,
+               forward_speed: float = 0.0,
+               goal_vectors: list[tuple[float, float, float]] | None = None) -> float:
         """One timestep of CX processing.
 
         EVO R20 (CX-1): the ring attractor integrates SELF-MOTION — the
@@ -230,20 +258,40 @@ class CentralComplex:
         # Record history
         self._compass_history.append(self.compass.copy())
 
-        # ---- 2. Goal-direction update ----
-        # The goal tracks where novelty signals suggest steering.
-        # Convert novelty_direction into a desired goal column offset.
-        # EVO R20 (CX-1): use the CX's OWN heading estimate when the game
-        # heading is unavailable — goal tracking stays autonomous.
-        h_ref = heading if heading is not None else self.heading_estimate
-        h_norm = h_ref % (2 * np.pi)
-        column_idx = int(h_norm / (2 * np.pi) * n) % n
+        # ---- 2b. CX-2: anchor-frame path integration ----
+        # Displacement is integrated along the CX's OWN compass heading —
+        # the brain's belief of travel, not the game's ground truth.
+        if self.anchor is not None and forward_speed > 0.0:
+            est_h = self.heading_estimate
+            self.disp_x += float(np.sin(est_h) * forward_speed
+                                 * self.SPEED_TO_UNITS * dt)
+            self.disp_z += float(np.cos(est_h) * forward_speed
+                                 * self.SPEED_TO_UNITS * dt)
 
-        if abs(novelty_direction) > 0.1 or abs(novelty - 0.5) > 0.3:
+        # ---- 2. Goal-direction update (EVO R20 CX-3) ----
+        # Multi-source goal-VECTOR competition (FB vector arithmetic):
+        # each source contributes a world-frame vector; the resultant
+        # defines the goal column and strength.  A single exhausted source
+        # no longer zeroes the compass's sense of direction.
+        if goal_vectors:
+            sx = sz = 0.0
+            for dx, dz, w in goal_vectors:
+                sx += w * dx
+                sz += w * dz
+            norm = np.hypot(sx, sz)
+            if norm > 1e-6:
+                goal_angle = float(np.arctan2(sx, sz))
+                self._goal_float = goal_angle / (2 * np.pi) * n
+                self.goal_column = (int(round(self._goal_float)) % n + n) % n
+                self.goal_strength = min(1.0, norm / 1.5)
+        elif abs(novelty_direction) > 0.1 or abs(novelty - 0.5) > 0.3:
+            # Legacy fallback: novelty-only goal (when no goal vectors given).
             # novelty_direction > 0 → want to steer right
             # In SM64, +x = turn right, which is positive heading_rate.
             # novelty_direction > 0 → steer right → goal is right of current,
             # which is a positive column offset.
+            h_ref = heading if heading is not None else self.heading_estimate
+            column_idx = int((h_ref % (2 * np.pi)) / (2 * np.pi) * n) % n
             col_offset = novelty_direction * n * 0.25
             desired_goal_float = (
                 self._goal_float * (1.0 - GOAL_UPDATE_RATE)

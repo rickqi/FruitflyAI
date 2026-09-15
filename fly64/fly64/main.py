@@ -1195,6 +1195,11 @@ async def run(args) -> None:
                 # EVO R19: restlessness inputs (loop pressure) + recognition
                 model.loop_score = memory_ctrl.spatial.loop_score
                 model.scene_danger = scene_recognizer.danger_level()
+                # EVO R20 (CX-2): feed forward speed + scene re-anchor on
+                # scene change (the CX integrates displacement from anchor)
+                model.forward_units_per_tick = getattr(control, "forward_rate", 0.0) * 1.2
+                if getattr(model, "scene_change", False):
+                    model.cx.set_anchor(pose[0], pose[2])
                 # EVO R20 (CX-1): sky azimuth from blue-dominant hue bands —
                 # visual compass correction for the CX ring attractor
                 _sx = _sy = 0.0
@@ -1208,6 +1213,10 @@ async def run(args) -> None:
                     _sy += _w * math.sin(math.radians(_baz))
                 model.visual_azimuth = (math.atan2(_sy, _sx)
                                         if (_sx or _sy) else None)
+                # EVO R20 (CX-3): multi-source goal vectors (sensory) — the
+                # CX does the vector competition and picks the heading.
+                model.cx_goal_vectors = memory_ctrl.navigation_vectors(
+                    pose[0], pose[2], pose[3], model.cx_novelty_direction)
                 # Periodic scene-database persistence (every ~600 ticks ≈ 12s)
                 scene_save_counter += 1
                 if scene_save_counter >= 600:

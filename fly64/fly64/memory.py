@@ -299,6 +299,32 @@ class SpatialMemoryMap:
         return (max(-half, min(half - 1, ix)),
                 max(-half, min(half - 1, iz)))
 
+        return (max(-half, min(half - 1, ix)),
+                max(-half, min(half - 1, iz)))
+
+    def coverage_gap_vector(self, x: float, z: float,
+                            radius: int = 6) -> tuple[float, float] | None:
+        """EVO R20 (CX-3): unit vector toward the centroid of UNVISITED
+        cells within *radius* grid steps of (x, z) — the exploration goal
+        direction.  None when the neighbourhood is fully covered."""
+        cxk = self._key(x, z)
+        sx = sz = n = 0
+        for dx in range(-radius, radius + 1):
+            for dz in range(-radius, radius + 1):
+                k = ((cxk[0] + dx) % self.grid_cells - half,
+                     (cxk[1] + dz) % self.grid_cells - half)
+                if k not in self._cells:
+                    sx += dx
+                    sz += dz
+                    n += 1
+        if n == 0:
+            return None
+        vec = (sx / n, sz / n)
+        norm = math.hypot(*vec)
+        if norm < 1e-6:
+            return None
+        return (vec[0] / norm, vec[1] / norm)
+
     def _decay_recency(self) -> None:
         c = self.recency_decay
         decay_interval = 10
@@ -1933,6 +1959,24 @@ class MemoryController:
         if v2 < v1:
             return -1.0                      # fresher ground on tangent 2
         return 1.0                           # tie → deterministic detour
+
+    def navigation_vectors(self, x: float, z: float, heading: float,
+                           novelty_direction: float) -> list[tuple[float, float, float]]:
+        """EVO R20 (CX-3): goal vector sources in WORLD coordinates.
+
+        Returns a list of ``(dx, dz, weight)`` — the CX performs the
+        vector-sum competition (FB-style) and picks the dominant goal.
+        Sources: away-from-failure (danger), coverage-gap centroid
+        (exploration).  Novelty direction is added by the caller.
+        """
+        vecs: list[tuple[float, float, float]] = []
+        to_f = self.failures.nearest_failure_vector(x, z, radius_cells=3)
+        if to_f is not None:
+            vecs.append((-to_f[0], -to_f[1], 1.2))   # away from known failure
+        gap = self.spatial.coverage_gap_vector(x, z)
+        if gap is not None:
+            vecs.append((gap[0], gap[1], 0.7))       # toward unvisited space
+        return vecs
 
     @property
     def reflex_cooldowns(self) -> dict[str, float]:

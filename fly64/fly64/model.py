@@ -1445,7 +1445,10 @@ class FlyModel:
             novelty_direction=self.cx_novelty_direction,
             dt=self.dt,
             visual_azimuth=getattr(self, "visual_azimuth", None),
+            forward_speed=getattr(self, "forward_units_per_tick", 0.0),
+            goal_vectors=getattr(self, "cx_goal_vectors", None),
         )
+        self.anchor_distance = self.cx.anchor_distance
         self.v[self.turn_left] += cx_bias * self.cx_steering_gain_turn
         self.v[self.turn_right] -= cx_bias * self.cx_steering_gain_turn
 
