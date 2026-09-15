@@ -20,7 +20,9 @@ Run standalone::
 
 from __future__ import annotations
 
+import base64
 import json
+import re
 import time
 import urllib.request
 from pathlib import Path
@@ -28,10 +30,12 @@ from typing import Callable, Optional
 
 try:  # package-relative (fly64 on sys.path)
     from plugin.llm_consult import (ConsultError, GLMConsultant,
-                                    build_consult_request)
+                                    build_consult_request,
+                                    raw_rgb_b64_to_png_b64)
     from plugin.strategy_writer import StrategyWriter
 except ImportError:  # direct execution from fly64/
-    from llm_consult import ConsultError, GLMConsultant, build_consult_request
+    from llm_consult import (ConsultError, GLMConsultant, build_consult_request,
+                             raw_rgb_b64_to_png_b64)
     from strategy_writer import StrategyWriter
 
 PLUGIN_DIR = Path(__file__).resolve().parent
@@ -134,6 +138,34 @@ class PluginRunner:
             return frame["frame_b64"]
         return None
 
+    # ── consult frame snapshot (t21 wrap-up) ─────────────────────────
+    FRAME_DIR = PLUGIN_DIR.parent / "runtime" / "coach_frames"
+
+    @staticmethod
+    def save_consult_frame(frame_b64: Optional[str],
+                           help_reason: Optional[str] = None,
+                           ts: Optional[float] = None,
+                           frame_dir: Optional[Path] = None) -> Optional[str]:
+        """Persist the consult frame as PNG under runtime/coach_frames/.
+
+        Filename: ``coach_{ts}_{help_reason}.png`` (help_reason sanitised to
+        filename-safe characters, default ``none``).  Best-effort: returns
+        the written path or None; callers must not let failures block the
+        consult.  Raw-RGB payloads are converted to real PNG via
+        ``llm_consult.raw_rgb_b64_to_png_b64``.
+        """
+        if not frame_b64:
+            return None
+        png_b64 = raw_rgb_b64_to_png_b64(frame_b64)
+        stamp = round(float(ts if ts is not None else time.time()), 3)
+        safe = re.sub(r"[^0-9A-Za-z\u4e00-\u9fff]+", "_",
+                      str(help_reason or "none")).strip("_") or "none"
+        target_dir = Path(frame_dir) if frame_dir else PluginRunner.FRAME_DIR
+        target_dir.mkdir(parents=True, exist_ok=True)
+        path = target_dir / f"coach_{stamp}_{safe}.png"
+        path.write_bytes(base64.b64decode(png_b64))
+        return str(path)
+
     # ── one cycle ────────────────────────────────────────────────────
     def run_cycle(self) -> dict:
         """Execute one full 10s skill cycle. Returns a cycle summary."""
@@ -150,6 +182,12 @@ class PluginRunner:
                 return result
             result["context"] = context
             frame_b64 = self.capture_frame()
+            # t21 wrap-up: snapshot the frame the coach is about to see, so
+            # "what did the coach look at" is retroactively answerable.
+            try:
+                self.save_consult_frame(frame_b64, context.get("help_reason"))
+            except Exception:
+                pass  # snapshot is best-effort; never block the consult
             parsed = self.consultant.consult(context, frame_b64)
             result["consulted"] = True
             self.consultations += 1

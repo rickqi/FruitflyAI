@@ -492,3 +492,39 @@ class TestWhatISee:
         assert strat["what_i_see"] == ["HELLO"]
         assert adv["what_i_see"] == ["HELLO"]
         assert adv["history"][-1]["what_i_see"] == ["HELLO"]
+
+
+# ── t21 wrap-up: consult frame snapshots ────────────────────────────────
+
+class TestConsultFrameSnapshot:
+    def test_save_writes_png_with_expected_name(self, tmp_path):
+        import base64 as b64mod
+        import numpy as np
+        from plugin.runner import PluginRunner
+        raw = np.zeros((256, 384, 3), np.uint8)
+        fb64 = b64mod.b64encode(raw.tobytes()).decode()
+        out = PluginRunner.save_consult_frame(
+            fb64, "unsolvable_stuck", ts=1700000000.5,
+            frame_dir=tmp_path / "coach_frames")
+        p = tmp_path / "coach_frames" / "coach_1700000000.5_unsolvable_stuck.png"
+        assert out == str(p) and p.is_file()
+        assert p.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+
+    def test_reason_sanitised_and_default(self, tmp_path):
+        import base64 as b64mod
+        import numpy as np
+        from plugin.runner import PluginRunner
+        raw = np.zeros((256, 384, 3), np.uint8)
+        fb64 = b64mod.b64encode(raw.tobytes()).decode()
+        out = PluginRunner.save_consult_frame(fb64, "weird/reason 双语!",
+                                              ts=1.0, frame_dir=tmp_path)
+        assert "coach_1.0_weird_reason_双语.png" in out
+
+    def test_none_frame_returns_none(self, tmp_path):
+        from plugin.runner import PluginRunner
+        assert PluginRunner.save_consult_frame(None, frame_dir=tmp_path) is None
+
+    def test_run_cycle_invokes_snapshot(self, tmp_path):
+        # source-level: run_cycle feeds capture_frame output to the saver
+        src = (PROJECT / "plugin" / "runner.py").read_text(encoding="utf-8")
+        assert "self.save_consult_frame(frame_b64, context.get(\"help_reason\"))" in src

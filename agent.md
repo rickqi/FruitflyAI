@@ -95,6 +95,16 @@ setsid nohup env FLY64_BRIDGE=/tmp/f64b_traj \
 
 # 变更日志
 
+## 2026-09-14: t21 收尾补丁 — Brain v2.13.3（consult 截图快照留存 runtime/coach_frames/）
+
+**变更**：`plugin/runner.py` 新增 `save_consult_frame()`——每次 consult 前（capture_frame 之后、consult 之前）将帧保存为 `runtime/coach_frames/coach_{ts}_{help_reason}.png`（help_reason 文件名安全化，缺省 none；裸 RGB 经 PNG 编码器转换；best-effort 失败不阻塞 consult）。service.py 经 PluginRunner 自动覆盖。回溯查询"教练当时看到了什么画面"自此可行。
+
+**回归**：新增 TestConsultFrameSnapshot 4 用例（PNG 魔数/文件名格式/reason 清洗与缺省/None 帧透传/run_cycle 接线断言）；test_plugin_mhr 45/45；全量 482 passed / 11 基线零新增。
+
+**版本**：Brain 2.13.2→**2.13.3**。
+
+---
+
 ## 2026-09-14: t21 读屏能力 — Brain v2.13.2（GLM 教练显式屏幕文字读取 what_i_see）
 
 **变更**：
