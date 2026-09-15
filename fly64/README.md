@@ -327,7 +327,7 @@ cat runtime/phase2_gate.json      # 连续稳定 ≥12h 后由 scripts/phase2_ga
 
 | 组件 | 说明 |
 |------|------|
-| `skills/evolution_skill.py` | **EVO v3.0.0**：Monitor→Diagnose→Fix→Verify→Document 五阶段闭环 + 常驻循环 + pattern 匹配 + fix 效果量化 + **`EvolutionHistory` 进化记录器**（脑模型版本变化自动补录 + fix/verification 记录 + `--history-check` 强制校验） | |
+| `skills/evolution_skill.py` | **EVO v3.0.0**：Monitor→Diagnose→Fix→Verify→Document 五阶段闭环 + 常驻循环 + pattern 匹配 + fix 效果量化 + **`EvolutionHistory` 进化记录器**（脑模型版本变化自动补录 + fix/verification 记录 + `--history-check` 强制校验） |
 | `skills/default_patterns.json` | pattern 目录（13 条，JSON Schema draft-07 校验），含 `telemetry_gap` 遥测自诊断 |
 | `skills/fix_catalog.json` · `skills/evolution_log.jsonl` | 修复条目（基线/结果/effective 判定）与逐轮执行日志 |
 | `skills/evolution_history.json` | **进化权威记录**：R1→R21 全部轮次的结构化档案（版本/时间/触发/变更/测试/来源，32 条），agent.md 规则 15 强制契约的数据载体 |
@@ -852,6 +852,57 @@ python3 fly64/skills/evolution_skill.py --history-check
 | 21 | 2.13.2 | GLM 教练显式读屏 `what_i_see`（prompt 指令 + 解析 + advice "👁 屏幕"行全链路）| 无法验证教练是否真在看屏幕；屏幕文字语义丢失 |
 | 21 | 2.13.3 | consult 帧留存 `runtime/coach_frames/`（PNG 魔数校验）+ Coach Help 面板缩略图 + `/coach_frames` 端点 | 回溯无法知道教练当时看到了什么画面 |
 | 21 | 2.13.3 | coach strategy visibility：memory_json 补 `scene_name` 键 + 面板渲染 fallen_recovery mode/climb_period/persist_seconds | runner 读 scene_name 但 memory_json 只有 scene_label；策略细节不可见 |
+
+Round 4/5 正是**能力边界判定的实战示范**：钥匙门的"行为层"问题（反复撞门）属内生能力群 → skill 自己进化出双区检测+习惯化解决；而"语义层"问题（文字内容不可读、需要钥匙的任务理解）超出内生边界 → 走 SEEK-HELP 向教官层求助（Phase 4）。
+
+### 完整进化历史档案
+
+<!-- EVOLUTION-HISTORY-TABLE:START（本节由 --history-md 自动生成，请勿手改） -->
+
+下表由 `skills/evolution_skill.py --history-md` 从权威记录 `skills/evolution_history.json` 自动生成（35 条，权威版本 Brain v2.13.3 / Skill v3.0.0）。**请勿手改本表**——更新记录后重新执行该命令再粘贴。
+
+| ID | 时间 | 轮次 | Brain | Skill | 触发原因 | 关键变更 | 测试 | 来源 |
+|----|------|------|-------|-------|---------|---------|------|------|
+| EVO-001 | 2026-09-12 | R1 | 1.0.0 | — | 无障碍平地上原地转圈（circle_loop） | circle_loop 地形门控：ground_angle 门控悬崖反射，平地不触发 | 能力回归（早期 test_evolution_capability） | agent.md/README 轮次表 |
+| EVO-002 | 2026-09-12 | R2 | 1.0.x | — | 斜坡卡死 | 斜坡脱困覆盖 | 能力回归 | agent.md/README 轮次表 |
+| EVO-003 | 2026-09-13 | R3 | 1.1.0 | — | 墙角视觉盲区卡死 | 伴发放电比较器（corollary discharge，视觉盲区补偿） | 能力回归 | agent.md/README 轮次表 |
+| EVO-004 | 2026-09-13 15:28 | R4 | 1.2.0 | — | 钥匙门提示场景；进化过程需仪表板可见 | 进化迭代展示 /evolution.json + 仪表板徽章；双区对话检测 + 场景命名 v2 + 全监控 | 13 项回归 | commit dfd0e75 |
+| EVO-005 | 2026-09-13 18:39 | R5 | 1.3.0 | — | 上置提示框（钥匙门第二形态）重复交互 | 交互习惯化制度化（3 次无奖励→抑制 2 分钟并远离）；上置框双区检测 | 16 项回归 | commit e1a6663 |
+| EVO-006 | 2026-09-13 19:19 | R6 | 1.4.0 | — | 固定 10s 反射冷却在长时间卡住下失效；fallen 恢复固定左转失败 | 自适应反射冷却 max(0.25, 1-stuck/120)，越卡越短下限 25%；坠落恢复初始方向随机化（镜像交替保留） | capability 16→19 全绿 | commit 7a2baa0 |
+| EVO-007 | 2026-09-13 | R7 | 2.0.0 | — | FlyWire MaleCNS 差距分析：视觉覆盖 38% 过低 | P1a 颜色/UV 视觉（danger_red/sky_blue）；P1b 4方向 EMD；P2 小目标追踪（中心-周边+卡尔曼+匈牙利匹配）；P3 多巴胺蘑菇体学习（2000 KC/5 MBON）；35 新信号，覆盖 38%→90% | 179/179 核心通过 | agent.md R7 章节 |
+| EVO-008 | 2026-09-13 ~22:03 | R8 | 2.1.0 | 2.5.0 | brightness-not-flow：亮度差被误当运动 | T4/T5 式 HRC 方向选择运动检测；LC4 looming 种群；自适应相关接入碰撞规避 | README 同步轮（71caeff） | agent.md R8 章节 + commit 71caeff |
+| EVO-009 | 2026-09-13 22:35 | R9 制度化 | — | — | R8 事故：合成模式 consolidate 静默断开游戏视觉 | scripts/consolidate.sh 智能重启制度化（检测游戏进程→全模式+brain_version 校验）；诊断工具（ws_probe/eye frame dump/bridge checker/evo cycle runner） | — | commit 9a3d6fa |
+| EVO-010 | 2026-09-13 23:25 | R9 | 2.2.0 | 2.6.0 | 室内场景被识别为天空·山坡（天花板灯/格纹误判） | retina enclosure_score 围闭度 + upper_blue 蓝色主导度；sky_score 蓝色门控 min(1,upper_blue×4)；terrain 新增 indoor 类 + 场景名室内标签 | test_retina +3 | commit 1f12cf0 |
+| EVO-011 | 2026-09-14 03:20 | R10 | 2.3.0 | 2.7.0 | 497.9s micro_loop 零位移事件；bold 门控用全局 visited_cells<20 在老地图永不触发 | local_breakout：micro_loop 持续>60s 也触发 forced_bold_explore；bold 期间覆盖活跃反射；decision_source=bold_explore 归因 | capability 31→35 全绿 | commit 322208f |
+| EVO-012 | 2026-09-14 11:06 | MHR-1 | 2.4.0 | — | 对话场景需要 LLM 按键决策 | plugin 对话 LLM 决策（press_a/b/none，600s 上限）；main.py 对话暂停等待状态机；bridge/model B 键传输；flow.json llm_decision 字段 | test_plugin_mhr 28 + test_dialogue_llm_decision 31 | commit 1d00cac |
+| EVO-013 | 2026-09-14 11:28 | R11 | 2.5.0 | 2.8.0 | escape_x 随机方向导致逃逸无效；撞墙行为需网络自行学习 | 方向性开口信号注入转向池电流（LIF 竞争决策突围方向，取代随机 escape_x）；report_movement() 位移多巴胺 API（零位移=惩罚）；退役低置信悬崖符号转向分支 | 46 green | commit fa0b1b3 |
+| EVO-014 | 2026-09-14 21:12 | R11 完成 | 2.6.1 | 2.9.1 | coach 策略键为死写入无消费者 | bold_explore_stuck_s→micro_loop 突破阈值；turn_bias→bold 转向幅度；escape.stuck_threshold_s→时长型逃脱条件（热重载） | R11 接线复验 | commit ebe37cc |
+| EVO-015 | 2026-09-14 ~13:00 | R12 | 2.6.0 | 2.9.0 | 10s 循环依赖 DSH 会话，会话结束即停——自治不能依赖外部会话 | plugin/service.py 常驻服务（健康自检/心跳/LLM 双传输降级 local_diagnosis）；plugin/watchdog.sh 存活监控；consolidate.sh 连带重启自治循环 | test_service 10 + autonomy_regression 13 | agent.md R12 章节 |
+| EVO-016 | 2026-09-14 15:15 | R12 follow-up | 2.6.0 | — | 反射活跃掩盖真实卡死（497.9s/0u 事件类）：help 判定被 reflex_active 短路 | reflex_ineffective 判据：反射活跃但 60s 位移<30u → 判无效；check_help_needed 升级 help_reason=reflex_ineffective_stuck | 4 PIN + 24 autonomy green | commit ce56cb2 |
+| EVO-017 | 2026-09-14 | R13a | 2.6.1 | 2.9.1 | stuck=1063s/micro_loop 973s/loop_score 病态 104.9——自适应冷却触底引发反射风暴死循环 | loop_score 精确滚动窗口计数（修复病态值）；micro_loop 重触发位移<30u 镜像翻转转向（自发交替） | test_spin_loop_fix 7/7 | agent.md R13 章节 |
+| EVO-018 | 2026-09-14 21:42 | R13b | 2.7.0 | 3.0.0 | 对话暂停场景缺乏可观测性与负反馈学习 | 对话暂停等待场景标签（对话暂停等待 #hash）；蘑菇体挫折多巴胺 add_setback（PPL1 样负 DA）；llm_consult 自加载 plugin/llm.env；memory.json 增 dialogue_active/scene_label | 5 PIN，70+ green | commit e130693 |
+| EVO-019 | 2026-09-14 22:03 | P1 接管 | 2.8.0 | 3.0.0 | 双轨旁路：main.py ~35 处直接改写 control，五大神经基质被旁路 | 删除 11 处 A 类 Python 旁路（A1-A9/B10/C10）；行为决策回归 LIF 网络；decision_source 移除 collision/bold_explore（剩 6 级） | 355 passed / 25 failed 与 HEAD 基线一致零新增 | commit 1c30a17 |
+| EVO-020 | 2026-09-14 22:35 | R14/R15 | 2.9.0 | 3.0.0 | 恒向转圈→原地编织；悬崖边缘对峙驻留（EscapeSkill findings=0） | TurnAdaptation 自发交替 + MB 异常镜像（R14）；FailureMemory 最近失败向量 + cliff_standoff 计时 + 切向绕行电流 + DAN 对峙惩罚（R15）；pattern 新增 cliff_standoff | test_cliff_standoff 9/9 | commits 6a6f798 + agent.md R15 |
+| EVO-021 | 2026-09-14 22:57 | t13 | 2.9.1 | 3.0.0 | Coach Advice 四环节三处不生效（死键/触发窄/prompt 语义/HTTP 400） | bold_turn_bias 接入转向池电流（钳位 0.2-1.0）；persistent_anomaly_stuck 放宽触发；prompt 策略参数语义卡；裸 RGB→PNG 编码根修 400 | TestCoachAdviceEffectiveness 6 用例 | commit 6ea8ff2 |
+| EVO-022 | 2026-09-14 23:56 | R16 | 2.10.0 | 3.0.0 | 交替把转圈变成原地编织（缺 forward 突破）；flow.json 缺 5 个因果键致 skill 检测永不命中；字段缺失被静默跳过 | TurnAdaptation.breakout_drive 振荡→forward 突破电流；flow_json 暴露 decision_source/cliff_conf/门控/hrc_*/mb_*；DiagnosisEngine 显式 telemetry_gap finding；pattern 新增 micro_loop_weave/cliff_standoff；常驻 EVO 循环 --max-iterations 0；SceneRecognizer 在线校准+unknown 记账 | 384 passed 零新增失败 | commit 6e1751b |
+| EVO-023 | 2026-09-15 00:17 | t16 | 2.10.1 | 3.0.0 | t15 监控布局分析发现的 P0 可见性缺口 | header 状态胶囊条（brainVer/evoIter/health/anomaly/help/llmDecision）；/active_strategy.json 端点 + Coach Strategy Consumption 面板；对话暂停因果卡 + 800px 单列断点 | dashboard js/protocol 8/8 | commit 5a7a845 |
+| EVO-024 | 2026-09-15 00:48 | R17 | 2.11.0 | 3.0.0 | mb_mbon_forward=1.0 饱和（正 DA 再膨胀 vs 稳态缩放平衡点贴顶）；anomaly_reflex 改写 control 使 breakout 电流无法体现 | MBON 饱和稳态突触缩放（50 帧 \|tanh\|≥0.98 → 该柱 ×0.9）；breakout_hint 反射相位混合（脑编织检测调制 micro_loop 反射相位预算）；pattern 新增 mbon_saturation | test_mbon_saturation 6/6，全量 384 passed | commit 7c8802a |
+| EVO-025 | 2026-09-15 08:31 | R18 | 2.11.x | 3.0.0 | R17 后正多巴胺再膨胀与稳态缩放平衡点仍在天花板；探索奖励 0.5 持续 +DA 是膨胀主因 | DAN 信号塑形：多巴胺权重提升为类常量 DAN_*（探索 0.50→0.30 等 8 项），单点调参 | test_dan_shaping 5/5 | commit 70261d1 |
+| EVO-026 | 2026-09-15 09:01 | R19 | 2.12.0 | 3.0.0 | 熔岩地悬崖边驻留 61s：识别结果未驱动行为、静息状态 breakout 电流失效（TurnAdaptation 只响应转弯） | restlessness_level：对峙/环路压力累积为 forward 躁动电流（×0.12 spike 前注入）；scene_recognition danger_level：识别 danger/lava → forward 谨慎抑制 −0.06（识别→行为闭环）；flow.json 增 fg_fraction/mb_weight_std/mb_saturation_events | test_restlessness 6/6 | commit f5e859a |
+| EVO-027 | 2026-09-15 13:09 | t19 | 2.12.1 | 3.0.0 | SM64 被连带 kill 后桥停更，视觉画布静默冻结且无监护 | bridge.py SeqlockWatchdog：同一 even seq 停滞>5s → stale；flow.json 增 bridge_stale；仪表板红色 SM64⛔ FROZEN 徽章 | test_seqlock_watchdog 9/9 | commit 50d22ae |
+| EVO-028 | 2026-09-15 13:05-14:30 | t18+R20 | 2.13.0 | 3.0.0 | 启动契约事故（托管 job 连带 kill）；CX 罗盘是外部航向副本、零路径积分、目标向量单源 | t18：setsid nohup 启动契约固化（consolidate.sh/agent.md/README）；R20 CX-1 罗盘自主化：自运动 bump 积分+天空方位软校正；R20 CX-3 多源目标向量竞争（novelty+覆盖空隙质心+反失败格+锚点返回） | CX PIN 用例 | commits 654b436/a09555b/2c5ae94 |
+| EVO-029 | 2026-09-15 15:29 | t20 | 2.13.1 | 3.0.0 | 教练介入太晚：120s 阈值下马里奥已深陷 | plugin STUCK_HELP_THRESHOLD 120→60s | 阈值边界 3 用例，472 passed | commit 0f953f1 |
+| EVO-030 | 2026-09-15 15:44 | t21 | 2.13.2 | 3.0.0 | 无法验证 GLM 是否真在读屏；屏幕文字语义丢失 | prompt 增读屏指令 what_i_see（逐条列出可见文字）；parse/sanitize/落盘全链路透传；Coach 面板 advice 增 👁 屏幕 行 | TestWhatISee 6 用例，478 passed | commit e61a402 |
+| EVO-031 | 2026-09-15 15:52 | t21 收尾 | 2.13.3 | 3.0.0 | 回溯无法知道教练当时看到了什么画面 | save_consult_frame：consult 前帧留存 runtime/coach_frames/coach_{ts}_{reason}.png；非 PNG 魔数拒绝 | TestConsultFrameSnapshot 4 用例，482 passed | commit c74f883 |
+| EVO-032 | 2026-09-15 16:44 | R21 | 2.13.3 | 3.0.0 | runner 读 scene_name 但 memory_json 只有 scene_label；面板看不到 fallen_recovery 策略细节 | memory_json 增 scene_name 键；updateCoachStrategy 渲染 fallen_recovery mode/climb_period/persist_seconds | — | commit 7559761 |
+| EVO-033 | 2026-09-15 | R22-skill | 2.13.3 | 3.0.0 | 并发会话致记录源三处矛盾；常驻循环首轮 telemetry_gap 自诊断抓到真实回归：mbon_saturation pattern 所需 mb_mbon_forward 未被 skill 采集层映射；进化过程本身无强制记录载体 | EvolutionHistory 记录器（brain_version 变化自动补录/record_fix/record_verification/损坏隔离+原子写出）；--history-check 强制校验；回填 32 条权威轮次记录；mb_mbon_forward 遥测映射补盲；agent.md 规则 15 强制契约；skills.md RECORD 步骤与版本行修正 | test_evolution_history 12/12；--history-check OK；check_version.py OK；AUTO-0002 实证 | 本次会话 |
+| AUTO-0001 | 2026-09-15 11:14 | — | 2.13.3 | 3.0.0 | telemetry_gap：mb_mbon_forward 未采集（mbon_saturation 失效） | 自动记录 skill_fix（已由 EVO-033 修复归零） | score 0.0（已修复） | resident skill loop |
+| AUTO-0002 | 2026-09-15 11:39 | — | 2.13.3 | 3.0.0 | forward MBON 饱和贴顶而行为仍绕圈——稳态缩放未触发或多巴胺持续再膨胀 | 自动记录 skill_fix（待 agent 按 fix_template 排查 mushroom_body.py 缩放守卫） | 待验证 | resident skill loop |
+| AUTO-0003 | 2026-09-15 13:10 | — | 2.13.3 | 3.0.0 | below_ground_stuck：坠落阈值 Y<−100 过宽（SM64 地面 Y=120，Y<50 即异常） | 自动记录 skill_fix（建议 memory.py 阈值 −100→50，待 agent 执行） | 待验证 | resident skill loop |
+
+<!-- EVOLUTION-HISTORY-TABLE:END -->
+
+> **档案维护规则**：本表由 `--history-md` 从权威 JSON 再生成，新进化轮次只写 `evolution_history.json`（规则 15），然后执行 `python3 fly64/skills/evolution_skill.py --history-md` 重新生成并替换 `<!-- EVOLUTION-HISTORY-TABLE -->` 标记之间的内容，随代码一起提交。
 
 Round 4/5 正是**能力边界判定的实战示范**：钥匙门的"行为层"问题（反复撞门）属内生能力群 → skill 自己进化出双区检测+习惯化解决；而"语义层"问题（文字内容不可读、需要钥匙的任务理解）超出内生边界 → 走 SEEK-HELP 向教官层求助（Phase 4）。
 

@@ -3,7 +3,7 @@
   "canonical_versions": {
     "brain": "2.13.3",
     "skill": "3.0.0",
-    "as_of": "2026-09-15T21:01:28.080827+08:00"
+    "as_of": "2026-09-15T16:45:00+08:00"
   },
   "records": [
     {
@@ -572,25 +572,6 @@
       "notes": "当前 HEAD"
     },
     {
-      "id": "EVO-033",
-      "date": "2026-09-15",
-      "time": "21:01:28 +0800",
-      "round": "R22-skill",
-      "kind": "skill",
-      "brain_version": "2.13.3",
-      "skill_version": "3.0.0",
-      "trigger": "并发会话致记录源三处矛盾（README 停在 R17/v2.11.0、skills.md 版本行过期、轮次双编号）；且 resident loop 首轮即以 telemetry_gap 自诊断抓到真实回归：mbon_saturation pattern 所需 mb_mbon_forward 未被 skill 采集层映射（main.py 已暴露，skill 漏收）；进化过程本身无强制记录载体",
-      "changes": [
-        "EvolutionHistory 记录器：brain_version 变化自动补录 brain_update_auto / record_fix / record_verification，损坏隔离+原子写出",
-        "--history-check 强制校验（canonical vs main.py BRAIN_VERSION，不一致非零退出）",
-        "回填 32 条权威轮次记录（R1→R21+t/MHR，含双编号 numbering_notes）",
-        "SensorSample/get_metrics 补 mb_mbon_forward 映射（telemetry_gap 归零）",
-        "agent.md 规则 15 进化记录强制契约 + skills.md RECORD 步骤与版本行修正 + README EVO 章节更新至 R1–21/v2.13.3"
-      ],
-      "tests": "tests/test_evolution_history.py 12/12；--history-check OK；check_version.py OK（2.13.3 三处一致）；live 实证 AUTO-0002=mbon_saturation 首次真实触发",
-      "source": "本次会话（记录契约实现 + 遥测补盲）"
-    },
-    {
       "id": "AUTO-0001",
       "recorded_at": "2026-09-15T11:14:24.706289+00:00",
       "kind": "skill_fix",
@@ -655,6 +636,38 @@
         "stuck_reduction_pct": 0,
         "observed_seconds": 60.3,
         "verified_at": "2026-09-15T11:40:39.507408+00:00"
+      }
+    },
+    {
+      "id": "AUTO-0003",
+      "recorded_at": "2026-09-15T13:10:05.756411+00:00",
+      "kind": "skill_fix",
+      "round": null,
+      "brain_version": "2.13.3",
+      "skill_version": "3.0.0",
+      "fix_id": "fix_0016",
+      "pattern_id": "below_ground_stuck",
+      "severity": "high",
+      "trigger": "Fallen detection threshold (Y<-100) is too permissive. SM64 normal ground is Y=120. Y<50 already indicates below-ground (void/water). Fix: change fallen threshold from Y<-100 to Y<50.",
+      "changes": [
+        "# Fix: Lower fallen detection threshold from -100 to 50"
+      ],
+      "current_values": {
+        "pos_y": 0.0,
+        "stuck_duration": 30.3,
+        "control_magnitude": 0
+      },
+      "baseline": {
+        "stuck": 30.3,
+        "coverage": 31.3
+      },
+      "source": "resident skill loop (auto_fix)",
+      "verification": {
+        "passed": false,
+        "effectiveness_score": 0.0,
+        "stuck_reduction_pct": 0,
+        "observed_seconds": 60.4,
+        "verified_at": "2026-09-15T13:11:06.185862+00:00"
       }
     }
   ]

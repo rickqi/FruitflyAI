@@ -1207,7 +1207,38 @@ def main():
     p.add_argument("--history-check", action="store_true",
                    help="Print canonical evolution versions + last records and validate "
                         "against main.py BRAIN_VERSION (agent.md rule 15 enforcement).")
+    p.add_argument("--history-md", action="store_true",
+                   help="Print the full evolution history as a Markdown table "
+                        "(for pasting into README; regenerated from the JSON, never hand-edited).")
     args = p.parse_args()
+
+    if args.history_md:
+        hist = EvolutionHistory()
+        print(f"下表由 `skills/evolution_skill.py --history-md` 从权威记录 "
+              f"`skills/evolution_history.json` 自动生成（{len(hist.records)} 条，"
+              f"权威版本 Brain v{hist.canonical.get('brain')} / Skill v{hist.canonical.get('skill')}）。"
+              f"**请勿手改本表**——更新记录后重新执行该命令再粘贴。")
+        print()
+        print("| ID | 时间 | 轮次 | Brain | Skill | 触发原因 | 关键变更 | 测试 | 来源 |")
+        print("|----|------|------|-------|-------|---------|---------|------|------|")
+        for r in hist.records:
+            rid = str(r.get("id", ""))
+            when = (r.get("recorded_at") or "")[:16].replace("T", " ") if rid.startswith("AUTO") \
+                else (str(r.get("date", "")) + (" " + str(r.get("time", ""))[:5] if r.get("time") else ""))
+            bv = r.get("brain_version") or "—"
+            sv = r.get("skill_version") or "—"
+            trig = str(r.get("trigger") or "").replace("|", "\\|").replace("\n", " ")[:120]
+            ch = r.get("changes") or []
+            if len(ch) == 1:
+                chg = str(ch[0]).replace("|", "\\|")[:100]
+            else:
+                chg = "；".join(str(c).replace("|", "\\|")[:60] for c in ch[:3])
+                if len(ch) > 3:
+                    chg += f"（等 {len(ch)} 项）"
+            tests = str(r.get("tests") or "—").replace("|", "\\|")[:60]
+            src = str(r.get("source") or "—").replace("|", "\\|")[:60]
+            print(f"| {rid} | {when} | {r.get('round') or '—'} | {bv} | {sv} | {trig} | {chg} | {tests} | {src} |")
+        sys.exit(0)
 
     if args.history_check:
         hist = EvolutionHistory()
