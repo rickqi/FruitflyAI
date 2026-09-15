@@ -287,7 +287,7 @@ class TestCoachHelpSnapshot:
         import base64
         import numpy as np
         m = _main_module()
-        frame = np.zeros((4, 6, 3), np.uint8)
+        frame = np.zeros((256, 384, 3), np.uint8)
         frame[0, 0] = 200
         snap = m.build_help_snapshot(
             "墙体 #abcd", {"x": 1.0, "y": 2.0, "z": 3.0},
