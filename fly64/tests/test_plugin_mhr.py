@@ -437,3 +437,58 @@ class TestCoachAdviceEffectiveness:
         assert "persistent_anomaly_stuck" in mem_src
         assert "micro_loop_stuck" in mem_src      # original path kept
         assert 'self._latest_anomaly_state != "micro_loop"' in mem_src
+
+
+# ── t21: explicit screen-text readout (what_i_see) ──────────────────────
+
+class TestWhatISee:
+    def test_prompt_includes_screen_text_instruction(self):
+        from plugin.llm_consult import PROMPT_TEMPLATE
+        assert "特别注意屏幕上的文字" in PROMPT_TEMPLATE
+        assert "what_i_see" in PROMPT_TEMPLATE
+        assert "屏幕看到的" in PROMPT_TEMPLATE
+
+    def test_parse_response_keeps_what_i_see(self):
+        from plugin.llm_consult import parse_response
+        raw = ('{"what_i_see": ["POWER STARS", "x 3", "生命值 4"], '
+               '"advice": "向前", "strategy": {}}')
+        out = parse_response(raw)
+        assert out["what_i_see"] == ["POWER STARS", "x 3", "生命值 4"]
+        assert out["advice"] == "向前"
+
+    def test_parse_response_missing_degrades_to_empty(self):
+        from plugin.llm_consult import parse_response
+        assert parse_response('{"advice": "x"}')["what_i_see"] == []
+        assert parse_response("纯文本无 JSON")["what_i_see"] == []
+        # malformed variants don't crash
+        assert parse_response('{"what_i_see": 42, "advice": "y"}')["what_i_see"] == []
+        out = parse_response('{"what_i_see": "单条文本", "advice": "z"}')
+        assert out["what_i_see"] == ["单条文本"]
+
+    def test_sanitize_strategy_preserves_what_i_see(self):
+        from plugin.llm_consult import sanitize_strategy
+        s = sanitize_strategy({"exploration": {"turn_bias": 0.5},
+                               "what_i_see": ["COURSE 1", "⭐ x2"]})
+        assert s["what_i_see"] == ["COURSE 1", "⭐ x2"]
+        assert "what_i_see" not in sanitize_strategy({"exploration": {}})
+
+    def test_consult_embeds_what_i_see_in_advice(self, tmp_path):
+        reply = json.dumps({"what_i_see": ["STAR x 3"], "advice": "跳",
+                            "strategy": {"exploration": {"turn_bias": 0.5}}})
+        c = echo_consultant(tmp_path, reply)
+        out = c.consult({}, GOOD_FRAME)
+        assert "👁 屏幕: STAR x 3" in out["advice"]
+        assert out["what_i_see"] == ["STAR x 3"]
+        assert out["strategy"]["what_i_see"] == ["STAR x 3"]  # survives sanitize
+
+    def test_writer_persists_what_i_see(self, tmp_path):
+        w = StrategyWriter(strategy_path=tmp_path / "active_strategy.json",
+                           advice_path=tmp_path / "coach_advice.json")
+        w.write_strategy({"exploration": {}}, advice="a",
+                         what_i_see=["HELLO"])
+        w.write_advice("a", what_i_see=["HELLO"])
+        strat = json.loads((tmp_path / "active_strategy.json").read_text("utf-8"))
+        adv = json.loads((tmp_path / "coach_advice.json").read_text("utf-8"))
+        assert strat["what_i_see"] == ["HELLO"]
+        assert adv["what_i_see"] == ["HELLO"]
+        assert adv["history"][-1]["what_i_see"] == ["HELLO"]

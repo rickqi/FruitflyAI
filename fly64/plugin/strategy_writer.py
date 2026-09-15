@@ -49,14 +49,19 @@ class StrategyWriter:
 
     # ── strategy ──────────────────────────────────────────────────────
     def write_strategy(self, strategy: dict, advice: str = "",
-                       source: str = "glm-5.3-flash") -> dict:
+                       source: str = "glm-5.3-flash",
+                       what_i_see: Optional[list] = None) -> dict:
         """Write active_strategy.json (brain hot-reloads every 600 ticks).
 
         ``strategy`` may carry ``fallen_recovery`` / ``exploration`` /
         ``escape`` sections; ``advice`` (the coach_advice text) is embedded
-        so the dashboard can show why the strategy changed.
+        so the dashboard can show why the strategy changed.  t21: pass
+        ``what_i_see`` (explicit screen-text readout) to persist it at the
+        payload top level.
         """
         payload = dict(strategy or {})
+        if what_i_see:
+            payload["what_i_see"] = list(what_i_see)
         payload["coach_advice"] = advice
         payload["advice_ts"] = round(time.time(), 2)
         payload["source"] = source
@@ -106,8 +111,14 @@ class StrategyWriter:
 
     def write_advice(self, advice: str, context: Optional[dict] = None,
                      strategy: Optional[dict] = None,
-                     model: str = "glm-5.3-flash") -> dict:
-        """Update coach_advice.json with the latest advice + history entry."""
+                     model: str = "glm-5.3-flash",
+                     what_i_see: Optional[list] = None) -> dict:
+        """Update coach_advice.json with the latest advice + history entry.
+
+        t21: ``what_i_see`` (explicit screen-text readout) is stored at the
+        payload top level when provided; it also rides inside ``strategy``
+        when the caller passes the sanitised strategy dict.
+        """
         data = self.load_advice()
         history = data.get("history")
         if not isinstance(history, list):
@@ -119,6 +130,8 @@ class StrategyWriter:
             "model": model,
             "ts": round(time.time(), 2),
         }
+        if what_i_see:
+            entry["what_i_see"] = list(what_i_see)
         history.append(entry)
         history = history[-self.history_limit:]
         payload = {
@@ -128,5 +141,7 @@ class StrategyWriter:
             "strategy": strategy or {},
             "history": history,
         }
+        if what_i_see:
+            payload["what_i_see"] = list(what_i_see)
         self._atomic_write(self.advice_path, payload)
         return payload

@@ -95,6 +95,19 @@ setsid nohup env FLY64_BRIDGE=/tmp/f64b_traj \
 
 # 变更日志
 
+## 2026-09-14: t21 读屏能力 — Brain v2.13.2（GLM 教练显式屏幕文字读取 what_i_see）
+
+**变更**：
+- `plugin/llm_consult.py` PROMPT_TEMPLATE 新增第 0 条读屏指令（"特别注意屏幕上的文字：读出所有可见英文/中文文字……逐条列在 what_i_see"）+ JSON 格式示例加 what_i_see 字段 + "根据屏幕看到的+下方状态数据"措辞；`parse_response()` 归一化 what_i_see（list[str]，缺失/畸形→[] 不崩溃）；`sanitize_strategy` 透传 what_i_see；`consult()` 将读出内容嵌入 advice（"👁 屏幕: …"）并随 strategy 写入 active_strategy.json
+- `plugin/strategy_writer.py`：write_strategy/write_advice 新增 what_i_see 参数，落盘 coach_advice.json 顶层+history 条目
+- 面板效果：教练面板 advice 文本现含 "👁 屏幕: …" 行——操作员可验证 GLM 是否真在看屏幕
+
+**回归**：新增 TestWhatISee 6 用例（prompt 指令/解析保留/缺失与畸形降级/sanitize 透传/consult 嵌入/双文件落盘）；test_plugin_mhr 41/41；全量 478 passed / 11 基线失败零新增。
+
+**版本**：Brain 2.13.1→**2.13.2**（SKILL 3.0.0 镜像不变）。WSL 实测见部署记录（coach_advice.json 含 what_i_see 实证）。
+
+---
+
 ## 2026-09-14: t20 阈值下调 — Brain v2.13.1（教练咨询阈值 120s→60s）
 
 **变更**：`plugin/runner.py` `STUCK_HELP_THRESHOLD` 120.0→**60.0**（service.py 无同常量，经 PluginRunner 复用），GLM 顾问在卡住 60s 后即介入而非 120s；runner 文档字符串同步。

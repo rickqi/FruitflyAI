@@ -81,11 +81,16 @@ _load_llm_env()
 
 PROMPT_TEMPLATE = (
     "你是 SM64 果蝇脑控制系统的教练。分析当前游戏截屏和状态，回答：\n"
+    "0. **特别注意屏幕上的文字**：读出所有可见的英文/中文文字"
+    "（对话框内容、UI 标签、金币数 ×××、生命值、星星数、菜单项等），"
+    "逐条列在 what_i_see 字段中——这是验证你确实在看屏幕的依据。\n"
     "1. 场景中有什么元素（门/坡/敌人/金币/平台/水体）？\n"
     "2. 马里奥当前面临什么障碍或问题？\n"
-    "3. 建议的下一步行动（转向方向、速度、是否跳跃、目标位置）？\n"
+    "3. 根据屏幕看到的 + 下方状态数据，给出建议的下一步行动"
+    "（转向方向、速度、是否跳跃、目标位置）？\n"
     "只回复一个 JSON 对象，格式:\n"
-    '{"scene_elements": ["..."], "problem": "...", "action": "...", '
+    '{"scene_elements": ["..."], "what_i_see": ["屏幕文字1", "屏幕文字2"], '
+    '"problem": "...", "action": "...", '
     '"advice": "给马里奥的一句中文建议", '
     '"strategy": {"fallen_recovery": {"mode": "mirror|directional_climb", '
     '"climb_period": 2.0, "persist_seconds": 2.0}, '
@@ -220,9 +225,19 @@ class GLMConsultant:
         raw = self._dispatch(request)
         self.last_raw_response = raw
         parsed = parse_response(raw)
+        # t21: explicit screen-text readout — embed into the advice so the
+        # operator sees "what the coach actually read from the screen" in
+        # the dashboard coach panel and in coach_advice.json history.
+        if parsed.get("what_i_see"):
+            parsed["advice"] = (str(parsed.get("advice", "")).rstrip()
+                                + "\n👁 屏幕: " + "；".join(parsed["what_i_see"]))
         parsed.setdefault("advice", "")
         if isinstance(parsed.get("strategy"), dict):
             parsed["strategy"] = sanitize_strategy(parsed["strategy"])
+            # t21: ride the readout into active_strategy.json (the runner
+            # writes strategy=parsed["strategy"] unchanged).
+            if parsed.get("what_i_see"):
+                parsed["strategy"]["what_i_see"] = list(parsed["what_i_see"])
         return parsed
 
     # ── dialogue decision API ─────────────────────────────────────────
@@ -375,7 +390,25 @@ def sanitize_strategy(strategy: dict) -> dict:
                 "mirror", "directional_climb"):
             out["mode"] = "mirror"
         clean[section] = out
+    # t21: preserve the explicit screen-text readout so it reaches
+    # active_strategy.json through the runner's strategy write.
+    wise = normalize_what_i_see(strategy.get("what_i_see"))
+    if wise:
+        clean["what_i_see"] = wise
     return clean
+
+
+def normalize_what_i_see(value) -> list:
+    """Normalise the what_i_see field to a list of non-empty strings.
+
+    Accepts a list (any items), a single string, or anything else; missing
+    or malformed input degrades to [] without raising (t21 contract).
+    """
+    if isinstance(value, str):
+        return [value.strip()] if value.strip() else []
+    if isinstance(value, (list, tuple)):
+        return [str(x).strip() for x in value if str(x).strip()]
+    return []
 
 
 def parse_dialogue_response(raw: str) -> dict:
@@ -403,17 +436,23 @@ def parse_dialogue_response(raw: str) -> dict:
 
 
 def parse_response(raw: str) -> dict:
-    """Parse a GLM reply into ``{advice, strategy?, scene_elements?, ...}``."""
+    """Parse a GLM reply into ``{advice, what_i_see?, strategy?, ...}``.
+
+    t21: the explicit screen-text readout ``what_i_see`` is normalised to a
+    list of non-empty strings and always present (missing/malformed → [])
+    so downstream consumers never crash on it.
+    """
     text = extract_json_text(raw)
     if text is None:
         # Free-form advice is still useful — keep it as the advice text.
-        return {"advice": (raw or "").strip()}
+        return {"advice": (raw or "").strip(), "what_i_see": []}
     data = json.loads(text)
     if not isinstance(data, dict):
-        return {"advice": str(data)}
+        return {"advice": str(data), "what_i_see": []}
     out = dict(data)
     advice = out.get("advice") or out.get("action") or ""
     out["advice"] = str(advice)
+    out["what_i_see"] = normalize_what_i_see(out.get("what_i_see"))
     return out
 
 
