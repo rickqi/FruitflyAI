@@ -964,3 +964,40 @@ def test_aggressive_mode_halves_cooldown():
     assert abs(rc.cooldowns["stuck_ramp"] - 5.0) < 0.02, (
         f"Expected new cooldown ~5.0, got {rc.cooldowns['stuck_ramp']}"
     )
+
+# --- L1 spatial-memory upgrade: topology graph, path memory, persistence ---
+
+def test_adjacency_records_cell_transitions():
+    """Walking A->B->C records edges A-B and B-C; staying put records none."""
+    sm = SpatialMemoryMap()
+    for x in (0.0, 100.0, 100.0, 100.0, 300.0):   # A,A(again),A,A,B
+        sm.update(x, 0.0)
+    assert sm.adjacency_count == 1                # only A-B (100u < 200u cell)
+    assert sm.traversal_steps == 1                # one A->B transition
+
+
+def test_recent_path_is_ordered_and_deduped():
+    """recent_path returns ordered, consecutive-deduped cell centres."""
+    sm = SpatialMemoryMap()
+    for x in (0.0, 100.0, 100.0, 300.0, 300.0, 500.0):
+        sm.update(x, 0.0)
+    path = sm.recent_path(10)
+    assert [round(p["x"]) for p in path] == [100, 300, 500]  # A collapsed
+
+
+def test_map_persistence_roundtrip(tmp_path):
+    """save_state/load_state restores cells + adjacency across instances."""
+    sm = SpatialMemoryMap()
+    for x in (0.0, 100.0, 300.0, 500.0):
+        sm.update(x, 0.0)
+    p = tmp_path / "map.pkl"
+    sm.save_state(p)
+
+    sm2 = SpatialMemoryMap()
+    restored = sm2.load_state(p)
+    assert restored == 3                          # cells restored
+    assert sm2.adjacency_count == 2               # A-B, B-C edges restored
+    assert sm2.visited_cells == 3
+    assert int(sm2._cells[(0, 0)]) == 2           # visit counts preserved
+    # restored map keeps answering novelty queries (recency reset to 1.0)
+    assert 0.0 < sm2.novelty_at(900.0, 0.0) <= 1.0
