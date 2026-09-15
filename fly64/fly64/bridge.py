@@ -13,9 +13,12 @@ WIDTH = 384
 HEIGHT = 256
 CHANNELS = 3
 FRAME_BYTES = WIDTH * HEIGHT * CHANNELS
+SCREEN_WIDTH = 320
+SCREEN_HEIGHT = 240
+SCREEN_BYTES = SCREEN_WIDTH * SCREEN_HEIGHT * 3
 HEADER = struct.Struct("<8sIIIIQbbHI")
 HEADER_SIZE = 128
-FILE_SIZE = HEADER_SIZE + FRAME_BYTES
+FILE_SIZE = HEADER_SIZE + FRAME_BYTES + SCREEN_BYTES
 A_BUTTON = 0x8000
 B_BUTTON = 0x4000  # LLM dialogue decisions: B (cancel/skip); emulator may ignore
 # Explicit hardware fences for cross-process seqlocks on Apple Silicon.
@@ -97,6 +100,16 @@ class SharedBridge:
         self.mm[: HEADER.size] = HEADER.pack(
             MAGIC, 2, frame_seq, control_seq, enabled, heartbeat_ns, x, y, buttons, 0
         )
+
+    def read_screen(self) -> bytes | None:
+        """EVO R21: SM64 game screen as raw RGB (320x240), or None."""
+        if not self.mm:
+            return None
+        start = HEADER_SIZE + FRAME_BYTES
+        try:
+            return bytes(self.mm[start: start + SCREEN_BYTES])
+        except Exception:
+            return None
 
     def read_frame(self) -> tuple[int, bytes]:
         now = time.monotonic()

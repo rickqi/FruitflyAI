@@ -132,10 +132,19 @@ class PluginRunner:
         return None
 
     def capture_frame(self) -> Optional[str]:
-        """Fetch the current game frame (base64) for multimodal input."""
-        frame = self._fetcher("/frame.json")
-        if isinstance(frame, dict) and frame.get("frame_b64"):
-            return frame["frame_b64"]
+        """Fetch the SM64 game screen (base64) for GLM multimodal input.
+
+        Priority:
+          1. ``/screen.json`` ``screen_b64`` → 320×240 SM64 game frame.
+          2. ``/help.json`` ``frame_b64`` → cubemap forward face (fallback).
+          3. ``None`` when nothing is available.
+        """
+        screen = self._fetcher("/screen.json")
+        if isinstance(screen, dict) and screen.get("screen_b64"):
+            return screen["screen_b64"]
+        help_ = self._fetcher("/help.json")
+        if isinstance(help_, dict) and help_.get("frame_b64"):
+            return help_["frame_b64"]
         return None
 
     # ── consult frame snapshot (t21 wrap-up) ─────────────────────────

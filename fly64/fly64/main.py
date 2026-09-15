@@ -119,6 +119,7 @@ class DashboardHTTP(BaseHTTPRequestHandler):
     history_json = b"[]"
     evolution_json = b"{}"
     help_json = b"{}"   # L2 coach-help snapshot (see /help.json)
+    screen_json = b'{"screen_b64": ""}'
     signal_history = deque(maxlen=600)
 
     def do_GET(self):
@@ -204,6 +205,8 @@ class DashboardHTTP(BaseHTTPRequestHandler):
             body, mime = self.flow_json, "application/json"
         elif path == "/events.json":
             body, mime = self.events_json, "application/json"
+        elif path == "/screen.json":
+            body, mime = self.screen_json, "application/json"
         elif path == "/history.json":
             body, mime = self.history_json, "application/json"
         elif path == "/trajectory-list.json":
@@ -467,22 +470,40 @@ def _scene_name(model, memory_ctrl, recognizer=None) -> str:
 # ── L2 coach-help snapshot ───────────────────────────────────────────
 
 def build_help_snapshot(scene_name, position, diagnosis, frame,
-                        help_reason="interaction_blocked") -> dict:
+                        help_reason="interaction_blocked",
+                        screen_bytes: bytes | None = None) -> dict:
     """Build the /help.json payload: full context for a human coach.
 
-    frame is an HxWxC uint8 array; it is base64-encoded raw (channel-last,
-    row-major) so no imaging dependency is required.
+    The frame received here is a 384×256 cubemap (6 faces).  For the GLM
+    coach we extract the FORWARD face (128×128) — the most interpretable
+    single view for an LLM trained on human images.  The full cubemap is
+    never sent to the LLM directly.
+
+    SM64 actual game-screen capture (third-person camera showing Mario)
+    is NOT available through the current bridge protocol — only the
+    cubemap is.  A future fly64_vision.c extension could write the game's
+    frame buffer to a second shared-memory slot.
     """
     import base64
     frame_b64 = ""
     if frame is not None:
         arr = np.ascontiguousarray(np.asarray(frame, np.uint8))
-        frame_b64 = base64.b64encode(arr.tobytes()).decode("ascii")
+        # Extract the forward face (first 128×128 block) from the
+        # 384×256 cubemap — the most useful view for a GLM.
+        if arr.shape == (256, 384, 3):
+            forward = arr[:128, :128, :].copy()
+            fwd_b64 = base64.b64encode(forward.tobytes()).decode("ascii")
+            frame_b64 = fwd_b64
+    screen_b64 = ""
+    if screen_bytes is not None:
+        screen_b64 = base64.b64encode(
+            np.ascontiguousarray(screen_bytes).tobytes()).decode("ascii")
     return {
         "scene_name": scene_name or "",
         "position": position or {},
         "diagnosis": diagnosis or "",
         "frame_b64": frame_b64,
+        "screen_b64": screen_b64,
         "help_reason": help_reason,
         "ts": round(time.time(), 2),
     }
@@ -824,7 +845,8 @@ async def run(args) -> None:
                         (f"interaction habituated: dialogue re-engaged >=3x near "
                          f"{dialogue_last_pos}; anomaly="
                          f"{memory_ctrl.anomaly_state_name}"),
-                        frame)).encode()
+                        frame,
+                        screen_bytes=bridge.read_screen())).encode()
             elif dialogue_help_sent:
                 dialogue_help_sent = False
                 DashboardHTTP.help_json = json.dumps(
@@ -1475,6 +1497,11 @@ async def run(args) -> None:
                     "reflex_type": memory_ctrl.reflex_type,
                     "health_score": round(memory_ctrl.health_score, 4),
                 })
+                import base64 as _b64
+                _raw_scr = bridge.read_screen() if hasattr(bridge, "read_screen") else None
+                if _raw_scr:
+                    DashboardHTTP.screen_json = json.dumps(
+                        {"screen_b64": _b64.b64encode(_raw_scr).decode()}).encode()
                 DashboardHTTP.history_json = json.dumps(
                     list(DashboardHTTP.signal_history),
                     separators=(",", ":")).encode()

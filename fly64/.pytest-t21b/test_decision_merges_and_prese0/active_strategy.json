@@ -1,0 +1,20 @@
+{
+  "fallen_recovery": {
+    "mode": "directional_climb",
+    "climb_period": 3.0
+  },
+  "exploration": {
+    "turn_bias": 15.0
+  },
+  "coach_advice": "v1",
+  "advice_ts": 1789458656.73,
+  "source": "glm-5.3-flash",
+  "dialogue_decision": {
+    "action": "press_a",
+    "reason": "推进",
+    "source": "glm-5.3-flash",
+    "timed_out": false,
+    "ts": 1789458656.74,
+    "wait_seconds": 3.4
+  }
+}
