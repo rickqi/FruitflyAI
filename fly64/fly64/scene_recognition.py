@@ -728,6 +728,7 @@ class SceneRecognizer:
             return ("", 0.0, [])
 
         best_id, best_name, best_score, best_tags = scored[0]
+        self._last_tags = list(best_tags)
         margin = best_score - (scored[1][2] if len(scored) > 1 else -2.0)
 
         # Normalise score from [-1, +1] to [0, 1] confidence
@@ -778,6 +779,18 @@ class SceneRecognizer:
         """Account for a scene hash that matched no profile (C3 telemetry)."""
         if scene_hash:
             self.unknown_scenes[scene_hash] = self.unknown_scenes.get(scene_hash, 0) + 1
+
+    def danger_level(self) -> float:
+        """EVO R19: 1.0 when the recognised level carries a danger tag.
+
+        Sensory input for the model's caution current — recognition becomes
+        FUNCTIONAL (the identified scene modulates behaviour), closing the
+        recognition-to-behaviour gap.
+        """
+        tags = set(getattr(self, "_last_tags", []) or [])
+        if tags & {"danger", "lava", "hell"}:
+            return 1.0
+        return 0.0
 
     # ── Custom label management ───────────────────────────────────────
 

@@ -75,6 +75,20 @@ D:\codes\flygym\
 
 # 变更日志
 
+## 2026-09-14: EVO Round 19 — Brain v2.12.0（躁动电流 + 识别→行为闭环 + 遥测小补）
+
+**触发**：监控实况——马里奥在识别为"致命熔岩地"的悬崖边驻留 61s（escape 级联、novelty 0.001、loop 0.97），识别结果未驱动行为、静息状态下突破电流失效（TurnAdaptation 只响应转弯，静息凝视时疲劳衰减→breakout→0）。
+
+**变更（全神经注入，零 Python 控制判断）**：
+- `model.py` `restlessness_level()`：对峙时间/环路压力累积为 **forward 躁动电流**（standoff/30s 与 (loop−0.8)×5 取最大封顶 1.0；对应"逃逸动机随困留时间累积"）；step 内 spike 前注入 forward 池 ×0.12
+- `scene_recognition.py` `danger_level()` + `model.scene_danger` 镜像：识别 tags 含 danger/lava/hell → forward 谨慎抑制 −0.06——**识别从命名变为功能**（识别→行为闭环）
+- `main.py`：镜像 `loop_score`/`scene_danger`；flow.json 补 `fg_fraction/mb_weight_std/mb_saturation_events`（OPT-4）
+- 版本：Brain → **2.12.0**
+
+**PIN**：`tests/test_restlessness.py` 6 用例（对峙满值/环路压力/静息为零/danger 识别/良性不触发/forward 抑制量），6/6；全量 398 passed、5 failed 均为既有问题。
+
+---
+
 ## 2026-09-14: EVO Round 18 — Brain v2.11.x（DAN 信号塑形：奖励权重常量化 + 探索奖励 0.50→0.30 压低 MBON 饱和平衡点）
 
 **触发**：R17 部署后实测 `mb_mbon_forward=1.0`——正多巴胺再膨胀与稳态缩放的平衡点停留在 tanh 天花板。探索奖励 0.5 的持续 +DA 是膨胀主因。

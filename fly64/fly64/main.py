@@ -35,7 +35,7 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.11.0"
+BRAIN_VERSION = "2.12.0"
 SKILL_VERSION = "3.0.0"   # must mirror fly64/skills/evolution_skill.py SKILL_VERSION
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
@@ -1177,6 +1177,9 @@ async def run(args) -> None:
                 model.cliff_standoff_s = memory_ctrl.cliff_standoff_s
                 model.cliff_tangent_bias = memory_ctrl.cliff_tangent_bias(
                     pose[0], pose[2], pose[3])
+                # EVO R19: restlessness inputs (loop pressure) + recognition
+                model.loop_score = memory_ctrl.spatial.loop_score
+                model.scene_danger = scene_recognizer.danger_level()
                 # Periodic scene-database persistence (every ~600 ticks ≈ 12s)
                 scene_save_counter += 1
                 if scene_save_counter >= 600:
@@ -1266,6 +1269,9 @@ async def run(args) -> None:
                     "mb_dopamine": round(getattr(model.mushroom, "dopamine", 0.0), 4),
                     "mb_mbon_forward": round(float(model.mushroom.mbon_outputs[0]), 4),
                     "mb_mbon_jump": round(float(model.mushroom.mbon_outputs[3]), 4),
+                    "fg_fraction": round(getattr(model, "fg_fraction", 0.0), 4),
+                    "mb_weight_std": round(float(getattr(model.mushroom, "weights").std()), 4),
+                    "mb_saturation_events": getattr(model.mushroom, "saturation_events", 0),
                     "local_motion": round(model.local_motion_energy, 4),
                     "local_motion_detected": model.local_motion_detected,
                     "dialogue_active": getattr(model, "dialogue_active", False),

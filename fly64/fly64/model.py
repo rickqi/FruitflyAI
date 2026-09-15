@@ -472,6 +472,9 @@ class FlyModel:
         # controller; tangential detour bias from FailureMemory).
         self.cliff_standoff_s = 0.0
         self.cliff_tangent_bias = 0.0
+        # EVO R19: restlessness inputs (loop pressure + scene danger)
+        self.loop_score = 0.0
+        self.scene_danger = 0.0
         # Visual short-term memory (scene change detection)
         self.scene_memory = SceneMemory(buffer_size=30)
         self.scene_mean = 0.0
@@ -997,6 +1000,8 @@ class FlyModel:
         self._turn_adapt.reset()
         self.cliff_standoff_s = 0.0
         self.cliff_tangent_bias = 0.0
+        self.loop_score = 0.0
+        self.scene_danger = 0.0
         if hasattr(self, "mushroom"):
             try:
                 self.mushroom.reset()
@@ -1158,6 +1163,18 @@ class FlyModel:
     DAN_PUNISH_REVISIT = 0.20
     DAN_PUNISH_LOOP_STATES = 0.35   # micro_loop / stuck_ramp / wall_stuck / oscillating
     DAN_PUNISH_STANDOFF = 0.45      # cliff-edge standoff > 20s
+
+    def restlessness_level(self) -> float:
+        """EVO R19: escape-motivation build-up in [0, 1].
+
+        Driven by cliff-edge standoff time and loop pressure — the
+        motivational current that converts standoff/weave stillness into
+        forward displacement (biological: escape motivation builds with
+        entrapment time).
+        """
+        loop_pressure = max(0.0, (self.loop_score - 0.8) * 5.0)
+        standoff = min(1.0, self.cliff_standoff_s / 30.0)
+        return min(1.0, max(standoff, loop_pressure))
 
     def _compute_dopamine(self) -> float:
         """Compute the dopaminergic-neuron (DAN) signal.
@@ -1472,6 +1489,18 @@ class FlyModel:
             else:
                 self.v[self.turn_left] += _t
             self.v[self.forward] -= 0.08          # ease off head-on drive
+
+        # EVO R19 · restlessness: standoff/loop pressure builds forward drive
+        # (escape motivation accumulates with entrapment time).
+        _rest = self.restlessness_level()
+        if _rest > 0.0:
+            self.v[self.forward] += _rest * 0.12
+
+        # EVO R19 · recognition → behaviour closure: a recognised DANGEROUS
+        # scene (lava/hell tags) suppresses forward drive — caution current.
+        # Direction selection stays with the turn-pool competition.
+        if self.scene_danger > 0.0:
+            self.v[self.forward] -= self.scene_danger * 0.06
 
         fired = self.v >= self.threshold
         self.v[fired] = self.reset

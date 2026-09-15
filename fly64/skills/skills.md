@@ -54,7 +54,7 @@ skill 具备**自我更新迭代**能力，通过受控进化循环固定能力�
 
 进化迭代历史在仪表板实时可见（`/evolution.json`：Brain 版本徽章、EVO 计数、每轮能力列表）。
 
-> 当前版本：BRAIN_VERSION **2.10.0** / SKILL_VERSION **3.0.0**（R13 转圈死循环修复 → R15 悬崖对峙 → R16 震荡突破+skill 层复明+常驻 EVO → R17 MBON 稳态缩放+breakout_hint 反射移相+DAN 塑形常量化）。
+> 当前版本：BRAIN_VERSION **2.11.0** / SKILL_VERSION **3.0.0**（R13 转圈死循环修复 → R15 悬崖对峙 → R16 震荡突破+skill 层复明+常驻 EVO → R17 MBON 稳态缩放+breakout_hint 反射移相+DAN 塑形常量化）。
 
 ## 二期门禁：12 小时稳定自动聘雇（2026-09-14 决策）
 

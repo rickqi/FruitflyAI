@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Fly64 EvolutionSkill v2.0.0 — Industry-standard self-evolving skill.
+Fly64 EvolutionSkill v3.0.0 — Industry-standard self-evolving skill.
 
 5-phase closed-loop pipeline:
   Monitor -> Diagnose -> Fix -> Verify -> Document

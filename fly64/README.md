@@ -138,6 +138,33 @@ cd .cache/sm64ex
 FLY64_BRIDGE=../runtime/fly64_bridge.bin ./build/us_pc/sm64.us.f3dex2e --skip-intro
 ```
 
+> **ROM 校验**：`run-fly64` 会校验 ROM SHA-1（US 未修改版 `9bef1128717f958171a4afac3ed78ee2bb4e86ce`），不匹配即退出；详见 [`ROM-SETUP-GUIDE.md`](ROM-SETUP-GUIDE.md)。`run-fly64` 经 `scripts/locked_launcher.py` 加进程树锁，避免重复启动。
+
+#### 无人值守模式（EVO 常驻 + 自治服务）
+
+完整自治栈 = 脑模型 + 游戏 + EVO 常驻循环 + MHR 教官服务：
+
+```bash
+# 1) 脑模型 + 游戏（WSL 常用桥接路径 /tmp/f64b_traj）
+cd /root/fly64
+setsid nohup ./venv/bin/python -m fly64.main --bridge /tmp/f64b_traj \
+  --record /tmp/f64r_traj.npz --no-browser --duration 0 > /tmp/fly64_run.log 2>&1 &
+
+# 2) EVO 常驻闭环（10s 间隔，auto-fix 记录+验证）
+.venv/bin/python fly64/skills/evolution_skill.py --auto-fix --interval 10 --max-iterations 86400 &
+
+# 3) 自治服务（含 LLM 教官 + 心跳自检；部署见 plugin/DEPLOY_AUTONOMY.md）
+PYTHONPATH=. nohup python3 -m plugin.service --interval 10 >> plugin/service.log 2>&1 &
+crontab -l | { cat; echo "* * * * * $(pwd)/plugin/watchdog.sh"; } | crontab -   # 看门狗
+```
+
+**制度化重启**（推荐统一入口，避免合成模式悄悄与游戏断链）：
+
+```bash
+./scripts/consolidate.sh          # 检测 SM64 进程 → 全模式重启脑模型 → 连带重启自治循环 → 校验 brain_version
+cat runtime/phase2_gate.json      # 连续稳定 ≥12h 后由 scripts/phase2_gate.sh 写出 GO
+```
+
 ## 🎮 操作说明
 
 | 按键 | 功能 |
@@ -199,6 +226,9 @@ FLY64_BRIDGE=../runtime/fly64_bridge.bin ./build/us_pc/sm64.us.f3dex2e --skip-in
 | **布局预览** | `/monitor-preview.html` | 模拟数据驱动的实时面板演示：单列/两列手动切换、区块标注（`--row-*` 变量与数值）、causal-off 模拟复选框；500ms 动画刷新，可暂停 |
 | **布局线框图** | `/layout-wireframe.html` | 全部 8 个组件区块的线框图：双布局模式 + 四档响应式断点条（<650 / 650–1100 / 1100–1400 / ≥1400）+ grid-template-areas 原文 |
 | **轨迹回放** | `/trajectory.html` | 马里奥运动轨迹回放 |
+| **空间记忆热力图**（组件） | `web/memory-heatmap.js` | 独立热力图组件：1s 自刷新，消费 `/memory.json` + `/flow.json`，可嵌入其他页面 |
+
+**页面模块化**：主面板逻辑集中在 `web/dashboard.js`（60KB，含 `explain()` 因果派生与四泳道时间轴），样式单一来源 `web/dashboard.css`，热力图可独立复用。
 
 ![布局预览页](docs/screenshots/monitor-preview.png)
 
@@ -222,6 +252,7 @@ FLY64_BRIDGE=../runtime/fly64_bridge.bin ./build/us_pc/sm64.us.f3dex2e --skip-in
 | `/evolution.json` | EVO 轮次与 findings | 仪表板 EVO 胶囊 |
 | `/help.json` | 求助快照（SEEK-HELP 分支） | Coach 面板 |
 | `/active_strategy.json` | 教官写入的策略（脑模型热加载） | Coach 策略消费 |
+| `/coach_advice.json` | 教官建议全文（Coach 面板折叠展示） | 仪表板 Coach 面板 |
 | `/metadata.json` · `/trajectory.json` · `/trajectory-list.json` | 元数据 / 实时轨迹 / 轨迹清单 | 轨迹回放页 |
 | `ws://127.0.0.1:8766/` | F643 二进制 packet（`causal_schema=1`；tick 行含 `decision_source`/`cliff_conf`/`stuck_conf`/`gate_forward`/`gate_jump`，帧行含 `sector_active`/`sector_contrast`） | 仪表板实时渲染 |
 
@@ -230,43 +261,173 @@ FLY64_BRIDGE=../runtime/fly64_bridge.bin ./build/us_pc/sm64.us.f3dex2e --skip-in
 ## 🧠 技术架构
 
 ```
-┌──────────────┐    ┌──────────────────┐    ┌──────────────┐
-│  SM64 Game   │───▶│  Shared Memory   │───▶│ Fly64 脑模型 │
-│  (sm64ex)    │◀───│  Bridge (mmap)   │◀───│ 166,700 神经元│
-│  渲染 3D画面 │    │  seqlock 协议    │    │ LIF 网络     │
-└──────────────┘    └──────────────────┘    └──────────────┘
-       │                     ▲                     │
-       │ 写入 6面体贴图       │ 读取游戏帧          │ 计算控制信号
-       ▼                     │                     ▼
-┌──────────────────────────────────────────────────────────┐
-│  Web Dashboard (http://127.0.0.1:8765)                   │
-│  • 果蝇复眼视图 (270°) + 16扇区活跃叠加                  │
-│  • 神经活动图表 • 全脑热力图 • 轨迹回放                  │
-│  • 决策解释卡 (decision_source 实时归因)                 │
-│  • 四泳道因果时间轴 (120s 回放 + 因果弧线)               │
-│  • Escape 事件表 • 覆盖率趋势 • 健康评分仪表盘           │
-└──────────────────────────────────────────────────────────┘
+┌──────────────┐    ┌──────────────────┐    ┌──────────────────────────┐
+│  SM64 Game   │───▶│  Shared Memory   │───▶│ Fly64 脑模型             │
+│  (sm64ex)    │◀───│  Bridge (mmap)   │◀───│ 166,700 神经元 / 25.6M 突触│
+│  渲染 3D画面 │    │  seqlock 协议    │    │ LIF 网络 + CX + 蘑菇体    │
+└──────────────┘    └──────────────────┘    └──────────────────────────┘
+       │                     ▲                          │
+       │ 写入 6面体贴图       │ 读取游戏帧                │ 计算控制信号
+       ▼                     │                          ▼
+┌───────────────────────────────────────────────────────────────────────┐
+│  Web Dashboard (http://127.0.0.1:8765)  +  WS 8766 (F643 packet)      │
+│  • 复眼视图 (270°) + 16扇区叠加  • 神经活动图表  • 全脑热力图          │
+│  • 决策解释卡 (decision_source 归因)  • 四泳道因果时间轴 (120s)        │
+│  • 空间记忆/轨迹回放  • Escape 事件表  • 覆盖率与健康评分              │
+│  • Coach 面板 (教官建议)  • EVO/Brain 版本胶囊                        │
+└───────────────────────────────────────────────────────────────────────┘
+       ▲                                        ▲
+       │ 只读遥测 (JSON)                         │ 状态/建议
+┌──────┴───────────────────┐          ┌─────────┴──────────────────────┐
+│ EvolutionSkill v3.0.0    │          │ MHR 教官层插件 (10s 周期)      │
+│ Monitor→Diagnose→Fix→    │          │ runner → check_help_needed →   │
+│ Verify→Document          │          │ GLM-5.3-flash 多模态咨询 →     │
+│ 13 patterns · fix_catalog│          │ active_strategy.json (热加载)  │
+│ 常驻循环 (auto-fix)      │          │ + coach_advice.json (展示)     │
+└──────────────────────────┘          └────────────────────────────────┘
+       ▲                                        ▲
+       └──────── scripts/consolidate.sh（制度化重启，含自治服务）────────┘
 ```
 
-### 关键组件
+### 模块全量清单
+
+**核心闭环（`fly64/fly64/`）** — 行数为当前实测：
+
+| 模块 | 行数 | 职责 |
+|------|-----:|------|
+| `main.py` | 1365 | 主循环：视觉帧 → 脑模型 → 控制闭环；控制级联与归因、遥测发布、HTTP/WS 服务、`active_strategy.json` 热加载（每 600 tick） |
+| `model.py` | 1538 | LIF 连接组模型（166,700 神经元 / 25.6M 突触）、视觉编码、运动解码、CX 接入、增益调制接入、TurnAdaptation |
+| `memory.py` | 1610 | 空间记忆网格、StuckDetector、四类反射回路、CliffDetector、FailureMemory、SceneDatabase、健康评分 |
+| `retina.py` | 1269 | 球面复眼采样（1,536 细胞 × 7 锥形采样）+ 多通道视网膜（on/off/sustained/四向 edge）+ T4/T5 式 HRC、LC4 looming |
+| `scene_recognition.py` | 772 | 场景识别：用 P05/P50/P95 分位特征分布匹配 SM64 关卡 profile，输出关卡名/置信度/标签，支持在线校准与未知场景记账 |
+| `mushroom_body.py` | 406 | 多巴胺蘑菇体学习（2000 KC · 5 MBON · top-5% 稀疏编码 · KC→MBON 可塑）+ **R17** 饱和稳态突触缩放 |
+| `gain_modulation.py` | 275 | 多巴胺门控通路增益（`visual`/`forward`/`turn`/`jump`/`recurrent`；`GAIN_MIN=0.5`/`GAIN_MAX=2.5`，三因子规则 Δgain=η·R·E·(1−gain)） |
+| `central_complex.py` | 217 | 中央复合体：EB 环形吸引子朝向罗盘 + FB 目标方向存储与比较 + PB 双侧朝向表征 → 转向偏置注入转向池 |
+| `data.py` | 203 | MaleCNS 脑数据下载与预处理（`python -m fly64.data --prepare`） |
+| `bridge.py` | 112 | 共享内存桥接（mmap + seqlock，跨进程帧/控制交换） |
+| `telemetry.py` | 105 | 只读观测仪：F643 packet 发布（池率/流信号/扇区叠加/因果归因，`causal_schema=1`） |
+| `replay.py` | 35 | 无需 SM64 的逐 tick 神经回放 |
+
+**技能、前端与运维**
 
 | 组件 | 说明 |
 |------|------|
-| `fly64/main.py` | 主循环：视觉→脑模型→控制闭环 |
-| `fly64/bridge.py` | 共享内存桥接（跨进程通信） |
-| `fly64/model.py` | LIF 神经元模型 + 连接组加载 |
-| `fly64/retina.py` | 球面复眼采样（270° 视野） |
-| `fly64/memory.py` | 空间记忆 + 异常检测 + 反射回路 + 健康评分 |
-| `fly64/data.py` | MaleCNS 脑数据下载与预处理 |
-| `fly64/mushroom_body.py` | **P3** 多巴胺蘑菇体学习 (2000 KC, 5 MBON, 三元因子Hebbian可塑) + **R17** MBON 饱和稳态突触缩放 |
-| `fly64/gain_modulation.py` | 多巴胺门控增益调制（visual/forward/turn/jump/recurrent 五通路，GAIN_MAX=2.5） |
-| `fly64/telemetry.py` | 只读观测仪：F643 packet 发布（池率/流信号/扇区叠加/因果归因字段，`causal_schema=1`） |
 | `skills/evolution_skill.py` | **EVO v3.0.0**：Monitor→Diagnose→Fix→Verify→Document 五阶段闭环 + 常驻循环 + pattern 匹配 + fix 效果量化 |
-| `skills/default_patterns.json` | pattern 目录（13 条，JSON Schema draft-07 校验），含遥测自诊断 pattern |
+| `skills/default_patterns.json` | pattern 目录（13 条，JSON Schema draft-07 校验），含 `telemetry_gap` 遥测自诊断 |
 | `skills/fix_catalog.json` · `skills/evolution_log.jsonl` | 修复条目（基线/结果/effective 判定）与逐轮执行日志 |
-| `web/dashboard.js` | 仪表板前端：渲染 + `explain()` 因果链派生 + 四泳道时间轴 + `?noviz=1` 降级开关 |
 | `skills/neural_viz_skill.py` | 离线因果链路分析技能（cliff 误报/门控抖动/preempt 风暴/信号→行动延迟检测 + Markdown 报告） |
+| `skills/evolution_agent.py` | 早期独立版进化 agent（监视→诊断→修复生成→效果跟踪）；现行主线为 `evolution_skill.py` |
+| `skills/skills.md` | EVO 操作手册（七步制度、pattern 细则、门禁与部署约定） |
+| `web/dashboard.js` · `dashboard.css` · `index.html` | 主面板前端：渲染 + `explain()` 因果链派生 + 四泳道时间轴 + `?noviz=1` 降级开关 |
+| `web/memory-heatmap.js` | 空间记忆热力图组件（1s 自刷新，消费 `/memory.json` + `/flow.json`） |
 | `web/trajectory.html` | 马里奥运动轨迹回放页面 |
+| `web/monitor-preview.html` · `layout-wireframe.html` | 布局预览页（模拟数据）与线框图页 |
+| `plugin/` | LLM 教官层插件包（详见下一节） |
+| `scripts/` | 运维脚本（consolidate 重启、门禁、soak 监控、因果校验等） |
+| `patches/sm64ex-fly64.patch` | sm64ex 侧补丁：六面体图集渲染（`FLY64_WIDTH 384`×`FLY64_HEIGHT 256`，3×2 面布局）+ 桥接写入 |
+| `config/sm64config.txt` | SM64 预设配置（随仓库提供） |
+
+### 附加神经子系统
+
+| 子系统 | 实现 | 作用 |
+|--------|------|------|
+| **中央复合体 CX** | `central_complex.py`，`model.py:592` 实例化为 `self.cx` | EB 环形吸引子维护朝向；FB 存目标方向并与当前朝向比较产生转向误差；PB 提供双侧表征。CX 接收朝向/光流不对称/新奇性，输出**转向偏置注入转向池**（不直接写控制指令） |
+| **多巴胺增益调制** | `gain_modulation.py` | 连接组权重 `self.w` 只读，故以**通路增益**替代权重修改：多巴胺门控三因子规则调整五通路增益，等效实现可塑性 |
+| **蘑菇体联想学习** | `mushroom_body.py` | KC 稀疏编码（2000 KC，top-5%）→ 可塑 KC→MBON（5 个：forward/left/right/jump/explore）；遵循 FlyWire "精确匹配反馈"，仅强化多巴胺时刻活跃的突触。R17 增加**饱和守卫**：某 MBON 列连续 50 帧 `tanh` 绝对值 ≥0.98 则该列权重 ×0.9（稳态缩放，防输出贴顶） |
+| **场景识别与校准** | `scene_recognition.py` | 以分位特征分布匹配关卡 profile；R16 起支持**在线 profile 校准**与 unknown-scene 记账，`/memory.json` 的 `scene_label`/`scene_id` 即其输出 |
+| **失败记忆与切向绕行** | `memory.py` `FailureMemory` | 记录死端/坠落格（半径 2.5 格内最近失败向量），R15 起向转向池注入**切向绕行偏置**（`cliff_tangent_bias`），实现"沿悬崖边缘走"而非正面顶撞 |
+| **TurnAdaptation 转向适应** | `model.py` | 左右转向回路疲劳积分 → 反相电流（自发交替）；R16 增加 `breakout_drive`：双回路同时疲劳（原地编织特征）时输出**前向突破电流**，让网络自行脱出编织 |
+
+### LLM 教官层（Fly64 MHR 插件，`plugin/`）
+
+按"教官层不侵入果蝇回路"的分层原则（见下文架构原则），LLM 只通过**降维调制信号**影响行为：
+
+| 组件 | 说明 |
+|------|------|
+| `plugin/manifest.json` | DSH 插件清单：`fly64-mhr` v1.0.0，`runtime.kind=periodic`（10s），能力 `evolution.cycle.monitor` / `llm.multimodal.consult` / `strategy.hot_reload` / `dashboard.advice_display` |
+| `plugin/runner.py` | 每 10s 闭环：poll `/evolution.json`+`/memory.json` → `check_help_needed` → 抓帧 → LLM 咨询 → 写策略 |
+| `plugin/llm_consult.py` | GLM-5.3-flash 多模态咨询（游戏帧 base64 + 上下文快照），JSON 建议解析为 strategy dict。双传输：**subagent 文件握手**（`plugin/.consult_request.json` → host agent 回复 `.consult_response.json`，硬超时 120s）或 **OpenAI 兼容 http**（`FLY64_LLM_BASE_URL`/`FLY64_LLM_API_KEY`/`FLY64_LLM_MODEL`） |
+| `plugin/strategy_writer.py` | 原子写出 `skills/active_strategy.json`（脑模型每 600 tick 热加载：`fallen_recovery` 等段）与 `skills/coach_advice.json`（仪表板 Coach 面板消费，端点 `/coach_advice.json`） |
+| 升级触发条件 | `stuck_duration > 120s` **且** 异常态活跃 **且** 无反射在跑（另含 R12 的 `reflex_ineffective_stuck`：反射活跃但 60s 位移 <30u）→ 判定超出内生能力，向教官求助 |
+| 降级策略 | LLM 不可用/超时 → 写 `source=local_diagnosis` 的本地诊断建议，EvolutionSkill 照常本地闭环——**自治不依赖外部会话** |
+
+### 自治常驻服务与运维脚本
+
+| 脚本/服务 | 作用 |
+|-----------|------|
+| `plugin/service.py` | WSL 常驻守护：10s 循环 + 每周期健康自检（`dashboard_ok`/`bridge_fresh`/`strategy_written`/`degraded`）写 `service_status.json`；连续失败 ≥5 置 `alert` |
+| `plugin/watchdog.sh` | 存活监控：进程死掉自动重启，连续 ≥3 次启动失败写 `watchdog.log` ALERT（附 service.log 末尾 20 行） |
+| `plugin/DEPLOY_AUTONOMY.md` | 三种部署方式：systemd（推荐）/ `nohup` + cron watchdog / 随 `consolidate.sh` 联动 |
+| `scripts/consolidate.sh` | **制度化重启**：检测 SM64 进程 → 全模式重启脑模型到游戏 bridge（避免合成模式悄悄断开视觉输入），并连带重启自治循环；启动后校验 `brain_version` |
+| `scripts/phase2_gate.sh` | 二期门禁：自治服务稳定运行 **≥12h**（uptime + 零 ALERT + 零连续失败）→ 写 `runtime/phase2_gate.json` GO |
+| `scripts/setup_sm64.sh` | sm64ex 获取+补丁+编译一键脚本 |
+| `scripts/monitor_soak.py` | 长跑监控：进程树与原生 ACK 测量（soak 测试） |
+| `scripts/validate_causality.py` | 全模型视觉因果三项校验 |
+| `scripts/locked_launcher.py` | `run-fly64` 的进程树非阻塞锁（防重复启动） |
+| `scripts/record_demo.sh` · `inspect_video.swift` · `record_windows.swift` | 演示录制与视频检视（macOS 侧工具链） |
+
+### 测试与验证
+
+```bash
+cd fly64
+python3 -m pytest -q                      # 全量套件（当前 452 项，pytest.ini: pythonpath=. testpaths=tests）
+python3 -m pytest tests/test_invariants.py -q          # 不变量（连接组/LIF 数值契约）
+python3 -m pytest tests/test_evolution_capability.py -q # EVO 能力回归
+python3 -m pytest tests/test_service.py tests/test_autonomy_regression.py -q  # 自治服务与看门狗
+```
+
+| 类别 | 代表文件 | 覆盖内容 |
+|------|---------|---------|
+| 神经模型 | `test_model.py`、`test_retina.py`、`test_mushroom_body.py`、`test_gain_modulation.py`、`test_brain_alternation.py`、`test_mbon_saturation.py`、`test_dan_shaping.py` | LIF 动力学、复眼采样、蘑菇体可塑、增益调制、转向交替、饱和守卫 |
+| 记忆与感知 | `test_memory.py`、`test_optic_flow.py`、`test_cliff_standoff.py` | 空间网格/反射/光流/悬崖对峙 |
+| 桥接与仪表板 | `test_bridge.py`、`test_dashboard_protocol.py`、`test_dashboard_js.py` | mmap 协议、WS packet 字段契约、前端渲染 |
+| EVO 与自治 | `test_evolution_capability.py`、`test_service.py`、`test_autonomy_regression.py`、`test_plugin_mhr.py` | pattern 判定、修复记录、服务心跳、watchdog 沙箱、原子写出 |
+| 神经接管 PIN | `test_p1_neural_takeover.py`、`test_spin_loop_fix.py` | 防止 Python 旁路回流（P1 删除的 11 处 A 类旁路必须保持删除） |
+| 在线检查脚本 | `check_live_version.py`、`check_bridge_mismatch.sh`、`check_r12_live.py`、`check_r13_live.py`、`ws_probe.py`、`evo_status_report.py` | 运行中实例的版本/桥接/遥测/EVO 状态抽查（需 dashboard 在线） |
+
+### 目录结构与运行时产物
+
+```
+fly64/
+├── fly64/            # 核心：主循环/模型/记忆/视网膜/场景识别/桥接/遥测
+├── skills/           # EVO skill + pattern 目录 + fix catalog + 报告 + active_strategy/coach_advice
+├── plugin/           # MHR 插件：LLM 教官层 + 自治服务 + 看门狗 + 部署文档
+├── web/              # 仪表板前端（含预览页/线框图/热力图/轨迹页）
+├── scripts/          # consolidate / 门禁 / soak / 因果校验 / 录制
+├── tests/            # 452 项测试 + 在线抽查脚本
+├── docs/             # 20+ 篇设计与评审文档 + screenshots/
+├── patches/          # sm64ex-fly64 补丁
+├── config/           # sm64config.txt
+├── runtime/          # 运行时状态（fly64_bridge.bin、phase2_gate.json 等）
+├── neural-model/     # 模型侧变更记录（change_log.txt）
+├── skill-core/       # skill 内核任务留痕（done.txt）
+└── run-fly64         # 一键启动脚本（锁定启动器 + ROM 校验 + 模式选择）
+```
+
+| 运行时产物 | 位置 | 说明 |
+|-----------|------|------|
+| 桥接文件 | `/tmp/f64b_traj`（常用）/ `runtime/fly64_bridge.bin` | mmap 帧与控制交换 |
+| 回放录制 | `/tmp/f64r_traj.npz` / `artifacts/latest-replay.npz` | `--record` 输出，`replay.py` 可离线逐步回放 |
+| 修复目录 | `skills/fix_catalog.json` | EVO 修复条目与有效性判定 |
+| 进化日志 | `skills/evolution_log.jsonl` | 每轮 findings/fixes/errors |
+| EVO 自动文档 | `skills/README.md` | 由 SelfDocumenter 自动重写（含 metrics/pattern 表/fix 历史） |
+| 教官产物 | `skills/active_strategy.json`、`skills/coach_advice.json` | 策略热加载与仪表板展示 |
+| 自治服务状态 | `plugin/fly64-service.pid`、`service_status.json`、`service.log`、`watchdog.log` | 进程/心跳/日志/告警 |
+| 场景与标签库 | `runtime/` 下场景数据库与 `*_labels.json` | 周期落盘（约每 600 tick） |
+
+### 文档索引（`docs/`）
+
+| 文档 | 主题 |
+|------|------|
+| `causal-chain-ui-design.md` · `causal-chain-implementation.md` · `causal-chain-review.md` · `causal-chain-rollback-plan.md` · `causal-chain-display-verification.md` · `causal-chain-final-review-t8.md` | 因果链路六件套：设计 / 实施 / 评审 / 回滚手册 / 显示验证 / 终评 |
+| `layout-optimization.md` · `layout-audit-t5.md` | 仪表板布局优化与逐区审核 |
+| `color_uv_vision_design.md` · `emd_4direction_design.md` · `small_target_tracking_design.md` · `dopamine_mushroom_body_design.md` | P1a/P1b/P2/P3 视觉与学习能力设计 |
+| `visual-enhancement-plan.md` · `implementation_roadmap.md` · `multi-eye-vision-analysis.md` | 能力增强规划、路线图、复眼方案对照分析 |
+| `lif_injection_feasibility_report.md` | LIF 电流注入四种设计评估（神经接管前的可行性论证） |
+| `dashboard-design.md` · `technical-notes.md` | 面板设计说明与技术笔记 |
+| `thin-plugin-design-analysis.md` | 薄插件（Cordis Tool 层）设计分析 |
+| `wsl-setup-guide.md` | WSL 部署指南 |
+| `monitor-preview.html` · `layout-wireframe.html` | 设计态预览页（与 `web/` 同名页对应） |
 
 ## 🧠 视觉→运动控制机制详解
 
@@ -457,6 +618,26 @@ jump = jump_rate > 0.04 AND 距离上次跳跃 >= 800ms
 | turn_rate | -50~50Hz | rate×1100 | x=-70~70 转向 |
 | jump_rate | 0~50Hz | >0.04 触发 | A键跳跃 |
 
+#### 关键阈值一览（源码实测）
+
+| 阈值 | 值 | 位置/含义 |
+|------|:--:|-----------|
+| LIF 步长 `dt` / 膜时间常数 `τ_m` | 20ms / 100ms | 模型 50Hz，与游戏帧率解耦 |
+| 放电阈值 / 复位 / 持续兴奋 / 突触增益 | 1.0 / 0.0 / 0.18 / 1.5 | LIF 单神经元参数 |
+| 运动解码窗口 | 13 步（≈260ms） | `history` deque maxlen=13 |
+| 前进偏置 / 死区 | 0.008 / ±8 | 低于死区输出 0（防抖动） |
+| 跳跃门控 / 冷却 | `jump_rate > 0.04` / 0.8s | 另 `TAU` 临近时由跳跃池接管 |
+| τ（time-to-contact） | `< 0.5` 急转 · `< 1.0` 减速 · `< 2.0` 谨慎 | `TAU_SHARP_TURN`/`TAU_DECELERATE`/`TAU_NEAR` |
+| 门控虚线（仪表板） | 0.4 / 2 Hz | 前进池与跳跃池的参考门控线 |
+| 悬崖判定 `ground_angle` | `< 0.3` 判真悬崖（斜坡不触发） | 防"斜坡被当成悬崖"误触发 |
+| 反射自适应冷却 | `max(0.25, 1 − stuck/120) × 基准` | 卡得越久冷却越短（下限 25%） |
+| 激进模式 | `health < 0.3` → 冷却减半 | 低健康度时更频繁尝试 |
+| 异常态 `micro_loop` | `visited_cells < 5` 且 `loop_score > 0.5` 且 `stuck > 30s` | StuckDetector 判定条件 |
+| 空间网格 | 50×50 单元 · 200 游戏单位/单元 | 覆盖度以 2500 格为分母 |
+| 回访惩罚 / 排斥 | ≤3 次为 0，≥8 次达 0.5；`revisit_count > 10` 触发排斥（≤0.8） | 抑制绕圈与重访 |
+| 教官求助触发 | `stuck > 120s` 且 异常活跃 且 无反射；或 `reflex_ineffective`（60s 位移 <30u） | MHR 插件升级判据 |
+| EVO 验证窗口 / 有效性阈值 | 60s / score ≥ 0.3 | `VerificationEngine` |
+
 ### Located vs Unlocated 神经元
 
 仪表板显示 `140,638 located · 26,062 unlocated`，含义：
@@ -497,19 +678,20 @@ Unlocated: 26,062 (15.6%)
 
 ## 🔍 决策级联与因果归因（Neural Causal Chain）
 
-马里奥的每一步动作由六级控制级联按优先级覆盖产生。仪表板新增的因果链组件让这条链路**全程可解释**：
+马里奥的每一步动作由**六级控制级联**按优先级覆盖产生。仪表板新增的因果链组件让这条链路**全程可解释**：
 
 ### 控制级联优先级（每 tick，高→低）
 
 | 优先级 | `decision_source` | 触发条件 | 动作 |
 |:----:|:------------------|:---------|:-----|
-| 1 | `dialogue` | 对话框激活（受限刺激） | 停止/交互/回避 |
-| 2 | `cliff_reflex` | `cliff_confirmed` + 快速绿幕跌落 | 急转 ±60 + 短暂后退 |
-| 3 | `anomaly_reflex` | 异常运动态（stuck_ramp/oscillating/wall_stuck/micro_loop） | 反射动作 |
-| 4 | `escape` | 卡住/循环/坠落 | 相位式转向+前冲爆发 |
-| 5 | `collision` | 光流不对称>±0.3 或 looming>0.4 | 转离障碍/减速 |
-| 6 | `jump` | tau 接近/sky 触发跳跃池 | A 键 |
-| 7 | `steering` | 其余 | 纯神经解码转向/前进 |
+| 1 | `dialogue` | 对话框激活（受限刺激） | 停止/交互/回避（含习惯化断路器） |
+| 2 | `cliff_reflex` | `cliff_confirmed` + 真实悬崖判定（`ground_angle < 0.3`，斜坡不触发） | 急转 ±60 + 短暂后退 |
+| 3 | `anomaly_reflex` | 异常运动态（`stuck_ramp` / `oscillating` / `wall_stuck` / `micro_loop`） | 反射相位动作（前冲/反转/转向） |
+| 4 | `escape` | 卡住/循环/坠落（含 `forced_bold_explore` 强制突破） | 神经电流注入式转向+前冲爆发 |
+| 5 | `jump` | 神经跳跃池触发（gold spot / 开阔头顶） | A 键 |
+| 6 | `steering` | 其余 | 纯神经解码转向/前进 |
+
+> **注**：旧版 README 列出的第 5 级 `collision`（光流不对称/looming 抢占）与 `bold_explore` 归因已在 **P1 神经接管轮（Brain v2.8.0）** 随 11 处 A 类 Python 旁路一并退役——碰撞规避与突破行为现由模型内部的电流注入通路实现，不再作为独立的级联层出现，因此 `decision_source` 当前只有上表 6 个取值（`main.py:1093-1103`）。
 
 `main.py` 在级联末端写入 `decision_source`（与实际下发的 control 严格一致），`telemetry.py` 将其连同 `cliff_conf`/`stuck_conf`/`gate_forward`/`gate_jump` 注入每个 WS packet tick 行（`causal_schema=1`）。
 
@@ -664,20 +846,24 @@ Round 4/5 正是**能力边界判定的实战示范**：钥匙门的"行为层"�
 
 | 能力 | 状态 | 说明 |
 |------|:----:|------|
-| 前进控制 | ✅ | y∈[0,70]，无反向后撤 |
-| 转向 | ✅ | x∈[-70,70]，左右竞争编码 |
-| 跳跃 | ✅ | jump_rate 门控 + 800ms 冷却 |
-| 光流计算 | ✅ | 8 方位不对称/looming/cliff/tau + 地形 8 类分类（Phase 2 已落地） |
+| 前进控制 | ✅ | y∈[0,70]，无反向后撤；开阔区 1.15× 前向增强、开口增强 `opening_boost` |
+| 转向 | ✅ | x∈[-70,70]，左右竞争编码 + CX 转向偏置 + TurnAdaptation 反相电流 |
+| 跳跃 | ✅ | 跳跃池 `jump_rate > 0.04` 门控 + 800ms 冷却（`control.b` 另供对话按键） |
+| 光流计算 | ✅ | 8 方位不对称/looming/cliff/tau + 地形分类（`cliff`/`water`/`corridor`/`wall_ahead`/`open_flat`/`dense`/`forest_edge`/`indoor` 8 类 + `mixed` 兜底） |
 | 卡住检测 | ✅ | StuckDetector 三信号融合 + 坠落检测（Phase 1 已落地） |
-| 路线重复检测 | ✅ | loop_score + 50×50 空间记忆网格 + 场景签名数据库 |
-| 失败记忆避让 | ✅ | FailureMemory 死端/坠落格避让方向 |
-| 六级决策级联 | ✅ | 悬崖→反射→攻击→碰撞→逃脱 + decision_source 归因审计 |
+| 异常态分类与反射 | ✅ | 4 类异常（`stuck_ramp`/`oscillating`/`wall_stuck`/`micro_loop`）+ 自适应冷却（stuck 越久越短，下限 25%）+ 低健康度激进模式（health<0.3 冷却减半） |
+| 路线重复检测 | ✅ | loop_score + 50×50 空间记忆网格（200 u/cell）+ 场景签名数据库 + 回访惩罚/排斥 |
+| 失败记忆避让 | ✅ | FailureMemory 死端/坠落格避让方向 + R15 悬崖切向绕行偏置 |
+| 六级决策级联 | ✅ | 对话→悬崖反射→异常反射→逃脱→跳跃→神经转向，附 `decision_source` 归因审计（碰撞/突破分支已随 P1 神经接管退役，见上表注） |
 | 因果链路可视化 | ✅ | 决策解释卡/扇区叠加/时间轴/回放（本变更） |
+| 场景识别与命名 | ✅ | 分位特征 profile 匹配 + 在线校准 + `scene_label`（如"致命熔岩地 #f3f9"）/`scene_id`/`revisit_count` |
 | 技能自我进化闭环 | ✅ | 七步制度化循环（EXECUTE→DETECT→LEARN→PIN→VERSION→CONSOLIDATE→RECORD）+ v3.0.0 五阶段执行管线（Monitor→Diagnose→Fix→Verify→Document，13 条 pattern / 60s 效果验证 / `telemetry_gap` 自诊断 / 常驻循环），已完成 17 轮（Brain v1.0.0→v2.11.0，Skill v3.0.0），每轮能力经回归测试固化、重启生效、仪表板 `/evolution.json` 实时展示 |
-| 社交寻助能力 | 🔧 制度化 | SEEK-HELP 分支 + 结构化求助单 + 社交三指标自训练（v2.4.0，待实战触发） |
-| 场景语义识别 | ❌ 缺失 | 视觉仅编码亮度/运动/颜色/光流，**无法理解画面语义**——如对话文字"You need a key to open this door"这类**需要钥匙**的提示无法被识别和利用 |
+| LLM 教官层（多模态） | ✅ | MHR 插件 10s 周期：求助判定 → GLM-5.3-flash 看帧咨询 → 策略热加载 + 仪表板展示；不可用时降级本地诊断 |
+| 自治常驻服务 | ✅ | `plugin/service.py` 心跳自检 + watchdog 自动重启 + `consolidate.sh` 联动；二期门禁要求连续稳定 ≥12h |
+| 社交寻助能力 | 🔧 制度化 | SEEK-HELP 分支 + 结构化求助单 + 社交三指标自训练（Skill v2.4.0 引入，随教官层插件落地，待实战触发） |
+| 场景语义识别 | ❌ 缺失 | 视觉仅编码亮度/运动/颜色/光流，**无法理解画面语义**——如对话文字"You need a key to open this door"这类**需要钥匙**的提示无法被识别和利用（注：教官层 LLM 可读该文字，但属外部教学智能，非果蝇自身能力） |
 | 道具获取能力 | ❌ 缺失 | 无钥匙/星星等道具的定位、路径规划与拾取动作；遇锁门只能触发习惯化回避（3 次无奖励交互后抑制 2 分钟并远离，见 Interaction loop breaker） |
-| 路径规划 | ❌ 缺失 | 无目标/奖励规划（远期） |
+| 路径规划 | ❌ 缺失 | 无目标/奖励规划（远期；CX 已具备目标方向存储与比较的神经基础） |
 
 ### 视觉处理瓶颈
 
@@ -691,7 +877,9 @@ Round 4/5 正是**能力边界判定的实战示范**：钥匙门的"行为层"�
 160 个运动命令神经元 → 摇杆信号
 ```
 
-### Phase 1: 卡住检测 + 空间记忆地图（1-2 天）
+> **状态说明**：以下 Phase 1–3 为**历史实施计划**，现已全部落地（卡住检测/空间记忆/热力图/光流与 looming/地标签名与场景库，见上文能力评估表 ✅ 项），保留原文仅供溯源；Phase 4 仍为路线图。
+
+### Phase 1: 卡住检测 + 空间记忆地图（1-2 天 · ✅ 已落地）
 
 **优先级最高**，卡住信号已经可用，零成本启用。
 
@@ -709,7 +897,7 @@ Round 4/5 正是**能力边界判定的实战示范**：钥匙门的"行为层"�
 
 **效果**: 马里奥卡住时能检测 → 停止前进 → 随机转向 → 检测是否脱离 → 恢复正常巡航
 
-### Phase 2: 仪表板增强 + 运动分析（~3 天）
+### Phase 2: 仪表板增强 + 运动分析（~3 天 · ✅ 已落地）
 
 | 任务 | 说明 |
 |:----|:------|
@@ -718,7 +906,7 @@ Round 4/5 正是**能力边界判定的实战示范**：钥匙门的"行为层"�
 | **P2.3** 光流计算 | 利用 1,536 个视觉细胞的空间分布计算方位角方向运动 |
 | **P2.4** 逼近指数 (looming index) | 检测视野中对称膨胀的运动模式 |
 
-### Phase 3: 地标记忆（~5 天 + 研究）
+### Phase 3: 地标记忆（~5 天 + 研究 · ✅ 已落地）
 
 | 任务 | 说明 |
 |:----|:------|
@@ -768,6 +956,38 @@ Round 4/5 正是**能力边界判定的实战示范**：钥匙门的"行为层"�
 
 ### Q: 仪表板 "Connecting..."
 **原因**: WebSocket 连接未建立。检查浏览器是否可访问端口 8766。
+
+### Q: 启动即崩溃 `FileNotFoundError: web/monitor-preview.html`
+**原因**: 只同步了 `fly64/` Python 包而没同步 `web/` 静态目录（跨机/跨容器部署时的常见漏项）。
+**修复**: `cp -r web/. <目标>/web/`——`start_http()` 启动时要预读该页，缺文件会直接中断启动。
+
+### Q: 版本号显示 X，但新能力不生效
+**原因**: `BRAIN_VERSION` 是**手写常量**，与代码内容可能脱节（例如标签已是 2.11.0，但 `mushroom_body.py` 还是旧版没有 R17 饱和守卫）。
+**排查**:
+```bash
+grep -n 'BRAIN_VERSION = ' fly64/main.py                       # 标签
+grep -c saturation_frames_threshold fly64/mushroom_body.py    # R17 特征是否在
+grep -n 'breakout_gain: float' fly64/model.py                 # R16 特征是否在
+```
+**修复**: 同步完整的 `fly64/` + `web/` + `skills/` 后**重启脑模型**（Python 代码无热加载，只有 `web/` 静态资产与 `active_strategy.json` 是热的）。
+
+### Q: 同时跑了两套 EVO 循环，`fix_catalog.json` 被并发写坏
+**原因**: 重复启动（例如手工启动 + 后台任务各一份），两个进程各自持有内存中的 catalog 并覆盖落盘，`evolution_log.jsonl` 里迭代号出现交错跳变。
+**排查**: `Get-CimInstance Win32_Process -Filter "Name like 'python%'" | ? { $_.CommandLine -match 'evolution_skill' }`（注意 Windows venv 下 launcher 与真实解释器会成对出现，是**一个**逻辑循环）。
+**修复**: 只保留一个循环（或用 `scripts/` 下的锁定启动器模式），重启后 `fix_catalog.json` 会从磁盘重新加载。
+
+### Q: 某个 fix 被判 ineffective，但代码明明改了
+**原因**: 60s 验证窗口**横跨了脑模型重启**——基线属于旧会话，post-fix 值属于新会话，两者不可比。
+**处理**: 跨会话的旧 fix 应以 `reverted=true` + notes 标记（不进入有效率统计）；新能力的公平验证需要同会话内、修复代码已加载后再观测。
+
+### Q: 仪表板 `EVO #0` 是不是 EVO 没在跑？
+**不一定**。`evo_iter` 只统计**游戏内按需 EVO 路径**（escape 触发且间隔 >10s 才 +1）；外部常驻循环不写该字段，其进度看 `skills/evolution_log.jsonl` 的迭代号与 `/flow.json` 的 `evo_findings`。
+
+### Q: pattern 一直不触发 / 明明卡住却无 findings
+**排查顺序**:
+1. 看该 pattern 的条件字段是否在 telemetry 中——若缺失，`DiagnosisEngine` 会额外产出一条 `telemetry_gap` finding（自诊断）；
+2. 看阈值是否真的达到（如 `micro_loop_weave` 要求 `anomaly_state=micro_loop` 且 `stuck≥60s`，而分类器可能仍报 `idle`——此时应由纯行为信号的 `micro_loop_weave_signal` 命中）；
+3. 用 `python3 -m skills.evolution_skill --max-iterations 1` 手工跑一轮看 findings/errors。
 
 ## 📜 许可证
 
