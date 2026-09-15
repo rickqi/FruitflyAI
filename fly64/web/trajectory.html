@@ -22,7 +22,7 @@ input[type=range]{flex:1;min-width:100px;accent-color:#6cdaed;height:4px}
 #fileSelect{max-width:200px}
 #errorMsg{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:20;background:#2a1515;color:#ff6b6b;padding:14px;border-radius:6px;border:1px solid #ff6b6b;display:none;font-size:13px}
 </style></head><body>
-<div id="canvasWrap"><div id="info"><h2>🪰 Fly64 3D</h2><span id="liveDot">🟢 LIVE</span> <span id="frameInfo">0/0</span><div id="memInfo" style="color:#7dff9d;font-size:11px"></div></div><div id="stats"></div><div id="errorMsg"></div></div>
+<div id="canvasWrap"><div id="info"><h2>🪰 Fly64 3D</h2><span id="buildTag" style="color:#536170;font-size:10px"></span><span id="liveDot">🟢 LIVE</span> <span id="frameInfo">0/0</span><div id="memInfo" style="color:#7dff9d;font-size:11px"></div></div><div id="stats"></div><div id="errorMsg"></div></div>
 <div id="toggleView">🗖</div>
 <div class="controls">
 <button id="playBtn">▶</button><button id="resetBtn">⟲</button><button id="gridBtn">🧠 Grid: ON</button>
@@ -37,6 +37,9 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 
 const $=id=>document.getElementById(id),wrap=$('canvasWrap');
+const BUILD='2026-09-15b (follow-flag + time-based playback)';
+document.getElementById('buildTag').textContent='build '+BUILD;
+console.info('[fly64] trajectory.html build', BUILD);
 let pts=[],playing=0,pos=0,spd=0.5,anim=null,mini=true,gridOn=true;
 // follow=true: cursor rides the newest live point (default on Live source).
 // Cleared by ▶ play / slider scrub so the full recorded path can be replayed
