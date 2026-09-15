@@ -38,6 +38,8 @@ import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer
 
 const $=id=>document.getElementById(id),wrap=$('canvasWrap');
 let pts=[],playing=0,pos=0,spd=0.5,anim=null,mini=true;
+// diagnostics hook (module scope is otherwise closed to external tooling)
+window.__liveState=()=>({n:pts.length,pos:Math.round(pos),playing,lastT:pts.length?pts[pts.length-1].t:null});
 
 const scene=new THREE.Scene();scene.background=new THREE.Color(0x0b1015);
 const camera=new THREE.PerspectiveCamera(50,1,1,200000);
@@ -124,8 +126,10 @@ async function loadFile(name){
   }catch(e){$('errorMsg').textContent='Load error: '+e.message;$('errorMsg').style.display='block';}
 }
 
-// ── Live polling: re-fetch trajectory + memory footprint every 2 s while the
-// Live source is selected.  Playing state pauses polling so replay is stable.
+// ── Live polling: every 2 s fetch /trajectory.json and MERGE only the new
+// points (matched by t) into the existing buffer — the line grows instead of
+// being reloaded, and playback is never interrupted.  The cursor follows the
+// newest point only while it is already at/near the end (manual scrub wins).
 let liveTimer=null;
 function setLive(on){
   if(liveTimer){clearInterval(liveTimer);liveTimer=null;}
@@ -133,13 +137,23 @@ function setLive(on){
   if(on) liveTimer=setInterval(refreshLive, 2000);
 }
 async function refreshLive(){
-  if(sel.value!=='__live__'||playing) return;
+  if(sel.value!=='__live__') return;          // replaying a saved file
   try{
     const r=await fetch('/trajectory.json'); if(!r.ok) return;
     const d=await r.json();
     if(!d||!d.length){$('frameInfo').textContent='waiting for points…';return;}
     await refreshMemoryOverlay(d);
-    loadTrajectory(d, true);   // cursor follows the newest point
+    const lastT = pts.length ? pts[pts.length-1].t : -1;
+    const fresh = d.filter(p=>p.t>lastT);
+    if(!fresh.length) return;                 // nothing new since last poll
+    pts = pts.concat(fresh).slice(-2000);
+    pathGeo.setAttribute('position',new THREE.Float32BufferAttribute(pts.flatMap(p=>[p.x,p.y,p.z]),3));
+    const step=Math.max(1,Math.floor(pts.length/2000));
+    dotGeo.setAttribute('position',new THREE.Float32BufferAttribute(pts.filter((_,i)=>i%step===0).flatMap(p=>[p.x,p.y,p.z]),3));
+    eL.position.set(pts[pts.length-1].x,pts[pts.length-1].y+200,pts[pts.length-1].z);
+    $('slider').max=pts.length-1;
+    if(pos>=pts.length-1-fresh.length) pos=pts.length-1;   // follow head
+    update();
   }catch(_){/* transient network blip — keep last good frame */}
 }
 async function refreshMemoryOverlay(traj){
