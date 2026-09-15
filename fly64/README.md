@@ -153,6 +153,26 @@ FLY64_BRIDGE=../runtime/fly64_bridge.bin ./build/us_pc/sm64.us.f3dex2e --skip-in
 
 ![监控面板总览](docs/screenshots/dashboard-main.png)
 
+### 实测运行截图说明（Brain v2.11.0 · 单列布局 · 斜坡卡住现场）
+
+![Fly64 监控面板实测：复眼视野 + 神经活动图表 + 全脑热力图 + 空间记忆 + 四泳道因果时间轴 + Escape 事件表 + 健康度/覆盖率仪表](docs/screenshots/dashboard-live-monitoring.jpg)
+
+该截图取自 Brain v2.11.0 实机运行（马里奥卡在斜坡、`micro_loop` 异常态期间），是仪表板**全部 8 个区块的完整读数样例**：
+
+| 区块 | 截图读数 | 说明 |
+|------|---------|------|
+| **状态条（header）** | `Brain v2.11.0` · `EVO #0` · `Health 50%` · `micro_loop` · `LLM none` · `Layout: Single` | 版本/健康度/当前异常态/LLM 通道状态/布局模式一览；`micro_loop` 胶囊亮起即当前被判为"原地编织"异常 |
+| **Vision** | `Δ light L 6.6% · R 4.2%` · `R1–R8 10.5 Hz` · `Local motion: 0.000 (clear)` · `First person - RGB - 270°` | 左为游戏画面 + 果蝇 270° 复眼双视图，中为帧差异图；`Local motion 0.000` = 画面静止（与卡住状态一致） |
+| **Causal Chain · why this action** | 五段链 RAW→SIGNAL→NEURAL→JUDGE→ACTION | 回答"为什么现在这个动作"，被高优先级抢占的段显示删除线 |
+| **Neurons → controls** | Forward pool `17.1Hz ± 7.2Hz`、Steering `1.4Hz ± 1.5Hz`、Jump pool `16.1Hz ± 20.0Hz`；gate 虚线 0.4/2Hz；`A: gold spot or open overhead ✓` | 四路神经活动实时曲线 + 门控阈值；跳跃池爆发但控制输出 `x=-23 y=5` —— 神经在动、位移为零 |
+| **Activity map** | `Mean 2.91Hz` · `143,638 located · 32,062 unlocated` | 全脑 WebGL 热力图（亮度=rolling rate） |
+| **Spatial memory** | `Stuck 1 · 2589.8s`、`Loop 1`、`Novelty 0`、`ESCAPE 15 active · 813 cells`、`1 escapes · 0 falls · 837 avoids`、`Coverage 32.5% 14.51 cells/min`、`Cliff 0 Safe rate 0.003` | 50×50 网格（200 u/cell）+ Stuck/Fall/Flow/Dead-end 标记 + 轨迹；**15 次逃逸活动却有 0 falls** 说明逃脱在原地打转 |
+| **Causal Timeline · 120s** | 四泳道：Optic flow / Pool rates / Judge / Action | 悬停回看因果卡、点击冻结回放、cliff→转向的 `+ms` 延迟弧线 |
+| **Escape Events** | 5 条 `anomaly_stuck_ramp`：`72.8s` / `29.1s` / `164.4s` / `32.0s` / `107.1s`，**DIST 全部 `0u`** | 逃逸事件表（行可点击跳转回放）；**零位移**是"逃逸无效"最直接的证据，也是 EVO pattern 的触发土壤 |
+| **Health / Coverage / Coach** | 健康圈环 `50%`；`Coverage Trend 33%`（60s）；折叠面板 `LLM Coach Advice - glm-5.3-flash`、`turn bias = 1 / steering`、`stuck_threshold ≤ 10 s`；页脚 `21863.3 s · 0.80x real-time · step 25.7 ms · 0 dropped` | 健康评分、覆盖率趋势、教官建议与运行性能（0.80× 实时、无丢帧） |
+
+> **截图解读**：这张图是"可解释性成立、能力边界暴露"的典型现场——归因（`anomaly_stuck_ramp`）、空间记忆（死端/回访）、健康度（50%）全部如实记录，但 5 次逃逸的位移都是 `0u`，说明**斜坡语义下的逃脱电流未能产生有效位移**；这正是 EVO 层 `ramp_trap` / `reflex_cooldown_gap` / `micro_loop_weave` 等 pattern 要捕获并寻求修复的目标现象（见下文「技能自我进化闭环」）。
+
 ### 布局与响应式
 
 - **单列布局**（<1400px）：8 个区块按固定行高纵向排列，滚动浏览；
@@ -190,10 +210,20 @@ FLY64_BRIDGE=../runtime/fly64_bridge.bin ./build/us_pc/sm64.us.f3dex2e --skip-in
 
 ### API 端点
 
-API 端点：
-- `http://127.0.0.1:8765/trajectory.json` — 实时运动轨迹数据
-- `http://127.0.0.1:8765/bridge-status.json` — 桥接状态
-- `ws://127.0.0.1:8766/` — F643 二进制 packet（`causal_schema=1`；每 tick 行含 `decision_source`/`cliff_conf`/`stuck_conf`/`gate_forward`/`gate_jump`，帧行含 `sector_active`/`sector_contrast`）
+仪表板与 EVO skill 共用同一组只读端点（全部为 JSON，`fetch_json()` 直读）：
+
+| 端点 | 内容 | 主要消费方 |
+|------|------|-----------|
+| `/bridge-status.json` | 桥接状态（`pose`/`x`/`y`/`jump`/`age_ms`/`game_frame`） | 仪表板、EVO Monitor 阶段 |
+| `/memory.json` | 空间记忆与异常态（`stuck_duration`/`loop_score`/`coverage_pct`/`anomaly_state`/`reflex_*`/`escape_behavior`/`health_score`/`scene_label`） | 仪表板、EVO pattern 条件 |
+| `/flow.json` | 视觉与神经信号（`wall_score`/`ramp_score`/`ground_angle`/`tau`/`danger_red_index`/`emd_on_down`/`target_count`/`mb_*`/`dopamine_gain`/`decision_source`/门控/`evo_iter` + **6 项 plasticity 汇总**） | 仪表板、EVO pattern 条件 |
+| `/events.json` | Escape 事件缓冲 + 计数器 | Escape 事件表 |
+| `/history.json` | 信号历史（stuck/coverage/光流时序） | 60s 趋势图 |
+| `/evolution.json` | EVO 轮次与 findings | 仪表板 EVO 胶囊 |
+| `/help.json` | 求助快照（SEEK-HELP 分支） | Coach 面板 |
+| `/active_strategy.json` | 教官写入的策略（脑模型热加载） | Coach 策略消费 |
+| `/metadata.json` · `/trajectory.json` · `/trajectory-list.json` | 元数据 / 实时轨迹 / 轨迹清单 | 轨迹回放页 |
+| `ws://127.0.0.1:8766/` | F643 二进制 packet（`causal_schema=1`；tick 行含 `decision_source`/`cliff_conf`/`stuck_conf`/`gate_forward`/`gate_jump`，帧行含 `sector_active`/`sector_contrast`） | 仪表板实时渲染 |
 
 详见 [`docs/causal-chain-ui-design.md`](docs/causal-chain-ui-design.md)（设计）、[`docs/causal-chain-implementation.md`](docs/causal-chain-implementation.md)（实施）、[`docs/causal-chain-rollback-plan.md`](docs/causal-chain-rollback-plan.md)（回滚手册）。
 
@@ -228,9 +258,12 @@ API 端点：
 | `fly64/retina.py` | 球面复眼采样（270° 视野） |
 | `fly64/memory.py` | 空间记忆 + 异常检测 + 反射回路 + 健康评分 |
 | `fly64/data.py` | MaleCNS 脑数据下载与预处理 |
-| `fly64/data.py` | MaleCNS 脑数据下载与预处理 |
-| `fly64/mushroom_body.py` | **P3** 多巴胺蘑菇体学习 (2000 KC, 5 MBON, 三元因子Hebbian可塑) |
+| `fly64/mushroom_body.py` | **P3** 多巴胺蘑菇体学习 (2000 KC, 5 MBON, 三元因子Hebbian可塑) + **R17** MBON 饱和稳态突触缩放 |
+| `fly64/gain_modulation.py` | 多巴胺门控增益调制（visual/forward/turn/jump/recurrent 五通路，GAIN_MAX=2.5） |
 | `fly64/telemetry.py` | 只读观测仪：F643 packet 发布（池率/流信号/扇区叠加/因果归因字段，`causal_schema=1`） |
+| `skills/evolution_skill.py` | **EVO v3.0.0**：Monitor→Diagnose→Fix→Verify→Document 五阶段闭环 + 常驻循环 + pattern 匹配 + fix 效果量化 |
+| `skills/default_patterns.json` | pattern 目录（13 条，JSON Schema draft-07 校验），含遥测自诊断 pattern |
+| `skills/fix_catalog.json` · `skills/evolution_log.jsonl` | 修复条目（基线/结果/effective 判定）与逐轮执行日志 |
 | `web/dashboard.js` | 仪表板前端：渲染 + `explain()` 因果链派生 + 四泳道时间轴 + `?noviz=1` 降级开关 |
 | `skills/neural_viz_skill.py` | 离线因果链路分析技能（cliff 误报/门控抖动/preempt 风暴/信号→行动延迟检测 + Markdown 报告） |
 | `web/trajectory.html` | 马里奥运动轨迹回放页面 |
@@ -529,7 +562,7 @@ Unlocated: 26,062 (15.6%)
 
 由此形成当前可观测的行为瓶颈：**锁门前 stuck→escape 死循环**（stuck 101s+，coverage 0%），逃脱逻辑在语义死角内无法自解。
 
-### 技能自我进化闭环（EVO Round 1–8，Brain v1.0.0 → v2.1.0）
+### 技能自我进化闭环（EVO Round 1–17，Brain v1.0.0 → v2.11.0，Skill v3.0.0）
 
 EvolutionSkill 具备**自我更新迭代**能力，七步循环已制度化：
 
@@ -543,6 +576,40 @@ EvolutionSkill 具备**自我更新迭代**能力，七步循环已制度化：
 7. RECORD       agent.md 闭环总结 + 推送；仪表板 /evolution.json 实时展示
 ```
 
+#### v3.0.0 五阶段执行管线（Monitor → Diagnose → Fix → Verify → Document）
+
+七步是**轮次级制度**，v3.0.0 起每个轮次内部由一条五阶段管线自动执行（`fly64/skills/evolution_skill.py`）：
+
+| 阶段 | 组件 | 行为 |
+|------|------|------|
+| ① Monitor | `DataCollector` | 轮询 `/bridge-status.json`、`/memory.json`、`/flow.json`、`/events.json` 等端点，维护 120s 滚动窗口（位置/控制/stuck/覆盖率） |
+| ② Diagnose | `DiagnosisEngine` + `PatternCatalog` | 按 `default_patterns.json` 的 **13 条 pattern** 逐条匹配（JSON Schema draft-07 校验），条件字段缺失时**主动生成 `telemetry_gap` finding**（不再静默失效） |
+| ③ Fix | `FixCatalog` | 记录版本化修复条目（`fix_NNNN`，含基线 stuck/coverage、诊断原文、fix_template、目标文件），落盘 `skills/fix_catalog.json` |
+| ④ Verify | `VerificationEngine` | 修复后 60s 观察窗，量化 effectiveness score（stuck 降幅 0.7 + 覆盖率增幅 0.3），≥0.3 判有效；判定无效即回滚候选 |
+| ⑤ Document | `SelfDocumenter` | 自动重写 `skills/README.md`（metrics/pattern 目录/fix 历史/最近周期摘要），并追加 `skills/evolution_log.jsonl` |
+
+**常驻循环**（不再是一次性跑 10 轮）：
+
+```bash
+# 10s 间隔，auto-fix 开启，持续运行（86400 轮 ≈ 10 天）
+python3 fly64/skills/evolution_skill.py --auto-fix --interval 10 --max-iterations 86400
+```
+
+> **修复语义**：`--auto-fix` 负责"记录 + 量化验证"，即把 pattern 的 `fix_template`（精确到文件与代码块）写入 catalog 并测量效果；**实际代码改动仍需按 fix_template 执行**（人工或 agent），brain 侧改动经重启（CONSOLIDATE）后生效——这正是"验证窗口横跨重启会导致 verdict 失效"这一已知口径问题的来源，跨会话的旧 fix 会被标记 `reverted` 以免污染有效率统计。
+
+**近期新增 pattern**（R16/R17 + 遥测自诊断）：
+
+| Pattern | 触发条件 | 捕获现象 |
+|---------|---------|---------|
+| `micro_loop_weave` | `anomaly_state=micro_loop` + `loop_score≥0.8` + `stuck≥60s` | 交替转向仍在原地编织 |
+| `micro_loop_weave_signal` | `loop_score≥0.95` + `escape_behavior` + `stuck≥45s` | **纯行为信号判定**：绕过 anomaly 分类器，脑报 idle 而行为已编织时提前 15s 报警 |
+| `cliff_standoff` | `cliff_confirmed` + `cliff_standoff_s≥20s` + `escape` | 悬崖边缘对峙驻留（切向绕行失效） |
+| `mbon_saturation` | MBON 列持续饱和（R17 稳态缩放触发） | 蘑菇体输出贴在 `tanh` 绝对值 ≈1 的饱和区、学习停滞 |
+| `dopamine_plateau` | `dopamine_gain_avg≥2.0` + `learning_progress≤0.05` + `stuck≥60s` | 多巴胺增益饱和、可塑性收敛 |
+| `telemetry_gap` | 任一 pattern 的条件字段在 telemetry 中缺失 | **自诊断**：把"监控盲区"本身变成一条 finding（如曾据此发现 5 个 control 类字段未暴露、3 条 pattern 实际失效） |
+
+**Plasticity 遥测**：`flow.json` 现直接输出 6 项可塑性汇总——`dopamine_gain_avg`、`learning_progress`、`mushroom_weight_changes`、`reward_trend`、`error_gradient_mean`、`gain_update_count`（brain 侧每 100 tick 聚合），使 `dopamine_plateau` pattern 与 Documenter 的 Plasticity Metrics 表真正有数据可用。
+
 | 轮 | Brain v | 获得能力 | 触发场景 |
 |:--:|:-------:|:---------|:---------|
 | 1 | 1.0.0 | circle_loop 地形门控 | 无障碍转圈 |
@@ -553,6 +620,17 @@ EvolutionSkill 具备**自我更新迭代**能力，七步循环已制度化：
 | 6 | 1.4.0 | 自适应反射冷却（stuck 越久冷却越短，下限 25%）+ 坠落恢复初始方向随机化 | fallen 恢复循环固定左转失效 |
 | 7 | 2.0.0 | 🎨 颜色/UV 视觉 + 🌀 4方向 EMD + 🎯 小目标追踪 + 🧠 多巴胺蘑菇体学习（35 新信号，覆盖 38%→90%） | FlyWire MaleCNS 差距分析 |
 | 8 | 2.1.0 | T4/T5 式 HRC 方向选择运动检测 + LC4 looming 种群 + 自适应相关接入碰撞规避 | brightness-not-flow 根治 |
+| 9 | 2.2.0 | 室内封闭检测（`enclosure_score`/天花板×墙壁）+ 天空蓝主导门控（`sky_score` 受 `upper_blue` 限制）+ `indoor` 地形类 | 室内场景被误判为开阔天空 |
+| 10 | 2.3.0 | `local_breakout`：持续 `micro_loop` 触发 `forced_bold_explore` 强制突破（Skill 2.7.0） | 497.9s 零位移循环、老地图上 bold 门控从不触发 |
+| 11 | 2.5.0 | 方向性开口电流注入（16 扇区推导 `opening_left/right` 注入转向池，取代随机 `escape_x`）+ 位移多巴胺报告（Skill 2.8.0） | 逃逸方向随机导致无效 |
+| 12 | 2.6.0 | `reflex_ineffective` 升级判据（反射活跃但 60s 位移<30u → 判定无效并向教官求助） | 497.9s/0u 事件类：反射活跃掩盖了真实卡死 |
+| 13 | 2.7.0 | 对话暂停等待场景标签（`对话暂停等待 #hash`）+ 蘑菇体挫折多巴胺（负 DA，教学"此场景被封锁"）+ `llm_consult` 自加载 `plugin/llm.env`（Skill v3.0.0） | 钥匙门对话场景 |
+| — | 2.8.0 | **P1 神经接管**：删除 11 处 A 类 Python 旁路，行为回归 LIF 网络 | 符号化旁路污染神经决策 |
+| 14 | 2.9.0 | TurnAdaptation 自发交替（转向疲劳→竞争回路接管）+ MB 异常镜像 | 单侧持续转向疲劳 |
+| t13 | 2.9.1 | LLM Coach Advice 真正生效（`exploration.turn_bias` 死写入修复 + 单位换算/夹紧） | 教官建议空转 |
+| t16 | 2.10.1 | 监控可见性与布局（状态胶囊行、Coach 折叠面板、对话暂停决策优先级、共享 `/flow.json`、`/active_strategy.json` 路由） | 仪表板信息密度不足 |
+| 16 | 2.10.0 | oscillation→forward 突破（`TurnAdaptation.breakout_drive`）+ skill 层遥测暴露（`decision_source`/`cliff_conf`/门控/`hrc_*`/`mb_*`）+ `telemetry_gap` 自诊断 + `micro_loop_weave`/`cliff_standoff` pattern + **常驻 EVO 循环**（`--max-iterations 0`）+ 场景识别在线校准 | 原地编织、悬崖对峙、监控盲区 |
+| 17 | 2.11.0 | MBON 饱和稳态突触缩放（50 帧 `tanh` 绝对值 ≥0.98 → 该列 ×0.9）+ `breakout_hint` 反射相位混合（编织检测偏置 micro_loop 反射朝前冲爆发）+ `mbon_saturation` pattern | MBON 列饱和、输出贴顶学习停滞 |
 
 Round 4/5 正是**能力边界判定的实战示范**：钥匙门的"行为层"问题（反复撞门）属内生能力群 → skill 自己进化出双区检测+习惯化解决；而"语义层"问题（文字内容不可读、需要钥匙的任务理解）超出内生边界 → 走 SEEK-HELP 向教官层求助（Phase 4）。
 
@@ -595,7 +673,7 @@ Round 4/5 正是**能力边界判定的实战示范**：钥匙门的"行为层"�
 | 失败记忆避让 | ✅ | FailureMemory 死端/坠落格避让方向 |
 | 六级决策级联 | ✅ | 悬崖→反射→攻击→碰撞→逃脱 + decision_source 归因审计 |
 | 因果链路可视化 | ✅ | 决策解释卡/扇区叠加/时间轴/回放（本变更） |
-| 技能自我进化闭环 | ✅ | 七步制度化循环（EXECUTE→DETECT→LEARN→PIN→VERSION→CONSOLIDATE→RECORD），已完成 8 轮（Brain v1.0.0→v2.1.0，Skill v2.5.0），每轮能力经回归测试固化、重启生效、仪表板 `/evolution.json` 实时展示 |
+| 技能自我进化闭环 | ✅ | 七步制度化循环（EXECUTE→DETECT→LEARN→PIN→VERSION→CONSOLIDATE→RECORD）+ v3.0.0 五阶段执行管线（Monitor→Diagnose→Fix→Verify→Document，13 条 pattern / 60s 效果验证 / `telemetry_gap` 自诊断 / 常驻循环），已完成 17 轮（Brain v1.0.0→v2.11.0，Skill v3.0.0），每轮能力经回归测试固化、重启生效、仪表板 `/evolution.json` 实时展示 |
 | 社交寻助能力 | 🔧 制度化 | SEEK-HELP 分支 + 结构化求助单 + 社交三指标自训练（v2.4.0，待实战触发） |
 | 场景语义识别 | ❌ 缺失 | 视觉仅编码亮度/运动/颜色/光流，**无法理解画面语义**——如对话文字"You need a key to open this door"这类**需要钥匙**的提示无法被识别和利用 |
 | 道具获取能力 | ❌ 缺失 | 无钥匙/星星等道具的定位、路径规划与拾取动作；遇锁门只能触发习惯化回避（3 次无奖励交互后抑制 2 分钟并远离，见 Interaction loop breaker） |

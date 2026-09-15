@@ -1144,33 +1144,53 @@ class FlyModel:
         that THIS scene context carries negative value (PPL1-like)."""
         self._pending_dopamine = max(-1.0, self._pending_dopamine - abs(strength))
 
+    # ── DAN signal shaping (EVO R18) ─────────────────────────────────────
+    # Explicit, single-place dopamine weights.  The exploration reward was
+    # lowered 0.50 → 0.30 (EVO R18): persistent +dopamine kept re-inflating
+    # the forward MBON column into tanh saturation against the homeostatic
+    # scaling — the equilibrium now sits inside the responsive range.
+    DAN_REWARD_EXPLORATION = 0.30   # scene novelty (scene_change_rate > 0.1)
+    DAN_REWARD_PROGRESS = 0.30      # sustained forward movement
+    DAN_PUNISH_STUCK = 0.30         # per-5s stuck (capped)
+    DAN_PUNISH_FALLEN = 0.80
+    DAN_PUNISH_CLIFF = 0.40
+    DAN_PUNISH_LOOMING = 0.30
+    DAN_PUNISH_REVISIT = 0.20
+    DAN_PUNISH_LOOP_STATES = 0.35   # micro_loop / stuck_ramp / wall_stuck / oscillating
+    DAN_PUNISH_STANDOFF = 0.45      # cliff-edge standoff > 20s
+
     def _compute_dopamine(self) -> float:
-        """Compute proxy dopamine signal from available behavioral signals."""
+        """Compute the dopaminergic-neuron (DAN) signal.
+
+        Weights are the class-level ``DAN_*`` shaping constants — tune the
+        DA system in one place without touching the detection logic.
+        """
         reward = 0.0
         punishment = 0.0
         # Positive: scene novelty
         if self.scene_change_rate > 0.1:
-            reward = max(reward, 0.5)
+            reward = max(reward, self.DAN_REWARD_EXPLORATION)
         # Positive: forward progress
         fwd = getattr(self, "filtered_y", 0.0)
         if fwd > 20.0:
-            reward = max(reward, 0.3)
+            reward = max(reward, self.DAN_REWARD_PROGRESS)
         # Negative: stuck
         if getattr(self, "stuck_duration", 0.0) > 5.0:
-            punishment = max(punishment, min(0.3, self.stuck_duration / 50.0))
+            punishment = max(punishment, min(self.DAN_PUNISH_STUCK,
+                                             self.stuck_duration / 50.0))
         # Negative: fallen
         if getattr(self, "fallen", False):
-            punishment = max(punishment, 0.8)
+            punishment = max(punishment, self.DAN_PUNISH_FALLEN)
         # Negative: cliff
         if getattr(self, "cliff_confirmed", False):
-            punishment = max(punishment, 0.4)
+            punishment = max(punishment, self.DAN_PUNISH_CLIFF)
         # Negative: looming
         if self.tau < 1.0 and np.isfinite(self.tau):
-            punishment = max(punishment, 0.3)
+            punishment = max(punishment, self.DAN_PUNISH_LOOMING)
         # Negative: revisit
         revisit = getattr(self, "_revisit_penalty", 0.0)
         if revisit > 0.5:
-            punishment = max(punishment, 0.2)
+            punishment = max(punishment, self.DAN_PUNISH_REVISIT)
         # EVO R14 · Negative: circling-family anomaly states.  This is the
         # dopaminergic-neuron (DAN) input for loop suppression — the mushroom
         # body's three-factor rule then weakens the scene→turn associations
@@ -1178,12 +1198,12 @@ class FlyModel:
         # (mirrored here each tick); the LEARNING is purely neural.
         if getattr(self, "anomaly_state_name", "idle") in (
                 "micro_loop", "stuck_ramp", "wall_stuck", "oscillating"):
-            punishment = max(punishment, 0.35)
+            punishment = max(punishment, self.DAN_PUNISH_LOOP_STATES)
         # EVO R15 · Negative: cliff-edge standoff (>20s parked at the edge).
         # Teaches the mushroom body "this scene + forward → bad", biasing
         # subsequent MBON output toward lateral exploration.
         if getattr(self, "cliff_standoff_s", 0.0) > 20.0:
-            punishment = max(punishment, 0.45)
+            punishment = max(punishment, self.DAN_PUNISH_STANDOFF)
         return reward - punishment
 
     def step(self, rgb: np.ndarray, now: float | None = None,

@@ -47,10 +47,14 @@ skill 具备**自我更新迭代**能力，通过受控进化循环固定能力�
 | **11** | **2.5.0** | **🔌 神经化重构（neural refactor）**：方向性开口信号 `opening_left/right/asymmetry` → 转向池电流注入（LIF 左右竞争决策突围方向，替代 escape_x 随机）+ 位移奖励 API `report_movement()` 接入 MB 多巴胺（零位移场景被网络学习为惩罚）+ 退役低置信悬崖符号转向分支 | 转圈分析结论：用脑模型能力（感觉电流注入+MB 学习）替代继续堆叠符号判断分支 |
 | **12** | **2.6.0** | **🕸️ 自治基底落成（autonomy substrate）**：plugin/service.py 10s 循环 WSL 常驻服务（pid 文件/健康自检/service_status.json 心跳/连续失败≥5 告警）+ plugin/watchdog.sh 存活监控（自动重启/连续≥3 失败 ALERT）+ LLM 咨询双传输（http 无需 DSH / subagent 文件握手，ConsultError 降级 local_diagnosis）+ consolidate.sh 制度化连带重启自治循环；自治不依赖 DSH 会话存活 | 团队 autonomy-substrate：果蝇自身能力群自治 + 教官层按需介入分层架构 |
 | **13** | **2.7.0** | **🏠 对话暂停场景标签 + 蘑菇体挫折多巴胺**：`_scene_name` 优先返回"对话暂停等待 #hash"；`model.add_setback()` 外部挫折 → PPL1 式负多巴胺脉冲（新对话 episode 0.5 / 重复交互 +0.3 / 习惯化封锁 0.8），下一个 tick 由蘑菇体消费抑制 KC→MBON，学会"该场景被堵" | 锁门场景：对话发现即挫折注入，未来重访 recall 回放回避价值 |
+| **14** | **2.9.0** | **🌀 自发交替 TurnAdaptation + 反射进度门控/镜像交替 + loop_score 感官卫生**（R13）| 转圈死循环：micro_loop 973s / loop_score 病态 104.9 |
+| **15** | **2.9.x** | **🧱 悬崖对峙修复**：FailureMemory 切向电流 + DAN 对峙惩罚 + `cliff_standoff` 模式（R15）| 悬崖边缘驻留：转圈消除后暴露对峙层 |
+| **16** | **2.10.0** | **⚡ 震荡→前进突破电流 + skill 层复明（flow.json 因果/塑形遥测）+ telemetry_gap 显式 finding + 常驻 EVO 循环（--max-iterations 0）** | 原地编织：交替消除转圈后 loop_score 仍饱和、新模式字段缺失永不命中 |
+| **17** | **2.11.0** | **⚖️ MBON 饱和稳态突触缩放 + breakout_hint 反射相位调制 + DAN 信号塑形常量化**（探索奖励 0.50→0.30 压低饱和平衡点）| mb_mbon_forward=1.0 饱和 + 反射级联遮蔽突破电流 |
 
 进化迭代历史在仪表板实时可见（`/evolution.json`：Brain 版本徽章、EVO 计数、每轮能力列表）。
 
-> 当前版本：BRAIN_VERSION **2.9.1** / SKILL_VERSION **3.0.0**（P1 去Python化 11 旁路点 2.8.0 → EVO R14 自发交替 TurnAdaptation 2.9.0 → t13 Coach Advice 生效性修复 2.9.1：turn_bias 死键接线 + 触发放宽 + prompt 语义卡 + raw-RGB→PNG 修 HTTP 400）。
+> 当前版本：BRAIN_VERSION **2.10.0** / SKILL_VERSION **3.0.0**（R13 转圈死循环修复 → R15 悬崖对峙 → R16 震荡突破+skill 层复明+常驻 EVO → R17 MBON 稳态缩放+breakout_hint 反射移相+DAN 塑形常量化）。
 
 ## 二期门禁：12 小时稳定自动聘雇（2026-09-14 决策）
 

@@ -75,6 +75,16 @@ D:\codes\flygym\
 
 # 变更日志
 
+## 2026-09-14: EVO Round 18 — Brain v2.11.x（DAN 信号塑形：奖励权重常量化 + 探索奖励 0.50→0.30 压低 MBON 饱和平衡点）
+
+**触发**：R17 部署后实测 `mb_mbon_forward=1.0`——正多巴胺再膨胀与稳态缩放的平衡点停留在 tanh 天花板。探索奖励 0.5 的持续 +DA 是膨胀主因。
+
+**变更（DAN 信号塑形，一处可调）**：`model.py` 新增类级 `DAN_*` 常量（探索 0.50→**0.30** / 前进 0.30 / fallen 0.80 / cliff 0.40 / looming 0.30 / revisit 0.20 / 环行态 0.35 / 对峙 0.45），`_compute_dopamine` 全部改引常量——DAN 权重单点调参，检测逻辑零改动。
+
+**验证**：实测 mb_dopamine=0.3032（塑形后奖励生效）；`tests/test_dan_shaping.py` 5/5（探索奖励=0.30/常量单点/低 DA 驱动下 MBON 膨胀减弱对比）；全量 391 passed。
+
+---
+
 ## 2026-09-14: EVO Round 17 — Brain v2.11.0（MBON 饱和稳态缩放 + breakout_hint 反射移相 + mbon_saturation 模式）
 
 **触发**：R16 部署后健康检查发现：① `mb_mbon_forward=1.0` 饱和（正多巴胺持续再膨胀，forward 关联过拟合）；② anomaly_reflex 级联改写 control 使脑内 breakout 突破电流无法体现（heading 恒 ±29.45°/s 回归）。
