@@ -51,10 +51,12 @@ skill 具备**自我更新迭代**能力，通过受控进化循环固定能力�
 | **15** | **2.9.x** | **🧱 悬崖对峙修复**：FailureMemory 切向电流 + DAN 对峙惩罚 + `cliff_standoff` 模式（R15）| 悬崖边缘驻留：转圈消除后暴露对峙层 |
 | **16** | **2.10.0** | **⚡ 震荡→前进突破电流 + skill 层复明（flow.json 因果/塑形遥测）+ telemetry_gap 显式 finding + 常驻 EVO 循环（--max-iterations 0）** | 原地编织：交替消除转圈后 loop_score 仍饱和、新模式字段缺失永不命中 |
 | **17** | **2.11.0** | **⚖️ MBON 饱和稳态突触缩放 + breakout_hint 反射相位调制 + DAN 信号塑形常量化**（探索奖励 0.50→0.30 压低饱和平衡点）| mb_mbon_forward=1.0 饱和 + 反射级联遮蔽突破电流 |
+| **18** | **2.11.x** | **🎚️ DAN 信号塑形常量化**：多巴胺权重提升为 `DAN_*` 类级常量（单点调参），探索奖励 0.50→0.30 压低 forward MBON 饱和平衡点 | mb_mbon_forward=1.0 持续：正多巴胺再膨胀 vs 稳态缩放失衡 |
+| **19** | **2.12.0** | **🔥 躁动电流 restlessness_level + 识别→行为闭环（danger_level 谨慎电流）+ 遥测小补**（fg_fraction/mb_weight_std/mb_saturation_events 入 flow.json）| 监控实况：识别"致命熔岩地"但行为无反应、悬崖边驻留 61s、novelty 枯竭 |
 
 进化迭代历史在仪表板实时可见（`/evolution.json`：Brain 版本徽章、EVO 计数、每轮能力列表）。
 
-> 当前版本：BRAIN_VERSION **2.11.0** / SKILL_VERSION **3.0.0**（R13 转圈死循环修复 → R15 悬崖对峙 → R16 震荡突破+skill 层复明+常驻 EVO → R17 MBON 稳态缩放+breakout_hint 反射移相+DAN 塑形常量化）。
+> 当前版本：BRAIN_VERSION **2.12.0** / SKILL_VERSION **3.0.0**（R13 转圈死循环修复 → R15 悬崖对峙 → R16 震荡突破+skill 层复明+常驻 EVO → R17 MBON 稳态缩放+breakout_hint → R18 DAN 塑形 → R19 躁动电流+识别→行为闭环）。
 
 ## 二期门禁：12 小时稳定自动聘雇（2026-09-14 决策）
 

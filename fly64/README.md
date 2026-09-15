@@ -828,6 +828,8 @@ python3 fly64/skills/evolution_skill.py --auto-fix --interval 10 --max-iteration
 | t16 | 2.10.1 | 监控可见性与布局（状态胶囊行、Coach 折叠面板、对话暂停决策优先级、共享 `/flow.json`、`/active_strategy.json` 路由） | 仪表板信息密度不足 |
 | 16 | 2.10.0 | oscillation→forward 突破（`TurnAdaptation.breakout_drive`）+ skill 层遥测暴露（`decision_source`/`cliff_conf`/门控/`hrc_*`/`mb_*`）+ `telemetry_gap` 自诊断 + `micro_loop_weave`/`cliff_standoff` pattern + **常驻 EVO 循环**（`--max-iterations 0`）+ 场景识别在线校准 | 原地编织、悬崖对峙、监控盲区 |
 | 17 | 2.11.0 | MBON 饱和稳态突触缩放（50 帧 `tanh` 绝对值 ≥0.98 → 该列 ×0.9）+ `breakout_hint` 反射相位混合（编织检测偏置 micro_loop 反射朝前冲爆发）+ `mbon_saturation` pattern | MBON 列饱和、输出贴顶学习停滞 |
+| 18 | 2.11.x | DAN 信号塑形：多巴胺权重常量化（`DAN_*` 单点调参），探索奖励 0.50→0.30 压低 forward MBON 饱和平衡点 | `mb_mbon_forward=1.0` 贴顶：正多巴胺再膨胀 vs 稳态缩放失衡 |
+| 19 | 2.12.0 | 躁动电流 `restlessness_level`（对峙秒数/环路压力 → forward 池驱动，逃逸动机随困留累积）+ 识别→行为闭环（danger 标签 → forward 谨慎抑制）+ 遥测小补（`fg_fraction`/`mb_weight_std`/`mb_saturation_events`）| 监控实况：识别"致命熔岩地"却驻留崖边 61s、novelty 枯竭、静息时突破电流失效 |
 
 Round 4/5 正是**能力边界判定的实战示范**：钥匙门的"行为层"问题（反复撞门）属内生能力群 → skill 自己进化出双区检测+习惯化解决；而"语义层"问题（文字内容不可读、需要钥匙的任务理解）超出内生边界 → 走 SEEK-HELP 向教官层求助（Phase 4）。
 
