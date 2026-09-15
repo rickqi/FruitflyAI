@@ -135,3 +135,73 @@ class TestFixAndVerificationRecords:
         assert data["$schema"] == "fly64/evolution-history/1.0"
         assert data["canonical_versions"]["brain"] == "2.13.3"
         assert isinstance(data["records"], list)
+
+
+class TestPipelineWiring:
+    """End-to-end: run_one_cycle must detect a dashboard brain_version change
+    and land a brain_update_auto record (the 'first second of an upgrade'
+    promise), without spurious records when the version is unchanged."""
+
+    def _pipeline(self, tmp_path):
+        from skills.evolution_skill import EvolutionHistory, EvolutionPipeline
+
+        p = EvolutionPipeline(
+            auto_fix=False,
+            fix_catalog_path=tmp_path / "fix_catalog.json",
+            readme_path=tmp_path / "README.md")
+        p.history = EvolutionHistory(path=tmp_path / "evolution_history.json")
+        return p
+
+    @staticmethod
+    def _snapshots(version):
+        bridge = {"pose": [0.0, 120.0, 0.0], "x": 10, "y": 20, "jump": False}
+        memory = {"stuck_duration": 0.0, "visited_cells": 1, "coverage_pct": 0.1,
+                  "anomaly_state": "idle", "health_score": 1.0, "reflex_active": False,
+                  "escape_behavior": False, "loop_score": 0.0, "revisit_count": 0}
+        flow = {"brain_version": version, "wall_score": 0.0, "asymmetry": 0.0,
+                "ground_angle": 1.0, "ramp_score": 0.0, "terrain": "open_flat",
+                "scene_name": "test", "scene_hash": "t00001", "mb_mbon_forward": 0.0}
+        return bridge, memory, flow
+
+    def _run_cycle(self, p, version, monkeypatch):
+        bridge, memory, flow = self._snapshots(version)
+        monkeypatch.setattr(p.collector, "fetch_all",
+                            lambda: (bridge, memory, flow, {"events": []}))
+        return p.run_one_cycle()
+
+    def test_first_observation_primes_without_record(self, tmp_path, monkeypatch):
+        p = self._pipeline(tmp_path)
+        r = self._run_cycle(p, "2.13.3", monkeypatch)
+        assert r.errors == []
+        assert p.history.records == []          # prime only, no spurious record
+
+    def test_version_change_in_cycle_lands_record(self, tmp_path, monkeypatch):
+        p = self._pipeline(tmp_path)
+        self._run_cycle(p, "2.13.3", monkeypatch)          # prime
+        r = self._run_cycle(p, "2.14.0", monkeypatch)      # upgrade happens
+        assert any("2.13.3 -> 2.14.0" in e for e in r.errors)
+        autos = [x for x in p.history.records if x["kind"] == "brain_update_auto"]
+        assert len(autos) == 1 and autos[0]["brain_version"] == "2.14.0"
+        assert p.history.canonical["brain"] == "2.14.0"
+
+    def test_same_version_next_cycle_no_duplicate(self, tmp_path, monkeypatch):
+        p = self._pipeline(tmp_path)
+        self._run_cycle(p, "2.13.3", monkeypatch)
+        self._run_cycle(p, "2.14.0", monkeypatch)
+        self._run_cycle(p, "2.14.0", monkeypatch)
+        autos = [x for x in p.history.records if x["kind"] == "brain_update_auto"]
+        assert len(autos) == 1
+
+    def test_history_persists_across_pipeline_restart(self, tmp_path, monkeypatch):
+        from skills.evolution_skill import EvolutionHistory
+
+        p = self._pipeline(tmp_path)
+        self._run_cycle(p, "2.13.3", monkeypatch)
+        self._run_cycle(p, "2.14.0", monkeypatch)
+        # resident loop restarts: fresh pipeline loads canonical from disk
+        p2 = self._pipeline(tmp_path)
+        assert p2.history.canonical["brain"] == "2.14.0"
+        # same version again -> still no new record (already recorded)
+        assert self._run_cycle(p2, "2.14.0", monkeypatch) is not None
+        autos = [x for x in p2.history.records if x["kind"] == "brain_update_auto"]
+        assert len(autos) == 1
