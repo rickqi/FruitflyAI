@@ -61,9 +61,17 @@ ctrl.enableDamping=true;ctrl.dampingFactor=.08;
 
 const grid=new THREE.GridHelper(30000,30,0x354250,0x1a2430);scene.add(grid);
 const pathMat=new THREE.LineBasicMaterial({color:0x6cdaed});pathMat.linewidth=1;
-const pathGeo=new THREE.BufferGeometry();const pathLine=new THREE.Line(pathGeo,pathMat);scene.add(pathLine);
+// Preallocated position buffer (matches backend retention cap): the poller
+// writes points in place + setDrawRange — no GPU buffer reallocation per
+// poll (the flicker/stutter source). Line and point cloud share one buffer.
+const MAXP=6000;
+const pathArr=new Float32Array(MAXP*3);
+const pathGeo=new THREE.BufferGeometry();
+pathGeo.setAttribute('position',new THREE.BufferAttribute(pathArr,3));
+pathGeo.setDrawRange(0,0);
+const pathLine=new THREE.Line(pathGeo,pathMat);scene.add(pathLine);
 const dotMat=new THREE.PointsMaterial({color:0x6cdaed,sizeAttenuation:true,transparent:true,opacity:.25});
-const dotGeo=new THREE.BufferGeometry();const dots=new THREE.Points(dotGeo,dotMat);scene.add(dots);
+const dots=new THREE.Points(pathGeo,dotMat);scene.add(dots);
 // Memory footprint overlay: recent_path cell centres from /memory.json
 // (green = ordered short-term path the brain's spatial memory actually holds)
 const memMat=new THREE.PointsMaterial({color:0x7dff9d,sizeAttenuation:true,transparent:true,opacity:.9});
@@ -103,12 +111,20 @@ function fitView(){
   dotMat.size=Math.max(8,25*s);dotMat.needsUpdate=true;
 }
 
-// Reuse the GPU buffer when the point count is unchanged (avoids allocating a
-// fresh attribute every poll = the flicker source); allocate only on growth.
-function setPts(geo, flat){
-  const a=geo.getAttribute('position');
-  if(a && a.count===flat.length/3){a.array.set(flat);a.needsUpdate=true;}
-  else geo.setAttribute('position',new THREE.Float32BufferAttribute(flat,3));
+// Reuse the preallocated buffer: write in place + needsUpdate + drawRange.
+let cum=[0];   // cumulative arc length cache — extends incrementally, O(1) lookups
+function extendCum(){
+  for(let i=cum.length;i<pts.length;i++){
+    const a=pts[i-1],b=pts[i];
+    cum[i]=cum[i-1]+Math.hypot(b.x-a.x,b.y-a.y,b.z-a.z);
+  }
+}
+function pushPts(){
+  const n=Math.min(pts.length,MAXP);
+  for(let i=0;i<n;i++){pathArr[i*3]=pts[i].x;pathArr[i*3+1]=pts[i].y;pathArr[i*3+2]=pts[i].z;}
+  pathGeo.attributes.position.needsUpdate=true;
+  pathGeo.setDrawRange(0,n);
+  extendCum();
 }
 
 function loadTrajectory(data, head){
@@ -120,10 +136,8 @@ function loadTrajectory(data, head){
   $('errorMsg').style.display='none';
   pos = head ? pts.length-1 : 0;
   $('slider').max=pts.length-1;
-  if(pts.length<2)return;
-  setPts(pathGeo, pts.flatMap(p=>[p.x,p.y,p.z]));
-  const step=Math.max(1,Math.floor(pts.length/2000));
-  setPts(dotGeo, pts.filter((_,i)=>i%step===0).flatMap(p=>[p.x,p.y,p.z]));
+  if(pts.length<2){pushPts();update();return;}
+  cum=[0];pushPts();
   sL.position.set(pts[0].x,pts[0].y+200,pts[0].z);
   eL.position.set(pts[pts.length-1].x,pts[pts.length-1].y+200,pts[pts.length-1].z);
   fitView();update();
@@ -175,9 +189,7 @@ async function refreshLive(){
     const fresh = d.filter(p=>p.t>lastT);
     if(!fresh.length) return;                 // nothing new since last poll
     pts = pts.concat(fresh).slice(-6000);   // match backend retention (whole session)
-    setPts(pathGeo, pts.flatMap(p=>[p.x,p.y,p.z]));
-    const step=Math.max(1,Math.floor(pts.length/2000));
-    setPts(dotGeo, pts.filter((_,i)=>i%step===0).flatMap(p=>[p.x,p.y,p.z]));
+    pushPts();
     eL.position.set(pts[pts.length-1].x,pts[pts.length-1].y+200,pts[pts.length-1].z);
     $('slider').max=pts.length-1;
     if(follow) pos=pts.length-1;   // ride the head ONLY in follow mode
@@ -220,6 +232,7 @@ async function refreshMemoryOverlay(traj){
     }}catch(_){}}
 
 
+let lastHud=0;
 function update(){
   if(!pts||!pts.length)return;
   const p=pts[pos]||pts[0];
@@ -229,9 +242,15 @@ function update(){
   arrow.setDirection(new THREE.Vector3(Math.sin(hd),0,Math.cos(hd)).normalize());
   $('frameInfo').textContent=pos+'/'+(pts.length-1);
   $('slider').value=pos;
-  let dist=0;for(let i=1;i<=pos;i++)dist+=Math.hypot(pts[i].x-pts[i-1].x,pts[i].y-pts[i-1].y,pts[i].z-pts[i-1].z);
-  $('stats').innerHTML='<div><span class=l>⏱</span> <span class=v>'+p.t+'s</span></div><div><span class=l>📍</span> <span class=v>['+(p.x|0)+','+(p.y|0)+','+(p.z|0)+']</span></div><div><span class=l>🧭</span> <span class=v>'+(p.heading*180/Math.PI|0)+'°</span></div><div><span class=l>🎮</span> <span class=v>x='+p.ctrl_x+' y='+p.ctrl_y+'</span></div><div><span class=l>📏</span> <span class=v>'+(dist|0)+'u</span></div>';
   ctrl.target.copy(sphere.position);
+  // HUD is expensive (innerHTML + DOM) — throttle to ~6 Hz; the 3D scene
+  // still updates every frame for smooth motion.
+  const now=performance.now();
+  if(now-lastHud<150)return;
+  lastHud=now;
+  extendCum();
+  const dist=cum[Math.min(pos,cum.length-1)]||0;
+  $('stats').innerHTML='<div><span class=l>⏱</span> <span class=v>'+p.t+'s</span></div><div><span class=l>📍</span> <span class=v>['+(p.x|0)+','+(p.y|0)+','+(p.z|0)+']</span></div><div><span class=l>🧭</span> <span class=v>'+(p.heading*180/Math.PI|0)+'°</span></div><div><span class=l>🎮</span> <span class=v>x='+p.ctrl_x+' y='+p.ctrl_y+'</span></div><div><span class=l>📏</span> <span class=v>'+(dist|0)+'u</span></div>';
 }
 
 $('toggleView').onclick=()=>{mini=!mini;wrap.classList.toggle('mini',mini);$('toggleView').textContent=mini?'🗖':'✕';setTimeout(resize,50);if(mini)fitView();};
@@ -242,8 +261,14 @@ $('playBtn').onclick=function(){
   follow=false;                                // replay the full path; poller keeps appending new points
   if(follow||pos>=pts.length-1)pos=0;
   playing=1;this.textContent='⏸';spd=+$('speed').value;
-  const step=()=>{if(!playing||pos>=pts.length-1){playing=0;$('playBtn').textContent='▶';return;}
-    pos=Math.min(pos+spd,pts.length-1);update();anim=requestAnimationFrame(step);};
+  // Time-based playback: advance by elapsed time (points per 16.7 ms frame
+  // at spd), so dropped frames cause speed-up — not position jumps.
+  let lastTs=0;
+  const step=(ts)=>{
+    if(!playing){return;}
+    if(pos>=pts.length-1){playing=0;$('playBtn').textContent='▶';return;}
+    const dt=lastTs?Math.min(ts-lastTs,100):16.7;lastTs=ts;
+    pos=Math.min(pos+spd*dt/16.7,pts.length-1);update();anim=requestAnimationFrame(step);};
   anim=requestAnimationFrame(step);
 };
 $('gridBtn').onclick=function(){gridOn=!gridOn;carpet.visible=gridOn&&carpet.count>0;adjLines.visible=gridOn&&adjGeo.getAttribute('position')!=null;this.textContent='🧠 Grid: '+(gridOn?'ON':'OFF');};
