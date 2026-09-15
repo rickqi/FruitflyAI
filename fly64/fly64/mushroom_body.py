@@ -457,7 +457,7 @@ class MushroomBody:
         """
         # Cap at 1.0: at 20% scene change rate, LR is doubled.
         # Below ~5% scene change rate, LR stays at the base rate * 1.0.
-        self.lr_adapt = float(np.clip(min(1.0, scene_change_rate * 5.0), 0.5, 1.0))
+        self.lr_adapt = float(np.clip(min(2.0, scene_change_rate * 5.0), 0.5, 2.0))
 
     def get_mbon_value(self, name: str) -> float:
         """Get MBON output by name.

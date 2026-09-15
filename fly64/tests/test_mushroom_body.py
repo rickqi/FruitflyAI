@@ -403,8 +403,8 @@ class TestAdaptiveLR:
     def test_high_change_accelerates_lr(self):
         mb = MushroomBody()
         assert mb.lr_adapt == 1.0  # default
-        mb.set_adaptive_lr(0.3)  # 30% scene change rate -> lr_adapt = 1.0 (capped)
-        assert mb.lr_adapt == 1.0
+        mb.set_adaptive_lr(0.3)  # 30% scene change rate -> lr_adapt = 1.5 (capped at 2.0)
+        assert mb.lr_adapt == 1.5
 
     def test_low_change_conservative_lr(self):
         mb = MushroomBody()

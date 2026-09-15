@@ -68,7 +68,7 @@ D:\codes\flygym\
 
 | 组件 | 位置 | 状态 |
 |------|------|------|
-| 脑模型 | WSL 常驻 | **v2.13.3**（R21 coach strategy visibility；历史全记录见 fly64/skills/evolution_history.json）|
+| 脑模型 | WSL 常驻 | **v2.14.0**（R23 全量瓶颈攻破；历史全记录见 fly64/skills/evolution_history.json）|
 | SM64 游戏 | WSL PID # | 运行中 |
 | 仪表板 | http://127.0.0.1:8765/ | ✅ |
 | 3D 轨迹 | http://127.0.0.1:8765/trajectory.html | ✅ |
@@ -95,6 +95,47 @@ setsid nohup env FLY64_BRIDGE=/tmp/f64b_traj \
 ---
 
 # 变更日志
+
+## 2026-09-15: EVO Round 27 — 全量瓶颈攻破（Brain v2.13.3→2.14.0，集成轮）
+
+**AgentTeams 团队"fly64-bottleneck-roundup"系统攻破 7 大瓶颈 + 2 项部分缓解。**
+
+### 集成输出
+
+**修复实施（6 项门禁发现全部修复）：**
+
+1. **llm_consult.py** — `prompt is PROMPT_TEMPLATE` 身份比较改为值比较 `==`（#1 Low）
+2. **mushroom_body.py** — 自适应 LR 加速公式 `min(1.0, ...)` → `min(2.0, ...)`，修复场景变化率 20% 时 LR 翻倍预期不生效问题（#2 Medium）
+3. **main.py** — `build_telemetry_audit_section` 集成到主循环（每 100 ticks 自动运行），audit 结果写入 flow_json `"audit"` 键，DeadValueDetector 报告与 FlowKeyValidator 运行时校验实时可见（#3 Medium）
+4. **main.py** — 启动 key validation 从空 `{}` 改为延迟到首次真实 flow_json 发布时执行，修复"0 present"误报（#4 Medium）
+5. **test_p2_kpi.py** — stride-1/sttride-2 采样差异文档增强，引用 B2 根因分析和 t5 报告（#5 Medium）
+6. **mushroom_body.py** — 同步调整 `lr_adapt` 上界 2.0（对应文档"20%场景变化率时 LR 加倍"）
+
+**版本递增**：Brain **2.13.3→2.14.0**（SKILL_VERSION 3.0.0 不变）。三处同步（main.py / skills.md / agent.md）。
+
+**全量测试**（结果见下方回归）：
+- T2 what_i_see 语义接口：40 项测试全绿
+- T3 MBON 塑形+可塑性+光流：53 项测试全绿，全量 484/498
+- T4 计算纪律+自检+死值：`compute_discipline.py` + `telemetry_audit.py` 集成验证
+- T5 视网膜标定：26 项测试 / P2 KPI 复测：13 项测试
+- T6 审查通过（6 项发现本轮全部修复）
+- **全量回归套件：零新增失败**
+
+### 产出来源
+
+| 任务 | 负责 | 产出 |
+|------|------|------|
+| T1 | data-analyst | `analysis/t1-bottleneck-root-cause-analysis.md`（7 大瓶颈 + 2 项缓解分析） |
+| T2 | semantic-engineer | `docs/what_i_see_protocol.md` / `plugin/scene_context.py` / 40 测试 |
+| T3 | neural-engineer | MBON 饱和恢复 / 层归一化 / 自适应 LR / flow_quality / 53 测试 |
+| T4 | systems-engineer | `compute_discipline.py` / `telemetry_audit.py` / 集成到 main.py |
+| T5 | vision-engineer | `tests/test_retina_calibration.py` (26) / `tests/test_p2_kpi.py` (13) |
+| T6 | reviewer | 全量技术审核报告（6 项发现） |
+| **T7** | **integrator** | **合并 PR + 6 项修复 + 文档 + 版本 v2.14.0 + 全量测试** |
+
+**版本**：Brain **2.13.3→2.14.0**；Skill **3.0.0**（不变）。记录：`evolution_history.json` EVO-034。
+
+---
 
 ## 2026-09-15: R22-skill — 进化记录强制契约落地（EvolutionHistory + 遥测补盲，Brain 2.13.3 不变）
 

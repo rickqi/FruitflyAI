@@ -183,7 +183,7 @@ def build_consult_request(context: dict, frame_b64: Optional[str],
     PROMPT_TEMPLATE, the enhanced prompt (ENHANCED_PROMPT_TEMPLATE) is used
     with the summary injected into the {scene_context_summary} placeholder.
     """
-    if scene_context_summary and prompt is PROMPT_TEMPLATE:
+    if scene_context_summary and prompt == PROMPT_TEMPLATE:
         prompt = ENHANCED_PROMPT_TEMPLATE.format(
             scene_context_summary=scene_context_summary
         )

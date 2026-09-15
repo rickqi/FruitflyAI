@@ -62,10 +62,14 @@ skill 具备**自我更新迭代**能力，通过受控进化循环固定能力�
 | **21** | **2.9.1** | **🤖 Coach Advice 端到端闭环**：dead key bold_turn_bias → 转向池电流接线；触发放宽（任意异常皆可突围）；prompt 语义卡（7 键单位/方向/范围）；HTTP 400 根修（裸 RGB 标 PNG→stdlib PNG 编码器）| "教练说了就算"对操作员是黑盒 → coach 链路全通 |
 | **22** | **2.10.1** | **🖥️ 监控界面 P0+P1 优化**：教练策略消费折叠面板（/active_strategy.json 端点）；LLM 倒计时全局状态栏；dialogue 因果分支（⏸ DIALOGUE PAUSED）；forced_bold/reflex_ineffective 徽章；@media 800px 响应式；flow.json 双拉取合并 | t15 UI 审计：55 字段仅展示 21、llmDecisionPill 埋页尾 9-pill 堆 |
 | **23** | **2.12.1** | **🛡️ 结构修复**：seqlock 停更看门狗（同帧停滞 >5s → SM64⛔ FROZEN 红色脉冲徽章）；启动契约 setsid 固化（consolidate.sh + agent.md/README.md 警示）| SM64 被托管后台 job 连带 kill → 桥冻结 → 仪表板静默卡死（事后分析发现）|
+| **24** | **2.13.0** | **🧭 CX-1 罗盘自主化**：转向池放电差→角速度→bump 自主滚动 + hue_az 天空方位软校正 + 外部 heading 降级弱校正 | 270° 复眼已全向采样但策略在用物理旋转采集已有信息 |
+| **25** | **2.13.x** | **🎚️ 阈值下调 + 读屏 + 截图留存**：教练咨询阈值 120s→60s、GLM 读屏 what_i_see、consult 帧快照留存 | 教练响应太慢 / 操作员看不到 GLM 看到了什么 |
+| **26** | **2.13.3** | **📜 进化记录强制契约**：EvolutionHistory 规范化 + telemetry_gap 修复 + `--history-check` 强制校验 + README/skills.md/agent.md 三处同步 | 并发会话致记录源矛盾 + 常驻循环 telemetry_gap 抓到真实回归 |
+| **27** | **2.14.0** | **🧠 全量瓶颈攻破**：语义接口增强（what_i_see 5层协议 + scene_context）+ MBON 饱和恢复 + 真实可塑性（层归一化/自适应LR/MBON→motor权重）+ 静息光流神经化（flow_quality 门控）+ 计算纪律（FrameBudgetController）+ 遥测审计（DeadValueDetector/FlowKeyValidator）+ 视网膜配准标定（26 tests）+ P2 KPI 复测（13 tests）+ 6 项门禁修复 | 系统性攻破 Fly64 脑模型剩余 7 大瓶颈 + 2 项部分缓解 |
 
 进化迭代历史在仪表板实时可见（`/evolution.json`：Brain 版本徽章、EVO 计数、每轮能力列表）。
 
-> 当前版本：BRAIN_VERSION **2.13.3** / SKILL_VERSION **3.0.0**（R17 MBON 稳态缩放 → R18 DAN 塑形 → R19 躁动电流 → R20 CX 罗盘自主+目标向量 → t20 咨询阈值 60s → t21 读屏+帧留存 → R21 coach strategy visibility。完整逐轮记录见 **skills/evolution_history.json**）。
+> 当前版本：BRAIN_VERSION **2.14.0** / SKILL_VERSION **3.0.0**（R17 MBON 稳态缩放 → R18 DAN 塑形 → R19 躁动电流 → R20 CX 罗盘自主+目标向量 → t20 咨询阈值 60s → t21 读屏+帧留存 → R21 coach strategy visibility → R22 进化记录契约 → R23 全量瓶颈攻破。完整逐轮记录见 **skills/evolution_history.json**）。
 
 ## 二期门禁：12 小时稳定自动聘雇（2026-09-14 决策）
 

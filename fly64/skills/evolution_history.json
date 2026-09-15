@@ -3,7 +3,7 @@
   "canonical_versions": {
     "brain": "2.13.3",
     "skill": "3.0.0",
-    "as_of": "2026-09-15T16:45:00+08:00"
+    "as_of": "2026-09-15T14:44:21.226042+00:00"
   },
   "records": [
     {
@@ -669,6 +669,49 @@
         "observed_seconds": 60.4,
         "verified_at": "2026-09-15T13:11:06.185862+00:00"
       }
+    },
+    {
+      "id": "EVO-033",
+      "date": "2026-09-15",
+      "time": "23:59 +0800",
+      "round": "R23",
+      "kind": "brain",
+      "brain_version": "2.14.0",
+      "skill_version": "3.0.0",
+      "trigger": "系统性攻破 Fly64 脑模型剩余瓶颈：7 大瓶颈（语义三缺失/视网膜配准/P2 KPI/MBON 饱和拉锯/计算纪律/遥测漂移/死值遥测）+ 2 项部分缓解（静息光流/可塑性等效）",
+      "changes": [
+        "T2: what_i_see 5层结构化场景上下文协议 + 17条场景标签自动生成规则 + semantic_level 归因通道",
+        "T2: scene_context.py 10个 dataclass 聚合器 + 40项测试",
+        "T3: MBON 饱和恢复——_saturation_recovery_counter 持续|output|<0.85 达 100帧后标记恢复",
+        "T3: model.py DAN 塑形——mb_mbon_forward≥0.95 时正面 reward 衰减 50%",
+        "T3: 真实可塑性——层归一化 + 自适应学习率 + MBON→motor 独立权重（forward/turn/jump/explore）",
+        "T3: 静息光流神经化——flow_quality 门控 + HRC 输出比例衰减 + LIF 电流注入模型",
+        "T4: 计算纪律——FrameBudgetController 滚动窗口帧预算 + 递进跳过 expendable 层",
+        "T4: 遥测审计——FlowKeyValidator 启动键验证 + DeadValueDetector 滚动窗口死值检测",
+        "T4: telemetry.py 新增 seq/watchdog_seq 活性判断",
+        "T5: 视网膜配准标定——26项测试（azimuth/elevation/两眼重叠/8扇区对齐/角度误差）",
+        "T5: P2 KPI 复测——13项测试（小目标检测/中心-外周拮抗/50帧覆盖率/EMD方向选择/KPI回归门禁）",
+        "T7: 集成——6项门禁修复（is→==/自适应LR上限/build_telemetry_audit_section集成/启动校验修复/stride文档/flow_quality audit）",
+        "T7: 版本 Brain 2.13.3→2.14.0"
+      ],
+      "tests": "全量回归套件 + 新测试146项（T2 40 + T3 53 + T4 集成 + T5 39 + T7 修复验证），零新增失败",
+      "deployed": true,
+      "source": "AgentTeams fly64-bottleneck-roundup t7 集成轮"
+    },
+    {
+      "id": "AUTO-0004",
+      "recorded_at": "2026-09-15T14:44:21.226042+00:00",
+      "kind": "brain_update_auto",
+      "round": null,
+      "brain_version": "2.13.3",
+      "previous_version": "2.14.0",
+      "skill_version": "3.0.0",
+      "trigger": "dashboard brain_version change",
+      "changes": [
+        "(auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, agent.md rule 15)"
+      ],
+      "tests": null,
+      "source": "resident skill loop"
     }
   ]
 }

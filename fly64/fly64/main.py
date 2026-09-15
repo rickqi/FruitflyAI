@@ -33,12 +33,12 @@ from .memory import MemoryController
 from .scene_recognition import SceneRecognizer
 from .compute_discipline import FrameBudgetController, PerfTimer
 from .telemetry_audit import (generate_key_manifest, FlowKeyValidator,
-                              DeadValueDetector)
+                              DeadValueDetector, build_telemetry_audit_section)
 
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.13.3"
+BRAIN_VERSION = "2.14.0"
 SKILL_VERSION = "3.0.0"   # must mirror fly64/skills/evolution_skill.py SKILL_VERSION
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
@@ -594,13 +594,12 @@ async def run(args) -> None:
     print(f"[fly64] Telemetry key manifest: {len(_key_manifest.get('required_keys', []))} "
           f"keys from {_key_manifest.get('pattern_count', 0)} patterns "
           f"({_key_manifest.get('source', '?')})")
-    # Run startup key validation against a typical flow_json structure
-    _key_check = _key_validator.check({})  # empty — will just show zero present
-    if _key_check.get("missing"):
-        print(f"[fly64] Telemetry key validation: {len(_key_check['missing'])} fields "
-              f"would be missing (expected at runtime)")
-    else:
-        print(f"[fly64] Telemetry key validation: manifest ready")
+    # Startup key validation: deferred to first real flow_json publish.
+    # The empty-dict check is skipped — see _audit_tick below for live validation.
+    print(f"[fly64] FlowKeyValidator initialised: key check runs on first flow_json")
+    _audit_tick = 0  # counter for periodic telemetry audit (every 100 ticks)
+    _audit_flow_section: dict = {}  # latest audit section (rebuilt every 100 ticks)
+    _audit_last_section: dict = {}  # fallback for intervening ticks
     pending_jump = False
     dash_seq = 0
     DashboardHTTP.trajectory_points = []
@@ -1472,7 +1471,29 @@ async def run(args) -> None:
                     "skip_layers": _skip,
                     "skip_layers_names": _budget.get_skip_names(),
                     "frame_compute_ms": round(_budget.average_duration() * 1000, 3),
+                    # ---- t4/t7: periodic telemetry audit (every 100 ticks) ----
+                    "audit": (_audit_flow_section if _audit_tick % 100 == 0
+                              else _audit_last_section),
                 }, separators=(",", ":")).encode()
+                # ---- t4/t7: periodic telemetry audit (every 100 ticks) ----
+                _audit_tick += 1
+                if _audit_tick % 100 == 0:
+                    try:
+                        _flow_snap = json.loads(DashboardHTTP.flow_json)
+                        # First real publish: run key validation against actual flow
+                        if _audit_tick == 100:
+                            _key_check = _key_validator.check(_flow_snap)
+                            if _key_check.get("missing"):
+                                print(f"[fly64] Telemetry key validation: "
+                                      f"{len(_key_check['missing'])} missing keys")
+                            else:
+                                print("[fly64] Telemetry key validation: "
+                                      "all pattern-condition keys present ✓")
+                        _audit_flow_section = build_telemetry_audit_section(
+                            _key_validator, _dead_detector, _flow_snap)
+                        _audit_last_section = _audit_flow_section
+                    except Exception:
+                        _audit_flow_section = _audit_last_section
                 # ---- t4 B7: push numeric flow fields to dead-value detector ----
                 try:
                     _flow_dict = json.loads(DashboardHTTP.flow_json)

@@ -16,7 +16,10 @@ IMPORTANT FINDING: The production retina uses stride-2 sampling (768 cells),
 which means adjacent cells in index space are 2 grid units apart. This prevents
 4-connected component formation (no adjacent cells). The small-target tracking
 tests therefore use stride-1 retina (3072 cells, full grid) to verify the
-center-surround + CCL mechanism correctly. See B2 analysis for implications.
+center-surround + CCL mechanism correctly. See t5 analysis
+(analysis/t5-retina-calibration-and-p2-kpi-report.md) and B2 root cause
+(fly64/analysis/t1-bottleneck-root-cause-analysis.md) for production-gap
+implications. This is a known design limitation tracked under B2.
 """
 import numpy as np
 import pytest
