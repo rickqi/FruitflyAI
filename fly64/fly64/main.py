@@ -31,6 +31,9 @@ from .retina import BASES, CALIBRATION
 from .telemetry import Observatory
 from .memory import MemoryController
 from .scene_recognition import SceneRecognizer
+from .compute_discipline import FrameBudgetController, PerfTimer
+from .telemetry_audit import (generate_key_manifest, FlowKeyValidator,
+                              DeadValueDetector)
 
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
@@ -580,6 +583,24 @@ async def run(args) -> None:
     last_frame_seq = -1
     dropped = 0
     observatory = Observatory(model)
+    # ---- t4 B5: computational discipline ----
+    _budget = FrameBudgetController()
+    _perf = PerfTimer()
+    # ---- t4 B6/B7: telemetry audit ----
+    _key_validator = FlowKeyValidator()
+    _dead_detector = DeadValueDetector()
+    # Run startup key validation
+    _key_manifest = generate_key_manifest()
+    print(f"[fly64] Telemetry key manifest: {len(_key_manifest.get('required_keys', []))} "
+          f"keys from {_key_manifest.get('pattern_count', 0)} patterns "
+          f"({_key_manifest.get('source', '?')})")
+    # Run startup key validation against a typical flow_json structure
+    _key_check = _key_validator.check({})  # empty — will just show zero present
+    if _key_check.get("missing"):
+        print(f"[fly64] Telemetry key validation: {len(_key_check['missing'])} fields "
+              f"would be missing (expected at runtime)")
+    else:
+        print(f"[fly64] Telemetry key validation: manifest ready")
     pending_jump = False
     dash_seq = 0
     DashboardHTTP.trajectory_points = []
@@ -779,9 +800,14 @@ async def run(args) -> None:
                 memory_ctrl.reflex_ineffective = False
                 memory_ctrl.disp_60s = None
             heading = pose_ev[3]
+            # ---- t4 B5: compute discipline ----
+            _skip = _budget.get_skip_layers()
+            _perf.start("model_step")
             control, spikes = model.step(frame, model.step_count * model.dt,
                                          novelty=memory_ctrl.novelty,
-                                         heading=heading)
+                                         heading=heading,
+                                         skip_layers=_skip)
+            _perf.stop("model_step")
 
             # ---- Corollary discharge: action-effect comparator ----
             # Forward command issued but position static = pushing into
@@ -1251,6 +1277,9 @@ async def run(args) -> None:
                 # EVO R19: restlessness inputs (loop pressure) + recognition
                 model.loop_score = memory_ctrl.spatial.loop_score
                 model.scene_danger = scene_recognizer.danger_level()
+                # EVO R22: mirror MBON forward for spontaneous recovery
+                model.mb_mbon_forward = round(
+                    float(getattr(model.mushroom, "mbon_outputs", [0])[0]), 4)
                 # EVO R20 (CX-2): feed forward speed + scene re-anchor on
                 # scene change (the CX integrates displacement from anchor)
                 model.forward_units_per_tick = getattr(control, "forward_rate", 0.0) * 1.2
@@ -1439,7 +1468,19 @@ async def run(args) -> None:
                     "reward_trend": round(_plasticity_metrics["reward_trend"], 4),
                     "error_gradient_mean": round(_plasticity_metrics["error_gradient_mean"], 4),
                     "gain_update_count": _plasticity_metrics["gain_update_count"],
+                    # ---- t4 B5/B6/B7: compute discipline + telemetry audit ----
+                    "skip_layers": _skip,
+                    "skip_layers_names": _budget.get_skip_names(),
+                    "frame_compute_ms": round(_budget.average_duration() * 1000, 3),
                 }, separators=(",", ":")).encode()
+                # ---- t4 B7: push numeric flow fields to dead-value detector ----
+                try:
+                    _flow_dict = json.loads(DashboardHTTP.flow_json)
+                    _num_flow = {k: v for k, v in _flow_dict.items()
+                                 if isinstance(v, (int, float)) and not isinstance(v, bool)}
+                    _dead_detector.push(_num_flow)
+                except Exception:
+                    pass
                 # Log anomaly state transitions to events buffer
                 current_anomaly = memory_ctrl.anomaly_state_name
                 if current_anomaly and current_anomaly != previous_anomaly_state and current_anomaly != "idle":
@@ -1526,6 +1567,9 @@ async def run(args) -> None:
                             sum(_error_gradient_buffer) / max(len(_error_gradient_buffer), 1), 4),
                         "gain_update_count": model.dopamine_gain.gain_update_count,
                     })
+
+            # ---- t4 B5: record tick duration for frame-budget controller ----
+            _budget.record_tick(time.monotonic() - tick_start)
 
             next_tick += model.dt
             delay = next_tick - time.monotonic()

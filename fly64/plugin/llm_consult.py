@@ -35,6 +35,14 @@ import urllib.request
 from pathlib import Path
 from typing import Callable, Optional
 
+try:
+    from plugin.scene_context import (
+        SceneContext, assemble_scene_context, build_scene_context_summary,
+    )
+    _SCENE_CONTEXT_AVAILABLE = True
+except ImportError:
+    _SCENE_CONTEXT_AVAILABLE = False
+
 DIALOGUE_PROMPT_TEMPLATE = (
     "你是 SM64 果蝇脑控制系统的对话决策器。屏幕上出现了游戏对话/交互对话框。\n"
     "分析当前截屏，判断马里奥应该如何应对这个对话框：\n"
@@ -105,6 +113,45 @@ PROMPT_TEMPLATE = (
     '越小越快逃逸（建议 1-60）。\n'
 )
 
+# Enhanced prompt template with structured scene context injection.
+# The ``{scene_context_summary}`` placeholder is populated by the scene
+# context aggregator before dispatch.
+ENHANCED_PROMPT_TEMPLATE = (
+    "你是 SM64 果蝇脑控制系统的教练。\n\n"
+    "=== 游戏画面 ===\n"
+    "你上方看到的是当前 SM64 游戏帧。注意这是**人类视角的渲染画面**——"
+    "果蝇的复眼只能看到约 1,536 个小眼点（每眼约 7 个采样点），无法直接读取文字。\n\n"
+    "=== 果蝇实际感知摘要 ===\n"
+    "以下是被控果蝇视觉系统当前真正感知到的结构化数据。\"果蝇看不到\"你眼中清晰的文字和细节，"
+    "只能通过下面积分数值\"感受\"世界。请据此判断问题归属。\n"
+    "{scene_context_summary}\n\n"
+    "=== 任务 ===\n"
+    "1. **读取屏幕文字**：列出所有可见文字（对话框、UI、金币数、"
+    "生命值、星星数、菜单项），写在 what_i_see 字段。\n"
+    "2. **场景元素**（你在画面中看到的）：门/坡/敌人/金币/平台/水体……\n"
+    "3. **果蝇感知盲区分析**：基于上方的果蝇感知摘要，判断当前问题属于：\n"
+    "   - ``innate``（果蝇自身能力群）：光流/反射/记忆可解决 → 仅调优参数\n"
+    "   - ``coach``（需语义理解）：屏幕文字含指引（\"需要钥匙\"）、需要任务规划\n"
+    "4. **行动建议**：给出转向方向、速度、是否跳跃、目标位置。\n\n"
+    "=== 输出格式 ===\n"
+    "只回复一个 JSON 对象，格式：\n"
+    '{{"scene_elements": ["..."], "what_i_see": ["屏幕文字1", "屏幕文字2"], '
+    '"problem": "...", "action": "...", '
+    '"semantic_level": "innate|coach", '
+    '"advice": "给马里奥的一句中文建议", '
+    '"strategy": {{"fallen_recovery": {{"mode": "mirror|directional_climb", '
+    '"climb_period": 2.0, "persist_seconds": 2.0}}, '
+    '"exploration": {{"bold_explore_stuck_s": 60.0, "turn_bias": 0}}, '
+    '"escape": {{"stuck_threshold_s": 30.0, "reverse_seconds": 0.5}}}}}}\n'
+    '策略参数语义卡（严格遵守单位与方向，不要反向调参）:\n'
+    '- exploration.bold_explore_stuck_s: 秒。异常持续该秒数后触发突围，'
+    '越小越快突围（建议 20-120）。\n'
+    '- exploration.turn_bias: 0-1 转向强度（占最大转向电流的比例），'
+    '越大转向越猛（建议 0.3-1.0；不要填 69 这类角度值）。\n'
+    '- escape.stuck_threshold_s: 秒。持续卡住该秒数后强制逃逸，'
+    '越小越快逃逸（建议 1-60）。\n'
+)
+
 # Keys allowed per strategy section (name -> (type, default))
 SECTION_SPECS = {
     "fallen_recovery": {
@@ -128,14 +175,26 @@ class ConsultError(RuntimeError):
 
 
 def build_consult_request(context: dict, frame_b64: Optional[str],
-                          prompt: str = PROMPT_TEMPLATE) -> dict:
-    """Build the multimodal consult request payload."""
+                          prompt: str = PROMPT_TEMPLATE,
+                          scene_context_summary: Optional[str] = None) -> dict:
+    """Build the multimodal consult request payload.
+
+    When ``scene_context_summary`` is provided and ``prompt`` is the default
+    PROMPT_TEMPLATE, the enhanced prompt (ENHANCED_PROMPT_TEMPLATE) is used
+    with the summary injected into the {scene_context_summary} placeholder.
+    """
+    if scene_context_summary and prompt is PROMPT_TEMPLATE:
+        prompt = ENHANCED_PROMPT_TEMPLATE.format(
+            scene_context_summary=scene_context_summary
+        )
     req = {
         "model": os.environ.get("FLY64_LLM_MODEL", DEFAULT_MODEL),
         "prompt": prompt,
         "context": context,
         "ts": round(time.time(), 2),
     }
+    if scene_context_summary:
+        req["scene_context_summary"] = scene_context_summary
     if frame_b64:
         # t13 fix④: the brain runner hands us RAW RGB bytes (base64 of the
         # shared-memory frame), not a PNG.  Labeling raw bytes as
@@ -210,13 +269,17 @@ class GLMConsultant:
         self.last_raw_response: Optional[str] = None
 
     # ── public API ────────────────────────────────────────────────────
-    def consult(self, context: dict, frame_b64: Optional[str] = None) -> dict:
+    def consult(self, context: dict, frame_b64: Optional[str] = None,
+                scene_context_summary: Optional[str] = None) -> dict:
         """Run one consultation; returns the parsed strategy dict.
 
         The returned dict always contains ``advice`` (str) and, when the
-        model produced one, a ``strategy`` section dict.
+        model produced one, a ``strategy`` section dict.  When
+        ``scene_context_summary`` is provided the enhanced prompt is used
+        and ``semantic_level`` may be present on the parsed output.
         """
-        request = build_consult_request(context, frame_b64)
+        request = build_consult_request(context, frame_b64,
+                                        scene_context_summary=scene_context_summary)
         request["model"] = self.model
         self.last_request = request
         self.request_path.parent.mkdir(parents=True, exist_ok=True)
@@ -238,6 +301,16 @@ class GLMConsultant:
             # writes strategy=parsed["strategy"] unchanged).
             if parsed.get("what_i_see"):
                 parsed["strategy"]["what_i_see"] = list(parsed["what_i_see"])
+        # t21+ (what_i_see protocol): embed semantic_level into advice
+        # when the model provided one, so the operator sees the coach's
+        # perception-gap judgement.
+        sl = parsed.get("semantic_level", "")
+        if sl:
+            tag = "🧠 果蝇自身问题" if sl == "innate" else "📖 需语义理解"
+            parsed["advice"] = (str(parsed.get("advice", "")).rstrip()
+                                + f"\n{tag}")
+            if isinstance(parsed.get("strategy"), dict):
+                parsed["strategy"]["semantic_level"] = sl
         return parsed
 
     # ── dialogue decision API ─────────────────────────────────────────
@@ -436,11 +509,14 @@ def parse_dialogue_response(raw: str) -> dict:
 
 
 def parse_response(raw: str) -> dict:
-    """Parse a GLM reply into ``{advice, what_i_see?, strategy?, ...}``.
+    """Parse a GLM reply into ``{advice, what_i_see?, strategy?, semantic_level?, ...}``.
 
     t21: the explicit screen-text readout ``what_i_see`` is normalised to a
     list of non-empty strings and always present (missing/malformed → [])
     so downstream consumers never crash on it.
+
+    t21+ (what_i_see protocol): ``semantic_level`` is parsed from the model
+    reply when present; absent or invalid values degrade to empty string.
     """
     text = extract_json_text(raw)
     if text is None:
@@ -453,6 +529,9 @@ def parse_response(raw: str) -> dict:
     advice = out.get("advice") or out.get("action") or ""
     out["advice"] = str(advice)
     out["what_i_see"] = normalize_what_i_see(out.get("what_i_see"))
+    # semantic_level: normalise to one of the known values or ""
+    sl = str(out.get("semantic_level", "") or "").strip().lower()
+    out["semantic_level"] = sl if sl in ("innate", "coach") else ""
     return out
 
 

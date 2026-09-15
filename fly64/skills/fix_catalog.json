@@ -3,11 +3,11 @@
   "meta": {
     "skill_name": "evolution_skill",
     "skill_version": "3.0.0",
-    "total_fixes": 15,
+    "total_fixes": 16,
     "effective_count": 0,
-    "ineffective_count": 9,
+    "ineffective_count": 10,
     "pending_count": 6,
-    "last_updated": "2026-09-15T11:40:39.506404+00:00"
+    "last_updated": "2026-09-15T13:11:06.182819+00:00"
   },
   "fixes": [
     {
@@ -304,6 +304,26 @@
       "baseline_coverage": 30.8,
       "post_fix_stuck": 222.36,
       "post_fix_coverage": 30.8,
+      "effective": false,
+      "effectiveness_score": 0.0,
+      "reverted": false,
+      "reverted_at": null,
+      "notes": ""
+    },
+    {
+      "id": "fix_0016",
+      "pattern_id": "below_ground_stuck",
+      "pattern_name": "Below ground stuck — Y坐标异常导致无法移动",
+      "pattern_version": "1.0.0",
+      "diagnosis": "Fallen detection threshold (Y<-100) is too permissive. SM64 normal ground is Y=120. Y<50 already indicates below-ground (void/water). Fix: change fallen threshold from Y<-100 to Y<50.",
+      "fix_template": "# Fix: Lower fallen detection threshold from -100 to 50\n# File: fly64/fly64/memory.py\n# In MotionStateDetector and MemoryController:\n# CHANGE:\n#   fallen = pos_y < -100 or pos_y > 1000\n# TO:\n#   fallen = pos_y < 50 or pos_y > 1000\n# SM64 ground level is Y=120; any Y<50 means Mario is below ground surface.",
+      "severity": "high",
+      "applied_at": "2026-09-15T13:10:05.750388+00:00",
+      "version": 16,
+      "baseline_stuck": 30.3,
+      "baseline_coverage": 31.3,
+      "post_fix_stuck": 35.96,
+      "post_fix_coverage": 31.3,
       "effective": false,
       "effectiveness_score": 0.0,
       "reverted": false,

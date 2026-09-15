@@ -1,0 +1,119 @@
+<div style="font-family: 'Segoe UI', system-ui, sans-serif; max-width: 1200px; margin: 10px 0;">
+
+<style scoped>
+.arch-wrapper { display: flex; gap: 16px; background: #f5f0f8; border-radius: 16px; padding: 20px; border: 1px solid #d0c8e0; }
+.arch-main { flex: 1; min-width: 0; }
+.arch-sidebar { width: 190px; flex-shrink: 0; }
+.arch-layer { border-radius: 10px; padding: 8px 12px; margin-bottom: 5px; }
+.arch-layer-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; color: #fff; }
+.arch-grid { display: flex; gap: 5px; flex-wrap: wrap; }
+.arch-grid-2 > * { flex: 1; min-width: 0; }
+.arch-grid-3 > * { flex: 1; min-width: 0; }
+.arch-grid-4 > * { flex: 1; min-width: 0; }
+.arch-grid-5 > * { flex: 1; min-width: 0; }
+.arch-box { border-radius: 6px; padding: 5px 7px; background: rgba(255,255,255,0.65); border: 1px solid rgba(0,0,0,0.06); font-size: 9px; color: #2a1a3a; line-height: 1.35; text-align: center; }
+.arch-box small { display: block; font-size: 7.5px; color: #6a5a8a; margin-top: 1px; }
+.arch-box.highlight { background: rgba(200,150,255,0.15); border-color: #9a6ac8; }
+.arch-sidebar-panel { background: rgba(255,255,255,0.5); border-radius: 8px; padding: 8px; border: 1px solid rgba(0,0,0,0.06); margin-bottom: 6px; }
+.arch-sidebar-title { font-size: 9px; font-weight: 700; color: #4a3a6a; margin-bottom: 4px; text-transform: uppercase; }
+.arch-sidebar-item { font-size: 8px; padding: 3px 5px; border-radius: 4px; background: rgba(255,255,255,0.4); color: #3a2a5a; margin-bottom: 2px; }
+.l-node { background: linear-gradient(135deg, #3a2a6a, #5a3a8a); }
+.l-comms { background: linear-gradient(135deg, #2a4a6a, #3a6a8a); }
+.l-orch { background: linear-gradient(135deg, #2a6a4a, #3a8a6a); }
+.l-knowledge { background: linear-gradient(135deg, #6a4a2a, #8a6a3a); }
+.l-evo-mas { background: linear-gradient(135deg, #5a2a4a, #7a3a6a); }
+</style>
+
+<div style="font-size: 14px; font-weight: 700; color: #4a3a6a; margin-bottom: 8px;">👥 Multi-Agent Autonomous System — Fly64 Migration Architecture</div>
+
+<div class="arch-wrapper">
+
+  <div class="arch-sidebar">
+    <div class="arch-sidebar-panel">
+      <div class="arch-sidebar-title">🎯 Key Innovation</div>
+      <div class="arch-sidebar-item">STMD-inspired minimal comms<br><b>Small target motion detection = Agent coordination signal</b></div>
+      <div class="arch-sidebar-item">Each neuron → One agent<br>Distributed EVO per agent</div>
+    </div>
+    <div class="arch-sidebar-panel">
+      <div class="arch-sidebar-title">⏱️ 8-Week Roadmap</div>
+      <div class="arch-sidebar-item">P1: Agent scaffold · 2wk</div>
+      <div class="arch-sidebar-item">P2: Distributed EVO · 3wk</div>
+      <div class="arch-sidebar-item">P3: Shared knowledge · 2wk</div>
+      <div class="arch-sidebar-item">P4: Production · 1wk</div>
+    </div>
+  </div>
+
+  <div class="arch-main">
+    <!-- Agent Nodes -->
+    <div class="arch-layer l-node">
+      <div class="arch-layer-title">🤖 Agent Nodes — Each = 1 Fly64 Neuron Instance</div>
+      <div class="arch-grid arch-grid-5">
+        <div class="arch-box highlight">Agent 1: Perception<br><small>Vision/LIDAR/Radar</small></div>
+        <div class="arch-box highlight">Agent 2: Planning<br><small>CX navigation · path planning</small></div>
+        <div class="arch-box">Agent 3: Control<br><small>4-DOF → actuator commands</small></div>
+        <div class="arch-box">Agent N: Specialized<br><small>Domain-specific logic</small></div>
+        <div class="arch-box">PluginRunner<br><small>hot-loadable · isolated</small></div>
+      </div>
+      <div style="display:flex; gap:3px; margin-top:3px; justify-content:center;">
+        <span style="font-size:7px; padding:1px 5px; border-radius:8px; background:rgba(255,255,255,0.25); color:rgba(255,255,255,0.8);">Each agent: independent LIF + Reflex + MB + CX (lightweight)</span>
+      </div>
+    </div>
+
+    <!-- Communication Layer -->
+    <div class="arch-layer l-comms">
+      <div class="arch-layer-title">📡 STMD-Inspired Minimal Communication</div>
+      <div class="arch-grid arch-grid-3">
+        <div class="arch-box highlight">STMD Protocol<br><small>Small Target Motion Detection = agent relevance signal<br>Only broadcast when important event detected</small></div>
+        <div class="arch-box">DistributedMemory<br><small>Shared 128D scene signature space<br>→ distributed_memory.py</small></div>
+        <div class="arch-box">Event Bus<br><small>Async pub/sub · mmap extended<br>ZeroMQ bridge</small></div>
+      </div>
+      <div style="display:flex; gap:3px; margin-top:3px; justify-content:center;">
+        <span style="font-size:7px; padding:1px 5px; border-radius:8px; background:rgba(255,255,255,0.25); color:rgba(255,255,255,0.8);">Principle: minimal communication = maximal autonomy · Inspired by visual system sparse coding</span>
+      </div>
+    </div>
+
+    <!-- Orchestration -->
+    <div class="arch-layer l-orch">
+      <div class="arch-layer-title">⚖️ Distributed Orchestration</div>
+      <div class="arch-grid arch-grid-4">
+        <div class="arch-box highlight">HealthChecker<br><small>Heartbeat 50Hz · Failure detection</small></div>
+        <div class="arch-box">StrategyWriter<br><small>LLM generates global coordination strategy</small></div>
+        <div class="arch-box">Vote Consensus<br><small>3-agent majority for critical decisions</small></div>
+        <div class="arch-box">Leader Election<br><small>Reflex priority → leader auto-designation</small></div>
+      </div>
+    </div>
+
+    <!-- Shared Knowledge -->
+    <div class="arch-layer l-knowledge">
+      <div class="arch-layer-title">📚 Shared Knowledge Base</div>
+      <div class="arch-grid arch-grid-3">
+        <div class="arch-box">Global Scene Memory<br><small>Aggregated 128D signatures</small></div>
+        <div class="arch-box highlight">Shared Consolidation<br><small>Cross-agent experience replay<br>→ consolidation_threshold=0.6</small></div>
+        <div class="arch-box">Strategy Cache<br><small>active_strategy.json sync</small></div>
+      </div>
+    </div>
+
+    <!-- EVO -->
+    <div class="arch-layer l-evo-mas">
+      <div class="arch-layer-title">🔄 Distributed EVO Closed Loop</div>
+      <div class="arch-grid arch-grid-5">
+        <div class="arch-box highlight">Per-Agent Monitor<br><small>70+ metrics each</small></div>
+        <div class="arch-box">Global Diagnose<br><small>Cross-agent drift detection</small></div>
+        <div class="arch-box">Coordinated Fix<br><small>Rolling update without downtime</small></div>
+        <div class="arch-box">Arena Verify<br><small>Agent vs agent competition</small></div>
+        <div class="arch-box">Blockchain Audit<br><small>Immutable decision log</small></div>
+      </div>
+    </div>
+
+    <div style="margin-top: 6px; display:flex; gap:4px; font-size: 8px; color: #6a5a8a; justify-content:center; flex-wrap:wrap;">
+      <span style="background:#e8e0f0; padding:2px 8px; border-radius:8px;">Code reuse: ~55%</span>
+      <span style="background:#e0e8f0; padding:2px 8px; border-radius:8px;">10 agents heartbeat sync > 99%</span>
+      <span style="background:#f0e8d0; padding:2px 8px; border-radius:8px;">Failure recovery < 10s</span>
+    </div>
+    <div style="margin-top: 4px; font-size: 8px; color: #8aaa8a; text-align: center;">
+      Source: t1_deep_technical_migration_plan.md §7 · STMD-inspired architecture · PluginRunner
+    </div>
+  </div>
+</div>
+
+</div>

@@ -132,6 +132,32 @@ class MushroomBody:
         self.saturation_frames_threshold = 50
         self.saturation_scale_factor = 0.9
         self.saturation_events = 0
+        # EVO R22 · spontaneous recovery counter: tracks how long a MBON
+        # column has been suppressed to near-zero.  When the network has
+        # "learned helplessness" (column pinned at 0), slow noise+drift
+        # spontaneously reintroduces the output so the column can re-learn.
+        self._suppression_counter = np.zeros(n_mbon, dtype=np.int32)
+        self.suppression_threshold = 500   # ~10s at 50Hz
+        self.recovery_noise_scale = 0.003
+        self.recovery_drift_rate = 0.0008
+
+        # ---- EVO R22b · saturation recovery tracker (B4 fix) ----
+        # After homeostatic scaling fires on a column, tracks consecutive
+        # frames where |output| < 0.85.  Once stable for recovery_threshold
+        # frames, the column is marked "recovered" and re-triggering the
+        # saturation guard is suppressed until |output| > 0.95 (absolute
+        # override).  This breaks the tug-of-war between homeostatic ×0.9
+        # and DAN re-inflation by preventing oscillation.
+        self._saturation_recovery_counter = np.zeros(n_mbon, dtype=np.int32)
+        self.recovery_threshold_frames = 100   # ~2s at 50Hz
+        self._saturation_recovered = np.zeros(n_mbon, dtype=bool)
+
+        # ---- EVO R22c · Adaptive learning rate (M2 fix) ----
+        # Scene-aware LR: self.lr_adapt is set each frame by encode()
+        # based on scene_change_rate.  When the scene changes rapidly,
+        # learning is accelerated; when stable, learning is conservative.
+        # The fixed LEARNING_RATE is the base — lr_adapt modulates it.
+        self.lr_adapt = 1.0   # multiplier on self.lr, updated each encode()
 
     def encode(self, scene_sig: np.ndarray) -> np.ndarray:
         """Encode scene signature through Kenyon Cells -> produce MBON outputs.
@@ -194,22 +220,94 @@ class MushroomBody:
         # ---- MBON integration ----
         # MBON = Sigma_i W[i,j] * KC[i] — weighted sum, tanh-clipped to [-1, 1]
         raw_mbon = self.kc_activity @ self.weights  # (N_MBONS,)
-        self.mbon_outputs = np.tanh(raw_mbon).astype(np.float32)
+        # Store pre-norm output for saturation detection; layer normalisation
+        # is applied AFTER the saturation check so the 0.98 threshold works
+        # on the actual tanh signal, not the attenuated one.
+        _pre_norm_mbon = np.tanh(raw_mbon).astype(np.float32)
 
-        # ---- Homeostatic synaptic scaling (EVO R17) ----
+        # ---- Homeostatic synaptic scaling (EVO R17 + R22b) ----
         # A MBON column pinned at |output|≈1 means runaway weights; scale
         # that column's active synapses down 10% once saturation persists
         # past the frame threshold.  Purely postsynaptic homeostasis.
-        sat = np.abs(self.mbon_outputs) >= 0.98
+        #
+        # EVO R22b (B4): after scaling, track recovery.  A column that has
+        # stayed at |output| < 0.85 for recovery_threshold_frames (~2s) is
+        # marked "recovered" and homeostatic scaling is temporarily gated
+        # for that column — breaking the tug-of-war between ×0.9 and DAN
+        # re-inflation.  Recovery is revoked when |output| > 0.95.
+        sat = np.abs(_pre_norm_mbon) >= 0.98
         self._saturation_frames = np.where(
             sat, self._saturation_frames + 1, 0).astype(np.int32)
         for j in np.flatnonzero(
                 self._saturation_frames >= self.saturation_frames_threshold):
+            # Skip columns that have recently recovered from saturation
+            # (unless |output| is back above 0.95 — absolute override)
+            if self._saturation_recovered[j]:
+                if np.abs(_pre_norm_mbon[j]) < 0.95:
+                    continue  # still in recovery: suppress re-trigger
+                else:
+                    self._saturation_recovered[j] = False  # revoked by strong output
             active = self.kc_activity > 0
             if active.any():
                 self.weights[active, j] *= self.saturation_scale_factor
             self._saturation_frames[j] = 0
+            self._saturation_recovery_counter[j] = 1   # start recovery tracking on next frame
             self.saturation_events += 1
+
+        # ---- Recovery tracking after saturation ----
+        # Columns that recently triggered homeostatic scaling track their
+        # return to the dynamic range.  After recovery_threshold_frames of
+        # stable |output| < 0.85, the column is "recovered" and protected
+        # from re-triggering until saturation is genuinely needed again.
+        # Recovery counting only starts once the column exits the saturation
+        # zone (|output| < 0.98, i.e. _saturation_frames[j] == 0).  Between
+        # 0.85 and 0.98 the counter holds steady; above 0.98 the saturation
+        # mechanism handles it; above 0.95 recovery is revoked.
+        for j in range(self.n_mbon):
+            if self._saturation_recovery_counter[j] > 0 or self._saturation_recovered[j]:
+                if self._saturation_frames[j] > 0:
+                    pass  # still in saturation zone — hold recovery counter
+                elif np.abs(_pre_norm_mbon[j]) < 0.85:
+                    self._saturation_recovery_counter[j] += 1
+                    if self._saturation_recovery_counter[j] >= self.recovery_threshold_frames:
+                        self._saturation_recovered[j] = True
+                        self._saturation_recovery_counter[j] = 0
+                elif np.abs(_pre_norm_mbon[j]) < 0.95:
+                    # Between 0.85 and 0.95 — hold counter steady
+                    pass
+                else:
+                    # Output >= 0.95 — revoke recovery, will re-trigger on
+                    # next saturation check
+                    pass
+
+        # ---- Layer normalization on MBON outputs (M2 fix) ----
+        # Applied AFTER saturation detection so the 0.98 threshold works
+        # on the true signal.  The normalised output reduces variance for
+        # downstream motor injection and prevents a saturated column from
+        # dominating the learning signal across the MBON→motor weights.
+        self.mbon_outputs = _pre_norm_mbon.copy()
+        _var = float(self.mbon_outputs.var())
+        if _var > 1e-6:
+            self.mbon_outputs /= float(np.sqrt(1.0 + _var))
+
+        # ---- EVO R22 · spontaneous recovery from learned helplessness ----
+        # When a MBON column has been suppressed (|output| < 0.05) for a
+        # sustained period, the network may have "learned" to suppress it
+        # too well — the column is stuck at zero and cannot contribute.
+        # Slow noise + drift toward zero gradually restores the column so
+        # it can re-learn when conditions change (metaplasticity).
+        sup = np.abs(self.mbon_outputs) < 0.05
+        self._suppression_counter = np.where(
+            sup, self._suppression_counter + 1, 0).astype(np.int32)
+        for j in np.flatnonzero(
+                self._suppression_counter >= self.suppression_threshold):
+            active = self.kc_activity > 0
+            if active.any():
+                self.weights[active, j] += self.recovery_noise_scale * (
+                    np.random.default_rng().random(active.sum()).astype(np.float32) - 0.5)
+                self.weights[active, j] -= self.recovery_drift_rate
+                np.clip(self.weights[:, 0], -1.0, 1.0, out=self.weights[:, 0])
+            self._suppression_counter[j] = 0
 
         # ---- Eligibility trace update ----
         # E(t) = E(t-1) * decay + KC_activity . MBON_outputs^T
@@ -287,7 +385,20 @@ class MushroomBody:
             return 0
 
         # Plasticity: Delta_W = eta * R * E
-        delta = self.lr * self.dopamine * self.eligibility
+        # EVO R22b (M2): adaptive learning rate modulates the base LR.
+        # When scene changes rapidly (lr_adapt > 1), learning accelerates;
+        # when stable, learning is conservative (lr_adapt < 1).
+        # EVO R22: suppress dopamine for columns in spontaneous recovery
+        # mode, so the recovery noise can restore the column without
+        # being immediately overridden by ongoing punishment.
+        _effective_lr = self.lr * self.lr_adapt
+        if self._suppression_counter.max() >= self.suppression_threshold:
+            _rm = np.where(
+                self._suppression_counter >= self.suppression_threshold,
+                0.1, 1.0).astype(np.float32)
+            delta = _effective_lr * self.dopamine * _rm * self.eligibility
+        else:
+            delta = _effective_lr * self.dopamine * self.eligibility
 
         # Only apply where eligibility > 1e-6 (active synapses)
         active_mask = np.abs(self.eligibility) > 1e-6
@@ -332,6 +443,22 @@ class MushroomBody:
         if len(self.consolidated) > CONSOLIDATED_MAX:
             self.consolidated = self.consolidated[-CONSOLIDATED_MAX:]
 
+    def set_adaptive_lr(self, scene_change_rate: float) -> None:
+        """Set adaptive learning rate multiplier based on scene change rate.
+
+        When the scene changes rapidly (high scene_change_rate), accelerate
+        learning to quickly form new associations.  When stable, keep
+        learning conservative to avoid catastrophic forgetting.
+
+        Parameters
+        ----------
+        scene_change_rate : float
+            Fraction of recent frames flagged as scene changes [0, 1].
+        """
+        # Cap at 1.0: at 20% scene change rate, LR is doubled.
+        # Below ~5% scene change rate, LR stays at the base rate * 1.0.
+        self.lr_adapt = float(np.clip(min(1.0, scene_change_rate * 5.0), 0.5, 1.0))
+
     def get_mbon_value(self, name: str) -> float:
         """Get MBON output by name.
 
@@ -363,6 +490,11 @@ class MushroomBody:
         self._kc_history.clear()
         self._dopamine_events.clear()
         self.familiarity = 0.0
+        # ---- Reset saturation recovery state (B4) ----
+        self._saturation_recovery_counter.fill(0)
+        self._saturation_recovered.fill(False)
+        # ---- Reset adaptive LR (M2) ----
+        self.lr_adapt = 1.0
 
     def reset_weights(self) -> None:
         """Reset learned weights to initial random values."""

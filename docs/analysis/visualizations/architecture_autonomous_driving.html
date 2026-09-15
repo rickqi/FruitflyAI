@@ -1,0 +1,131 @@
+<div style="font-family: 'Segoe UI', system-ui, sans-serif; max-width: 1200px; margin: 10px 0;">
+
+<style scoped>
+.arch-wrapper { display: flex; gap: 16px; background: #f0f2f8; border-radius: 16px; padding: 20px; border: 1px solid #c0c8e0; }
+.arch-sidebar { width: 190px; flex-shrink: 0; }
+.arch-main { flex: 1; min-width: 0; }
+.arch-layer { border-radius: 10px; padding: 8px 12px; margin-bottom: 5px; }
+.arch-layer-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; color: #fff; }
+.arch-grid { display: flex; gap: 5px; }
+.arch-grid-2 > * { flex: 1; }
+.arch-grid-3 > * { flex: 1; }
+.arch-grid-4 > * { flex: 1; }
+.arch-grid-5 > * { flex: 1; }
+.arch-box { border-radius: 6px; padding: 5px 7px; background: rgba(255,255,255,0.68); border: 1px solid rgba(0,0,0,0.06); font-size: 9px; color: #1a2a3a; line-height: 1.35; text-align: center; }
+.arch-box small { display: block; font-size: 7.5px; color: #5a6a8a; margin-top: 1px; }
+.arch-box.highlight { background: rgba(255,200,0,0.18); border-color: #c8a800; }
+.arch-box.tech { background: rgba(255,255,255,0.4); font-size: 8px; }
+.arch-sidebar-panel { background: rgba(255,255,255,0.5); border-radius: 8px; padding: 8px; border: 1px solid rgba(0,0,0,0.06); margin-bottom: 8px; }
+.arch-sidebar-title { font-size: 9px; font-weight: 700; color: #3a4a6a; margin-bottom: 4px; text-transform: uppercase; }
+.arch-sidebar-item { font-size: 8px; padding: 3px 5px; border-radius: 4px; background: rgba(255,255,255,0.4); color: #2a3a4a; margin-bottom: 2px; }
+.l-percept { background: linear-gradient(135deg, #4a3060, #6a4080); }
+.l-fusion { background: linear-gradient(135deg, #30506a, #40708a); }
+.l-decision { background: linear-gradient(135deg, #305a40, #408060); }
+.l-control { background: linear-gradient(135deg, #5a4a20, #7a6a30); }
+.l-evo-ad { background: linear-gradient(135deg, #6a3030, #8a4040); }
+.l-safety { background: linear-gradient(135deg, #30306a, #40408a); }
+</style>
+
+<div style="font-size: 14px; font-weight: 700; color: #3a4a6a; margin-bottom: 8px;">🚗 Autonomous Driving Perception & Decision — Fly64 Migration Architecture</div>
+
+<div class="arch-wrapper">
+
+  <div class="arch-sidebar">
+    <div class="arch-sidebar-panel" style="background:rgba(200,50,50,0.08);">
+      <div class="arch-sidebar-title">🔑 Key Equivalences</div>
+      <div class="arch-sidebar-item"><b>τ estimation ↔ AEB</b><br>Mathematically proven equivalence</div>
+      <div class="arch-sidebar-item"><b>Fly64 causal chain ↔ Accident liability</b><br>Timeline reconstruction</div>
+      <div class="arch-sidebar-item"><b>Color calibration ↔ Domain recalib</b><br>Calibration v2 automation</div>
+    </div>
+    <div class="arch-sidebar-panel">
+      <div class="arch-sidebar-title">⏱️ 12-Week Roadmap</div>
+      <div class="arch-sidebar-item">P1: τ calibration · 3wk</div>
+      <div class="arch-sidebar-item">P2: Perception · 4wk</div>
+      <div class="arch-sidebar-item">P3: Causal chain · 3wk</div>
+      <div class="arch-sidebar-item">P4: E2E integration · 2wk</div>
+    </div>
+    <div class="arch-sidebar-panel">
+      <div class="arch-sidebar-title">📐 Quality Gates</div>
+      <div class="arch-sidebar-item">G1: AE τ error < 0.1s</div>
+      <div class="arch-sidebar-item">G2: Pedestrian recall > 90%</div>
+      <div class="arch-sidebar-item">G3: Timeline error < 50ms</div>
+    </div>
+  </div>
+
+  <div class="arch-main">
+    <!-- L1: Perception -->
+    <div class="arch-layer l-percept">
+      <div class="arch-layer-title">👁️ L1: Perception — τ Estimation + Optical Flow</div>
+      <div class="arch-grid arch-grid-4">
+        <div class="arch-box highlight">Tau Estimator<br><small>Time-to-contact (τ)<br>↔ AEB trigger</small></div>
+        <div class="arch-box">EMD Optical Flow<br><small>Elementary motion detection → obstacle velocity</small></div>
+        <div class="arch-box">ON/OFF Channels<br><small>Motion direction selectivity</small></div>
+        <div class="arch-box">Small Target Tracking<br><small>Pedestrians · cyclists · small obstacles</small></div>
+      </div>
+      <div style="display:flex; gap:3px; margin-top:3px; justify-content:center; flex-wrap:wrap;">
+        <span style="font-size:7px; padding:1px 5px; border-radius:8px; background:rgba(255,255,255,0.25); color:rgba(255,255,255,0.8);">τ = distance / closing_speed</span>
+        <span style="font-size:7px; padding:1px 5px; border-radius:8px; background:rgba(255,255,255,0.25); color:rgba(255,255,255,0.8);">Color recalibration: SM64 → automotive</span>
+      </div>
+    </div>
+
+    <!-- L2: Sensor Fusion -->
+    <div class="arch-layer l-fusion">
+      <div class="arch-layer-title">🔄 L2: Multi-Modal Fusion (CentralComplex + SceneMemory)</div>
+      <div class="arch-grid arch-grid-3">
+        <div class="arch-box highlight">Scene Recognition<br><small>128D signature → scene type<br>Highway/Urban/Intersection</small></div>
+        <div class="arch-box">CX 16-Column Attractor<br><small>16 heading/trajectory probabilities<br>Navigation intent estimation</small></div>
+        <div class="arch-box">Memory Ring Buffer<br><small>200-frame trajectory buffer<br>3σ anomaly detection</small></div>
+      </div>
+    </div>
+
+    <!-- L3: Decision -->
+    <div class="arch-layer l-decision">
+      <div class="arch-layer-title">🧠 L3: Decision — 5-Level Arbitration Chain</div>
+      <div class="arch-grid arch-grid-5">
+        <div class="arch-box highlight" style="border-left:3px solid #ff4444;">Reflex: Emergency<br><small>AEB activation · 50Hz</small></div>
+        <div class="arch-box" style="border-left:3px solid #ff8844;">LIF: Trajectory<br><small>Connectome driving dynamics</small></div>
+        <div class="arch-box" style="border-left:3px solid #ffcc44;">MB: Learned<br><small>Driving style adaptation</small></div>
+        <div class="arch-box" style="border-left:3px solid #44aaff;">LLM: Analysis<br><small>Complex scene reasoning</small></div>
+        <div class="arch-box" style="border-left:3px solid #888;">Degrade: HMI<br><small>Driver takeover request</small></div>
+      </div>
+    </div>
+
+    <!-- L4: Causal Chain / Safety -->
+    <div class="arch-layer l-safety">
+      <div class="arch-layer-title">🔗 Causal Chain Safety — Accident Liability Reconstruction</div>
+      <div class="arch-grid arch-grid-4">
+        <div class="arch-box highlight">Monitor<br><small>70+ telemetry signals at 50Hz</small></div>
+        <div class="arch-box highlight">Trace<br><small>trajectory.json replay · Timestamped decisions</small></div>
+        <div class="arch-box">Cause Attribution<br><small>Which module caused the incident</small></div>
+        <div class="arch-box">Liability Chain<br><small>Perception→Decision→Control timeline</small></div>
+      </div>
+      <div style="display:flex; gap:3px; margin-top:3px; justify-content:center;">
+        <span style="font-size:7px; padding:1px 5px; border-radius:8px; background:rgba(255,255,255,0.25); color:rgba(255,255,255,0.8);">Seed 64 determinism = every incident fully reproducible</span>
+      </div>
+    </div>
+
+    <!-- L5: EVO -->
+    <div class="arch-layer l-evo-ad">
+      <div class="arch-layer-title">🔄 EVO Closed-Loop: Fleet Learning</div>
+      <div class="arch-grid arch-grid-5">
+        <div class="arch-box highlight">Monitor Fleet<br><small>Disengagement rate · Safety incidents</small></div>
+        <div class="arch-box">Diagnose<br><small>Corner case pattern detection</small></div>
+        <div class="arch-box">Fix<br><small>Over-the-air parameter update</small></div>
+        <div class="arch-box">Verify<br><small>Shadow mode testing</small></div>
+        <div class="arch-box">Document<br><small>Safety case · Regulator submission</small></div>
+      </div>
+    </div>
+
+    <div style="margin-top: 6px; display:flex; gap:4px; font-size: 8px; color: #5a7a9a; justify-content:center; flex-wrap:wrap;">
+      <span style="background:#e8e0f0; padding:2px 8px; border-radius:8px;">Code reuse: ~65%</span>
+      <span style="background:#e0e8f0; padding:2px 8px; border-radius:8px;">Priority: A级</span>
+      <span style="background:#e8f0e0; padding:2px 8px; border-radius:8px;">Risk: Medium</span>
+      <span style="background:#f0e8d0; padding:2px 8px; border-radius:8px;">Hybrid mode: SNN + rule fallback</span>
+    </div>
+    <div style="margin-top: 4px; font-size: 8px; color: #8aaa8a; text-align: center;">
+      Source: t1_deep_technical_migration_plan.md §5 · τ↔AEB equivalence · Causal chain system
+    </div>
+  </div>
+</div>
+
+</div>

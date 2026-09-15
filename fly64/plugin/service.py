@@ -165,10 +165,12 @@ class ServiceRunner:
         self._stop = True
 
     # ── degraded consult ─────────────────────────────────────────────
-    def _consult_with_fallback(self, context: dict, frame_b64: Optional[str]) -> dict:
+    def _consult_with_fallback(self, context: dict, frame_b64: Optional[str],
+                               scene_summary: Optional[str] = None) -> dict:
         """Consult LLM; degrade to local diagnosis on ConsultError."""
         try:
-            parsed = self.runner.consultant.consult(context, frame_b64)
+            parsed = self.runner.consultant.consult(context, frame_b64,
+                                                     scene_context_summary=scene_summary)
             self.degraded = False
             return parsed
         except ConsultError as exc:
@@ -198,8 +200,8 @@ class ServiceRunner:
                 r.last_error = None
             else:
                 result["context"] = context
-                frame_b64 = r.capture_frame()
-                parsed = self._consult_with_fallback(context, frame_b64)
+                frame_b64, scene_summary, _scene_tags = r.capture_consult_data()
+                parsed = self._consult_with_fallback(context, frame_b64, scene_summary)
                 result["consulted"] = True
                 r.consultations += 1
                 strategy = parsed.get("strategy") or {}

@@ -27,6 +27,9 @@ class Observatory:
         self.sector_loom = None
         self.groups = dict(visual=model.visual, forward=model.forward,
                            left=model.turn_left, right=model.turn_right, jump=model.jump_nodes)
+        # ---- t4 B6/B7: telemetry heartbeat ----
+        self._seq_counter = 0       # monotonic sequence number per observe()
+        self._watchdog_counter = 0  # increments every 100 observe()
 
     def observe(self, frame, seq, control, spikes, game, causal=None):
         m = self.model
@@ -73,6 +76,11 @@ class Observatory:
         denom = min(self.ticks, WINDOW) * m.dt
         rates = {key: float(self.counts[ids].mean()/denom) if len(ids) else None
                  for key, ids in self.groups.items()}
+        # ---- t4 B6/B7: monotonic seq + watchdog heartbeat ----
+        self._seq_counter += 1
+        if self._seq_counter % 100 == 0:
+            self._watchdog_counter += 1
+        watchdog_seq = self._watchdog_counter  # increments every 100 observe()
         row = dict(t=t, **rates, contrast_left=self.contrast[0], contrast_right=self.contrast[1],
                    temporal=m.temporal_energy, x=control.x, y=control.y,
                    jump_event=bool(control.jump), cooldown=max(0., .8-(t-m.last_jump)),
@@ -89,7 +97,8 @@ class Observatory:
                    gate_forward=bool(rates["forward"] is not None and rates["forward"] > .4),
                    gate_jump=bool(rates["jump"] is not None and rates["jump"] > 2.),
                    enclosure_score=float(getattr(m, "enclosure_score", 0.0)),
-                   decision_source=causal.get("decision_source", "steering"))
+                   decision_source=causal.get("decision_source", "steering"),
+                   seq=self._seq_counter, watchdog_seq=watchdog_seq)
         if self.sector_active is not None:
             row["sector_contrast"] = self.sector_contrast
             row["sector_active"] = self.sector_active

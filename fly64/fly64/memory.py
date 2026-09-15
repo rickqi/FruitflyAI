@@ -1723,14 +1723,28 @@ class MemoryController:
         _coach_stuck = (_coach_stuck_s is not None
                         and self._stuck_duration >= _coach_stuck_s)
 
-        self.escape_behavior = (
+        # EVO R24: release escape when it has been active without effect
+        # for too long — escape just forces straight-ahead (x=0),
+        # suppressing CX steering.  Release thresholds:
+        #   - 60s pass (general timeout, covers fallen)
+        #   - 30s + anomaly resolved + score decayed (faster release when
+        #     the anomaly cleared but escape stayed on due to stale score)
+        _release_escape = (self.escape_behavior
+                           and self._stuck_score < 0.3
+                           and not anomaly_override
+                           and not cliff_emergency
+                           and (self._stuck_duration > 60
+                                or (self._stuck_duration > 30
+                                    and self._anomaly_state == "idle")))
+
+        self.escape_behavior = (not _release_escape) and (
             (self._stuck_score >= adjusted_threshold
              and self.spatial.exploration_mode)
             or self._fallen
             or cliff_emergency
             or self._forced_bold_explore
-            or anomaly_override  # anomaly directly triggers escape
-            or _coach_stuck       # coach advice: escape after N s stuck
+            or anomaly_override
+            or _coach_stuck
         )
         return (self._stuck_score, self._stuck_duration,
                 self._novelty, self.escape_behavior, self._fallen,

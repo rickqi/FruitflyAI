@@ -1,0 +1,153 @@
+<div style="font-family: 'Segoe UI', system-ui, sans-serif; max-width: 1200px; margin: 10px 0;">
+
+<style scoped>
+.arch-wrapper { display: flex; gap: 16px; background: #f5f8ff; border-radius: 16px; padding: 20px; border: 1px solid #c8d6e8; }
+.arch-sidebar { width: 200px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; }
+.arch-main { flex: 1; min-width: 0; }
+.arch-layer { border-radius: 10px; padding: 8px 12px; margin-bottom: 6px; }
+.arch-layer-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px; color: #fff; }
+.arch-grid { display: flex; gap: 5px; }
+.arch-grid-2 > * { flex: 1; }
+.arch-grid-3 > * { flex: 1; }
+.arch-grid-4 > * { flex: 1; }
+.arch-box { border-radius: 6px; padding: 5px 7px; background: rgba(255,255,255,0.7); border: 1px solid rgba(0,0,0,0.06); font-size: 9px; color: #1a2a3a; line-height: 1.35; text-align: center; }
+.arch-box small { display: block; font-size: 7.5px; color: #5a7a9a; margin-top: 1px; }
+.arch-box.highlight { background: rgba(255,215,0,0.2); border: 1px solid #c8a800; }
+.arch-sidebar-panel { background: rgba(255,255,255,0.5); border-radius: 8px; padding: 8px; border: 1px solid rgba(0,0,0,0.06); margin-bottom: 8px; }
+.arch-sidebar-title { font-size: 9px; font-weight: 700; color: #2a4a6a; margin-bottom: 4px; text-transform: uppercase; }
+.arch-sidebar-item { font-size: 8px; padding: 3px 5px; border-radius: 4px; background: rgba(255,255,255,0.4); color: #2a3a4a; margin-bottom: 3px; }
+.l-uw { background: linear-gradient(135deg, #2a5a5a, #3a7a7a); }
+.l-reflex { background: linear-gradient(135deg, #3a6a3a, #4a8a4a); }
+.l-cx { background: linear-gradient(135deg, #3a4a7a, #4a5a9a); }
+.l-mb { background: linear-gradient(135deg, #6a3a7a, #8a4a9a); }
+.l-evo { background: linear-gradient(135deg, #7a5a2a, #9a7a4a); }
+.l-input { background: linear-gradient(135deg, #5a3a5a, #7a4a7a); }
+.l-data { background: linear-gradient(135deg, #3a5a3a, #4a7a4a); }
+</style>
+
+<div style="font-size: 14px; font-weight: 700; color: #2a4a6a; margin-bottom: 8px;">🏦 Insurance Underwriting Engine — Fly64 Migration Architecture</div>
+
+<div class="arch-wrapper">
+  <!-- Sidebar: Domain-Specific KPIs -->
+  <div class="arch-sidebar">
+    <div class="arch-sidebar-panel">
+      <div class="arch-sidebar-title">📊 Domain KPIs</div>
+      <div class="arch-sidebar-item" style="font-weight:700;">Auto-approval rate > 75%</div>
+      <div class="arch-sidebar-item">Accuracy > 90%</div>
+      <div class="arch-sidebar-item">False reject < 3%</div>
+      <div class="arch-sidebar-item">3× efficiency gain</div>
+    </div>
+    <div class="arch-sidebar-panel">
+      <div class="arch-sidebar-title">⏱️ Roadmap (12 weeks)</div>
+      <div class="arch-sidebar-item">P0: Data pipeline · 2wk</div>
+      <div class="arch-sidebar-item">P1: Reflex engine · 2wk</div>
+      <div class="arch-sidebar-item">P2: CX risk model · 2wk</div>
+      <div class="arch-sidebar-item">P3: MB Learning · 4wk</div>
+      <div class="arch-sidebar-item">P4: EVO loop · 2wk</div>
+    </div>
+    <div class="arch-sidebar-panel" style="background: rgba(255,200,0,0.12);">
+      <div class="arch-sidebar-title">📐 Quality Gates</div>
+      <div class="arch-sidebar-item">G1: Encoding > 98%</div>
+      <div class="arch-sidebar-item">G2: Auto rate > 75%</div>
+      <div class="arch-sidebar-item">G3: Accuracy > 90%</div>
+    </div>
+  </div>
+
+  <!-- Main: Adapted Architecture -->
+  <div class="arch-main">
+    <!-- S1: Input -->
+    <div class="arch-layer l-input">
+      <div class="arch-layer-title">📄 S1: Application Input Encoding (risk_encoder.py)</div>
+      <div class="arch-grid arch-grid-4">
+        <div class="arch-box">Age · normalized</div>
+        <div class="arch-box">Gender · one-hot</div>
+        <div class="arch-box">Occupation · 1-5 risk</div>
+        <div class="arch-box highlight">Medical history · sparse 128D</div>
+      </div>
+      <div style="display:flex; gap:4px; margin-top:4px; justify-content:center;">
+        <span style="font-size:7px; padding:1px 5px; border-radius:8px; background:rgba(255,255,255,0.3); color:rgba(255,255,255,0.8);">← Replaces SphericalRetina.encode_color()</span>
+      </div>
+    </div>
+
+    <!-- Reflex Layer -->
+    <div class="arch-layer l-reflex">
+      <div class="arch-layer-title">⚡ Reflex Rules (ReflexController) — 4 Decision Paths</div>
+      <div class="arch-grid arch-grid-4">
+        <div class="arch-box highlight">Escape → Reject<br><small>Age>65 direct rejection</small></div>
+        <div class="arch-box">Cliff → Load<br><small>High risk → additional premium</small></div>
+        <div class="arch-box">Fall → Escalate<br><small>Score drop > 2σ → supervisor review</small></div>
+        <div class="arch-box">Oscillation → Re-check<br><small>Conflicting info → re-verify</small></div>
+      </div>
+      <div style="display:flex; gap:4px; margin-top:3px; justify-content:center;">
+        <span style="font-size:7px; padding:1px 5px; border-radius:8px; background:rgba(255,255,255,0.3); color:rgba(255,255,255,0.8);">Hysteresis: entering=0.40 · exiting=0.50 · 5-frame cross-verify</span>
+      </div>
+    </div>
+
+    <!-- CX Risk Layer -->
+    <div class="arch-layer l-cx">
+      <div class="arch-layer-title">📊 CX 16 Risk Factor Distribution (CentralComplex)</div>
+      <div class="arch-grid arch-grid-4">
+        <div class="arch-box highlight">Col 0-3: Health Risk<br><small>Age/BMI/Conditions/Family</small></div>
+        <div class="arch-box">Col 4-7: Financial Risk<br><small>Income/Debt/Sum/Payment</small></div>
+        <div class="arch-box">Col 8-11: Occupational Risk<br><small>Danger/Stability/Industry/Cycle</small></div>
+        <div class="arch-box">Col 12-15: Environmental Risk<br><small>Region/Channel/Season/Policy</small></div>
+      </div>
+      <div style="display:flex; gap:4px; margin-top:3px; justify-content:center;">
+        <span style="font-size:7px; padding:1px 5px; border-radius:8px; background:rgba(255,255,255,0.3); color:rgba(255,255,255,0.8);">PERSISTENCE=0.90 · MAX_STEERING=0.10 · Local excite 1.2 · Global inhibit 0.25</span>
+      </div>
+    </div>
+
+    <!-- MB Learning -->
+    <div class="arch-layer l-mb">
+      <div class="arch-layer-title">🧬 Associative Learning (MushroomBody) — 5 MBON Output Classes</div>
+      <div class="arch-grid arch-grid-5">
+        <div class="arch-box highlight">Standard<br><small>Reward: +1.0 (correct)</small></div>
+        <div class="arch-box">Load<br><small>Reward: +0.5 (correct load)</small></div>
+        <div class="arch-box">Exclude<br><small>Exclusion recommendation</small></div>
+        <div class="arch-box">Reject<br><small>Penalty: -0.8 (false reject)</small></div>
+        <div class="arch-box">Defer<br><small>Penalty: -0.3/day delay</small></div>
+      </div>
+      <div style="display:flex; gap:4px; margin-top:3px; justify-content:center;">
+        <span style="font-size:7px; padding:1px 5px; border-radius:8px; background:rgba(255,255,255,0.3); color:rgba(255,255,255,0.8);">LR=0.0005 · Penalty: false accept -1.0 · Consolidation threshold=0.7 · Max 50 memories</span>
+      </div>
+    </div>
+
+    <!-- EVO Loop -->
+    <div class="arch-layer l-evo">
+      <div class="arch-layer-title">🔄 EVO Closed Loop (evolution_skill.py)</div>
+      <div class="arch-grid arch-grid-5">
+        <div class="arch-box highlight">Monitor<br><small>Pass/Reject/Complaint/Loss ratios</small></div>
+        <div class="arch-box">Diagnose<br><small>Systematic bias · seasonal drift</small></div>
+        <div class="arch-box">Fix<br><small>Actuarial params hotload</small></div>
+        <div class="arch-box">Verify<br><small>A/B test · holdout validation</small></div>
+        <div class="arch-box">Document<br><small>Underwriting audit trail</small></div>
+      </div>
+    </div>
+
+    <!-- LLM Mentor Layer -->
+    <div class="arch-layer" style="background: linear-gradient(135deg, #4a3a5a, #6a4a7a); margin-top: 4px;">
+      <div class="arch-layer-title">🤖 LLM Mentor (GLMConsultant) — Complex Case Handler</div>
+      <div class="arch-grid arch-grid-3">
+        <div class="arch-box highlight">Trigger: >3 risk points<br><small>Activates LLM analysis</small></div>
+        <div class="arch-box">LLM generates: Risk report<br><small>Structured underwriting recommendation</small></div>
+        <div class="arch-box">Human-in-the-loop review<br><small>Final decision by senior underwriter</small></div>
+      </div>
+    </div>
+
+    <!-- Decision Flow -->
+    <div style="margin-top: 6px; display:flex; gap:6px; align-items:center; justify-content:center; font-size: 8px; color: #4a6a8a;">
+      <span>📄 Application</span> <span style="font-size:12px;">→</span>
+      <span style="background:#e8f0e8; padding:2px 8px; border-radius:10px;">Reflex (50Hz)</span> <span style="font-size:12px;">→</span>
+      <span style="background:#e0e8f0; padding:2px 8px; border-radius:10px;">CX Risk Model</span> <span style="font-size:12px;">→</span>
+      <span style="background:#f0e0f0; padding:2px 8px; border-radius:10px;">MB Learning</span> <span style="font-size:12px;">→</span>
+      <span style="background:#f0e8d0; padding:2px 8px; border-radius:10px;">LLM Mentor</span> <span style="font-size:12px;">→</span>
+      <span style="font-weight:700;">📋 Decision</span>
+    </div>
+
+    <div style="margin-top: 4px; font-size: 8px; color: #8aaa8a; text-align: center;">
+      Source: t1_deep_technical_migration_plan.md §2 · 16 risk factors · 5 decision classes · 4 reflex paths
+    </div>
+  </div>
+</div>
+
+</div>

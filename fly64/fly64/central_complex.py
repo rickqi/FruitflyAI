@@ -95,6 +95,13 @@ class CentralComplex:
         self.disp_z = 0.0
         self.SPEED_TO_UNITS = 1.6     # forward_rate(Hz) → game-units/s calib
 
+        # EVO R23 · idle exploration wander: when no goal vectors are
+        # available and goal strength decays, a slow sinusoidal drift
+        # biases the heading — natural search pattern when no target
+        # is present (avoids CX steering collapsing to zero).
+        self._idle_wander_phase = 0.0
+        self._idle_wander_rate = 0.002     # ~1600 frames per full cycle
+
     def _roll_fractional(self, columns: float) -> None:
         """Rotate the compass bump by a fractional number of columns.
 
@@ -303,6 +310,19 @@ class CentralComplex:
         else:
             # Decay goal strength when no strong signal
             self.goal_strength *= GOAL_MEMORY_DECAY
+
+        # ---- EVO R23 · idle exploration wander ----
+        # When goal strength is negligible (no target available), a slow
+        # sinusoidal drift biases the heading — natural "search mode"
+        # that prevents CX steering from collapsing to zero in explored
+        # areas.  The drift gradually sweeps the heading across the
+        # environment, breaking position loops over time.
+        if self.goal_strength < 0.05:
+            self._idle_wander_phase += self._idle_wander_rate
+            wander = np.sin(self._idle_wander_phase) * 2.0
+            self._goal_float = (self._goal_float + wander * 0.05 + 0.002) % n
+            self.goal_column = int(round(self._goal_float)) % n
+            self.goal_strength = 0.30
 
         # ---- 3. Steering signal ----
         # Compare current heading column against goal column.

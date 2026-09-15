@@ -1,0 +1,190 @@
+<div style="font-family: 'Segoe UI', system-ui, sans-serif; max-width: 1400px; margin: 0 auto;">
+
+<style scoped>
+/* Sage Forest style palette */
+.arch-wrapper { display: flex; gap: 20px; background: #f0f7f0; border-radius: 16px; padding: 24px; border: 1px solid #c3d6c3; }
+.arch-sidebar { width: 220px; flex-shrink: 0; display: flex; flex-direction: column; gap: 12px; }
+.arch-main { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.arch-layer { border-radius: 12px; padding: 10px 14px; position: relative; }
+.arch-layer-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; color: #fff; }
+.arch-grid { display: flex; gap: 6px; }
+.arch-grid-2 > * { flex: 1; min-width: 0; }
+.arch-grid-3 > * { flex: 1; min-width: 0; }
+.arch-grid-4 > * { flex: 1; min-width: 0; }
+.arch-grid-6 > * { flex: 1; min-width: 0; }
+.arch-box { border-radius: 8px; padding: 6px 8px; background: rgba(255,255,255,0.7); border: 1px solid rgba(0,0,0,0.06); font-size: 10px; color: #2d3a2d; line-height: 1.4; text-align: center; }
+.arch-box small { display: block; font-size: 8px; color: #5a755a; margin-top: 2px; }
+.arch-box.highlight { background: rgba(255,215,0,0.25); border-color: #c8a800; }
+.arch-box.tech { background: rgba(255,255,255,0.45); padding: 4px 6px; font-size: 9px; }
+.arch-sidebar-panel { background: rgba(255,255,255,0.6); border-radius: 10px; padding: 10px; border: 1px solid rgba(0,0,0,0.06); }
+.arch-sidebar-title { font-size: 10px; font-weight: 700; color: #2d5a2d; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+.arch-sidebar-item { font-size: 9px; padding: 4px 6px; border-radius: 6px; background: rgba(255,255,255,0.5); color: #2d3a2d; }
+.arch-sidebar-item.metric { font-weight: 700; color: #1a5a1a; text-align: center; font-size: 11px; }
+.arch-user-types { display: flex; gap: 4px; justify-content: center; margin-top: 4px; flex-wrap: wrap; }
+.arch-user-tag { font-size: 8px; padding: 2px 6px; border-radius: 10px; background: rgba(59, 130, 246, 0.15); color: #1d4ed8; }
+.layer-l5 { background: linear-gradient(135deg, #2d5a2d, #3d7a3d); }
+.layer-l4 { background: linear-gradient(135deg, #3d7a3d, #4d9a4d); }
+.layer-l3 { background: linear-gradient(135deg, #2d7a5a, #3d9a7a); }
+.layer-l2 { background: linear-gradient(135deg, #2d5a7a, #3d7a9a); }
+.layer-l1 { background: linear-gradient(135deg, #5a3d7a, #7a4d9a); }
+.layer-l0 { background: linear-gradient(135deg, #7a3d5a, #9a4d7a); }
+.layer-domain { background: linear-gradient(135deg, #8a6a2a, #aa8a4a); }
+.sidebar-domain { background: linear-gradient(135deg, #4a6a3a, #5a8a4a); }
+.sidebar-cross { background: linear-gradient(135deg, #3a5a6a, #4a7a8a); }
+.arch-layer-label { position: absolute; right: 12px; top: 10px; font-size: 8px; color: rgba(255,255,255,0.5); font-weight: 600; letter-spacing: 0.5px; }
+</style>
+
+<div class="arch-wrapper">
+  <!-- Left Sidebar: Cross-Cutting Concerns -->
+  <div class="arch-sidebar">
+    <div class="arch-sidebar-panel sidebar-domain">
+      <div class="arch-sidebar-title" style="color:#fff;">🎯 7 Target Domains</div>
+      <div class="arch-box" style="margin-bottom:4px;">🏦 Insurance Underwriting<br><small>Risk feature encoding → 16 factors</small></div>
+      <div class="arch-box" style="margin-bottom:4px;">🏭 Industrial QC<br><small>ON/OFF + EMD reuse 80%</small></div>
+      <div class="arch-box" style="margin-bottom:4px;">🤖 Robot Navigation<br><small>CX attractor = SLAM frontend</small></div>
+      <div class="arch-box" style="margin-bottom:4px;">🚗 Autonomous Driving<br><small>τ estimation ↔ AEB equivalence</small></div>
+      <div class="arch-box" style="margin-bottom:4px;">📈 Quant Trading<br><small>Dopamine → PnL reward</small></div>
+      <div class="arch-box" style="margin-bottom:4px;">👥 Multi-Agent Systems<br><small>STMD-inspired minimal comms</small></div>
+      <div class="arch-box">🦾 Robotic Arm Control<br><small>MBON → IK integration</small></div>
+    </div>
+    <div class="arch-sidebar-panel sidebar-cross">
+      <div class="arch-sidebar-title" style="color:#fff;">⚙️ Cross-Cutting</div>
+      <div class="arch-sidebar-item">🔒 Seed 64 Determinism</div>
+      <div class="arch-sidebar-item">📊 Telemetry (70+ Metrics)</div>
+      <div class="arch-sidebar-item">🔌 mmap Bridge Protocol</div>
+      <div class="arch-sidebar-item">🔄 Version Tracking</div>
+      <div class="arch-sidebar-item" style="margin-top: 6px; text-align: center; font-weight: 700; background: rgba(255,215,0,0.2);">Code Reuse 45-80%</div>
+    </div>
+  </div>
+
+  <!-- Main: 6-Layer Core Architecture -->
+  <div class="arch-main">
+    <!-- L5: Meta-Cognition -->
+    <div class="arch-layer layer-l5">
+      <div class="arch-layer-title">🧠 L5: Meta-Cognition Layer</div>
+      <span class="arch-layer-label">evolution_skill.py</span>
+      <div class="arch-grid arch-grid-5">
+        <div class="arch-box highlight">EVO Monitor<br><small>70+ metrics dashboard</small></div>
+        <div class="arch-box">EVO Diagnose<br><small>Root cause analysis</small></div>
+        <div class="arch-box">EVO Fix<br><small>active_strategy.json hotload</small></div>
+        <div class="arch-box">EVO Verify<br><small>A/B testing pipeline</small></div>
+        <div class="arch-box">EVO Document<br><small>Change audit log</small></div>
+      </div>
+    </div>
+
+    <!-- L4: Reflex & Anomaly Detection -->
+    <div class="arch-layer layer-l4">
+      <div class="arch-layer-title">⚡ L4: Reflex & Anomaly Detection Layer</div>
+      <span class="arch-layer-label">memory.py</span>
+      <div class="arch-grid arch-grid-3">
+        <div class="arch-box highlight">ReflexController<br><small>4 reflexes · Fast(50Hz) + Slow(LLM)</small></div>
+        <div class="arch-box highlight">MotionStateDetector<br><small>6 states · 3-vote consensus</small></div>
+        <div class="arch-box">SceneMemory<br><small>3σ anomaly · 200 event ring buffer</small></div>
+      </div>
+    </div>
+
+    <!-- L3: Associative Learning -->
+    <div class="arch-layer layer-l3">
+      <div class="arch-layer-title">🧬 L3: Associative Learning Layer</div>
+      <span class="arch-layer-label">mushroom_body.py</span>
+      <div class="arch-grid arch-grid-4">
+        <div class="arch-box highlight">MushroomBody KC→MBON<br><small>2000KC · 5% sparse · 5 MBON</small></div>
+        <div class="arch-box">DopamineGainController<br><small>5-pathway gain modulation</small></div>
+        <div class="arch-box">Hebbian Learning<br><small>3-factor · eligibility trace</small></div>
+        <div class="arch-box">Memory Consolidation<br><small>Top 10 high-confidence patterns</small></div>
+      </div>
+    </div>
+
+    <!-- L2: Spatial Navigation -->
+    <div class="arch-layer layer-l2">
+      <div class="arch-layer-title">🧭 L2: Spatial Navigation Layer</div>
+      <span class="arch-layer-label">central_complex.py</span>
+      <div class="arch-grid arch-grid-3">
+        <div class="arch-box highlight">CentralComplex<br><small>16-column ring attractor · 22.5°/col</small></div>
+        <div class="arch-box">MemoryController<br><small>50×50 grid · 128D scene signature</small></div>
+        <div class="arch-box">GoalMemory<br><small>Goal decay 0.999 · persistent target</small></div>
+      </div>
+    </div>
+
+    <!-- L1: Input Encoding -->
+    <div class="arch-layer layer-l1">
+      <div class="arch-layer-title">👁️ L1: Input Encoding Layer</div>
+      <span class="arch-layer-label">retina.py</span>
+      <div class="arch-grid arch-grid-4">
+        <div class="arch-box highlight">SphericalRetina<br><small>256×384×3 → 128D projection</small></div>
+        <div class="arch-box">SceneRecognition<br><small>Cosine similarity matching</small></div>
+        <div class="arch-box">HRC / EMD<br><small>Elementary motion detection</small></div>
+        <div class="arch-box">Tau Estimator<br><small>Time-to-contact (τ) estimation</small></div>
+      </div>
+    </div>
+
+    <!-- L0: LIF SNN Engine -->
+    <div class="arch-layer layer-l0">
+      <div class="arch-layer-title">⚡ L0: LIF Spiking Neural Network Engine</div>
+      <span class="arch-layer-label">model.py · FlyModel</span>
+      <div class="arch-grid arch-grid-6">
+        <div class="arch-box tech">151.9M CSC edges</div>
+        <div class="arch-box tech">166K neurons</div>
+        <div class="arch-box tech">50Hz inference</div>
+        <div class="arch-box tech">OU noise (θ=2.0, σ=0.10)</div>
+        <div class="arch-box tech">13-frame sliding window</div>
+        <div class="arch-box tech highlight">Deterministic seed 64</div>
+      </div>
+    </div>
+
+    <!-- Domain Adaptation Layer -->
+    <div class="arch-layer layer-domain">
+      <div class="arch-layer-title">🔌 6-Step Universal Migration Framework (六步迁移法)</div>
+      <div class="arch-grid arch-grid-6">
+        <div class="arch-box highlight">S1: Input Adapt<br><small>Retina → Domain sensor</small></div>
+        <div class="arch-box">S2: Reward Rewrite<br><small>Displacement → Domain metric</small></div>
+        <div class="arch-box">S3: Action Map<br><small>4-DOF → Domain primitives</small></div>
+        <div class="arch-box">S4: Env Bridge<br><small>mmap → Domain protocol</small></div>
+        <div class="arch-box">S5: Monitor Adapt<br><small>Dashboard → Domain KPIs</small></div>
+        <div class="arch-box">S6: Hybrid Verify<br><small>Gradual SNN ramp-up</small></div>
+      </div>
+    </div>
+
+    <!-- 5-Level Decision Arbitration -->
+    <div class="arch-layer" style="background: linear-gradient(135deg, #1a3a1a, #2a5a2a); margin-top: 4px;">
+      <div class="arch-layer-title">⚖️ 5-Level Decision Arbitration Chain (Priority Order)</div>
+      <div class="arch-grid arch-grid-5">
+        <div class="arch-box highlight" style="border-left: 3px solid #ff4444;">L0: Reflex<br><small>50Hz · Direct current injection</small></div>
+        <div class="arch-box highlight" style="border-left: 3px solid #ff8844;">L1: LIF SNN<br><small>Connectome intrinsic dynamics</small></div>
+        <div class="arch-box highlight" style="border-left: 3px solid #ffcc44;">L2: MushroomBody<br><small>Dopamine-gated associative learning</small></div>
+        <div class="arch-box" style="border-left: 3px solid #44aaff;">L3: LLM Mentor<br><small>10s cycle · Only when stuck</small></div>
+        <div class="arch-box" style="border-left: 3px solid #888888;">L4: Degrade<br><small>Autonomous fallback</small></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div style="margin-top: 16px; display: flex; gap: 12px; flex-wrap: wrap;">
+  <div style="flex: 1; min-width: 200px; background: #f0f7f0; border-radius: 10px; padding: 10px; border: 1px solid #c3d6c3;">
+    <div style="font-weight: 700; font-size: 11px; color: #2d5a2d;">🏦 Insurance Underwriting</div>
+    <div style="font-size: 9px; color: #5a755a; margin-top: 4px;">
+      <b>Code reuse: ~60%</b> · 12 weeks · S2-S3 reward: claim accuracy<br>
+      CX: 16 risk factors · MBON: 5 decision classes · Reflex: 4 rule paths
+    </div>
+  </div>
+  <div style="flex: 1; min-width: 200px; background: #f0f7f0; border-radius: 10px; padding: 10px; border: 1px solid #c3d6c3;">
+    <div style="font-weight: 700; font-size: 11px; color: #2d5a2d;">🏭 Industrial QC</div>
+    <div style="font-size: 9px; color: #5a755a; margin-top: 4px;">
+      <b>Code reuse: ~80%</b> · 6 weeks · S1: camera stream only<br>
+      ON/OFF channels + EMD directly reusable · Config-only adaptation
+    </div>
+  </div>
+  <div style="flex: 1; min-width: 200px; background: #f0f7f0; border-radius: 10px; padding: 10px; border: 1px solid #c3d6c3;">
+    <div style="font-weight: 700; font-size: 11px; color: #2d5a2d;">📈 Quant Trading</div>
+    <div style="font-size: 9px; color: #5a755a; margin-top: 4px;">
+      <b>Code reuse: ~50%</b> · 16 weeks · S2 reward: PnL · S3: order actions<br>
+      MarketFeatureEncoder replaces retina · Dopamine↔Return mapping
+    </div>
+  </div>
+</div>
+
+<div style="margin-top: 8px; font-size: 9px; color: #8aaa8a; text-align: center;">
+  Source: t1_deep_technical_migration_plan.md · Fly64 BRAIN_VERSION 2.13.3 · All 7 domains
+</div>
+
+</div>

@@ -1,0 +1,117 @@
+<div style="font-family: 'Segoe UI', system-ui, sans-serif; max-width: 1200px; margin: 10px 0;">
+
+<style scoped>
+.arch-wrapper { display: flex; gap: 16px; background: #f0f8f5; border-radius: 16px; padding: 20px; border: 1px solid #c0e0d0; }
+.arch-sidebar { width: 190px; flex-shrink: 0; }
+.arch-main { flex: 1; min-width: 0; }
+.arch-layer { border-radius: 10px; padding: 8px 12px; margin-bottom: 5px; }
+.arch-layer-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; color: #fff; }
+.arch-grid { display: flex; gap: 5px; }
+.arch-grid-2 > * { flex: 1; }
+.arch-grid-3 > * { flex: 1; }
+.arch-grid-4 > * { flex: 1; }
+.arch-grid-5 > * { flex: 1; }
+.arch-box { border-radius: 6px; padding: 5px 7px; background: rgba(255,255,255,0.65); border: 1px solid rgba(0,0,0,0.06); font-size: 9px; color: #1a2a2a; line-height: 1.35; text-align: center; }
+.arch-box small { display: block; font-size: 7.5px; color: #5a7a6a; margin-top: 1px; }
+.arch-box.highlight { background: rgba(100,200,150,0.15); border-color: #5aaa7a; }
+.arch-sidebar-panel { background: rgba(255,255,255,0.5); border-radius: 8px; padding: 8px; border: 1px solid rgba(0,0,0,0.06); margin-bottom: 6px; }
+.arch-sidebar-title { font-size: 9px; font-weight: 700; color: #2a5a4a; margin-bottom: 4px; text-transform: uppercase; }
+.arch-sidebar-item { font-size: 8px; padding: 3px 5px; border-radius: 4px; background: rgba(255,255,255,0.4); color: #2a4a3a; margin-bottom: 2px; }
+.l-biomarker { background: linear-gradient(135deg, #2a5a4a, #3a7a6a); }
+.l-icu { background: linear-gradient(135deg, #3a4a6a, #4a6a8a); }
+.l-cx-med { background: linear-gradient(135deg, #4a3a6a, #6a5a8a); }
+.l-evo-med { background: linear-gradient(135deg, #6a4a3a, #8a6a5a); }
+.l-learn { background: linear-gradient(135deg, #3a5a3a, #5a7a5a); }
+</style>
+
+<div style="font-size: 14px; font-weight: 700; color: #2a5a4a; margin-bottom: 8px;">🏥 Medical Diagnosis — Fly64 New Domain Migration (★★★★★)</div>
+
+<div class="arch-wrapper">
+
+  <div class="arch-sidebar">
+    <div class="arch-sidebar-panel">
+      <div class="arch-sidebar-title">🎯 Use Cases</div>
+      <div class="arch-sidebar-item">🧬 Biomarker detection via KC-MBON</div>
+      <div class="arch-sidebar-item">🏥 ICU multi-modal monitoring</div>
+      <div class="arch-sidebar-item">🩺 EEG seizure classification (98.3%)</div>
+      <div class="arch-sidebar-item">📊 Health state probability mapping</div>
+    </div>
+    <div class="arch-sidebar-panel">
+      <div class="arch-sidebar-title">📐 Academic Validation</div>
+      <div class="arch-sidebar-item">Nature 2024: NeuroMechFly</div>
+      <div class="arch-sidebar-item">JEA 2025: SNN EEG 98.3%</div>
+      <div class="arch-sidebar-item">Frontiers 2025: Sleep apnea SOTA</div>
+    </div>
+  </div>
+
+  <div class="arch-main">
+    <!-- Biomarker Detection -->
+    <div class="arch-layer l-biomarker">
+      <div class="arch-layer-title">🧬 Olfactory Circuit → Biomarker Detection (MushroomBody KC→MBON)</div>
+      <div class="arch-grid arch-grid-4">
+        <div class="arch-box highlight">2000 KC (5% sparse)<br><small>Multi-modal biomarker encoding<br>Blood markers · Gene expression · Imaging</small></div>
+        <div class="arch-box">5 MBON Outputs<br><small>Healthy · Early · Mid · Late · Critical</small></div>
+        <div class="arch-box">Random Projection (128D)<br><small>Medical image perceptual hash<br>X-ray/CT/MRI/OCT → 128D signature</small></div>
+        <div class="arch-box">Hebbian Learning<br><small>R(t)=gold standard diagnosis<br>target=correct class</small></div>
+      </div>
+    </div>
+
+    <!-- ICU Monitoring -->
+    <div class="arch-layer l-icu">
+      <div class="arch-layer-title">🏥 ICU Multi-Modal Monitoring (ReflexController + MotionStateDetector)</div>
+      <div class="arch-grid arch-grid-3">
+        <div class="arch-box highlight">6 Patient States<br><small>Cardiac arrest/Fall/Shock/Critical/Sudden change/Consciousness</small></div>
+        <div class="arch-box highlight">3-Signal Consensus<br><small>Heart rate + SpO₂ + Resp rate = automated triage</small></div>
+        <div class="arch-box">Fast + Slow Dual Path<br><small>Fast: RRT auto-trigger (SOP)<br>Slow: LLM full analysis</small></div>
+      </div>
+    </div>
+
+    <!-- CX Health State -->
+    <div class="arch-layer l-cx-med">
+      <div class="arch-layer-title">📊 CX Ring Attractor → Health State Probability Distribution</div>
+      <div class="arch-grid arch-grid-4">
+        <div class="arch-box">16 Disease Subtypes<br><small>Each column = one subtype/stage</small></div>
+        <div class="arch-box">PERSISTENCE=0.85<br><small>Conservative diagnosis smoothing</small></div>
+        <div class="arch-box">Local Excite 1.2 + Global Inhibit 0.25<br><small>Symptom clustering + differential diagnosis balance</small></div>
+        <div class="arch-box">MAX_STEERING=0.15<br><small>Treatment adjustment step limit</small></div>
+      </div>
+    </div>
+
+    <!-- Continuous Learning -->
+    <div class="arch-layer l-learn">
+      <div class="arch-layer-title">🔄 Continuous Learning Diagnostic System</div>
+      <div class="arch-grid arch-grid-4">
+        <div class="arch-box">Eligibility Trace (5-frame)<br><small>Medical history temporal window</small></div>
+        <div class="arch-box highlight">Consolidation Threshold=0.6<br><small>High-confidence case library (max 10)</small></div>
+        <div class="arch-box">Dopamine 5 Pathways<br><small>Different treatment protocols weighted by confidence</small></div>
+        <div class="arch-box">LLM Mentor<br><small>Complex case · rare disease analysis</small></div>
+      </div>
+    </div>
+
+    <!-- EVO -->
+    <div class="arch-layer l-evo-med">
+      <div class="arch-layer-title">🔄 EVO Closed-Loop: Beating Data Drift</div>
+      <div class="arch-grid arch-grid-5">
+        <div class="arch-box highlight">Monitor<br><small>Sensitivity/Specificity/PPV/FPR</small></div>
+        <div class="arch-box">Diagnose<br><small>Drift: new variant · data shift · label noise</small></div>
+        <div class="arch-box">Fix<br><small>New diagnostic params via active_strategy.json</small></div>
+        <div class="arch-box">Verify<br><small>Holdout validation set</small></div>
+        <div class="arch-box">Document<br><small>Change log + clinical efficacy tracking</small></div>
+      </div>
+      <div style="margin-top: 3px; display:flex; gap:3px; justify-content:center;">
+        <span style="font-size:7px; padding:1px 5px; border-radius:8px; background:rgba(255,255,255,0.25); color:rgba(255,255,255,0.8);">★ EVO solves the #1 pain point of medical AI: concept drift</span>
+      </div>
+    </div>
+
+    <div style="margin-top: 6px; display:flex; gap:4px; font-size: 8px; color: #5a7a6a; justify-content:center; flex-wrap:wrap;">
+      <span style="background:#e0f0e8; padding:2px 8px; border-radius:8px;">Priority: P0 (highest new domain)</span>
+      <span style="background:#e8e0f0; padding:2px 8px; border-radius:8px;">Market: $500B+</span>
+      <span style="background:#f0e8d0; padding:2px 8px; border-radius:8px;">Entry: Non-diagnostic assist first → regulatory path</span>
+    </div>
+    <div style="margin-top: 4px; font-size: 8px; color: #8aaa8a; text-align: center;">
+      Source: t2_new_domain_exploration_report.md §1 · 3 academic validations · Olfactory→biomarker mapping
+    </div>
+  </div>
+</div>
+
+</div>
