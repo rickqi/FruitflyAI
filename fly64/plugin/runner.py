@@ -157,13 +157,19 @@ class PluginRunner:
         if not frame_b64:
             return None
         png_b64 = raw_rgb_b64_to_png_b64(frame_b64)
+        try:
+            raw = base64.b64decode(png_b64, validate=True)
+            if raw[:8] != b"\x89PNG\r\n\x1a\n":
+                return None  # not a valid PNG — skip saving
+        except Exception:
+            return None
         stamp = round(float(ts if ts is not None else time.time()), 3)
         safe = re.sub(r"[^0-9A-Za-z\u4e00-\u9fff]+", "_",
                       str(help_reason or "none")).strip("_") or "none"
         target_dir = Path(frame_dir) if frame_dir else PluginRunner.FRAME_DIR
         target_dir.mkdir(parents=True, exist_ok=True)
         path = target_dir / f"coach_{stamp}_{safe}.png"
-        path.write_bytes(base64.b64decode(png_b64))
+        path.write_bytes(raw)
         return str(path)
 
     # ── one cycle ────────────────────────────────────────────────────
