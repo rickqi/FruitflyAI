@@ -22,6 +22,9 @@ body.causal-off .causal-ui{display:none!important}
    object-fit) — no magic top offset; follows any .eyes canvas height change. */
 .retina-wrap{position:relative}
 #retinaOverlay{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:left;pointer-events:none}
+/* Quick-jump link pill for section heads (e.g. Spatial memory → trajectory) */
+.mini-link{font-size:11px;color:var(--cyan);text-decoration:none;border:1px solid #2a6a78;border-radius:9px;padding:2px 8px;white-space:nowrap}
+.mini-link:hover{background:#14202e}
 /* memoryInfo is a 4-line status block — the fixed 26px section-head clipped it
    into the heatmap below. The memory row has ~85px slack in its 275px track,
    so let this particular head grow to fit. */
