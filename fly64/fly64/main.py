@@ -1228,6 +1228,11 @@ async def run(args) -> None:
                     scene_recognizer.save(_labels_path)
                 xs, zs, heats = memory_ctrl.spatial.get_heatmap()
                 DashboardHTTP.memory_json = json.dumps({
+                    # visited-cell heat grid (same source as the 2D heatmap) +
+                    # traversal topology, for the 3D trajectory map overlay
+                    "heat_cells": [[round(float(x), 1), round(float(z), 1), round(float(h), 3)]
+                                   for x, z, h in zip(xs, zs, heats)],
+                    "adjacency": memory_ctrl.spatial.adjacency_list(400),
                     "stuck_score": round(memory_ctrl.stuck_score, 3),
                     "stuck_duration": round(memory_ctrl.stuck_duration, 3),
                     "cliff_standoff_s": round(memory_ctrl.cliff_standoff_s, 1),

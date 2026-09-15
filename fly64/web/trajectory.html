@@ -25,7 +25,7 @@ input[type=range]{flex:1;min-width:100px;accent-color:#6cdaed;height:4px}
 <div id="canvasWrap"><div id="info"><h2>🪰 Fly64 3D</h2><span id="liveDot">🟢 LIVE</span> <span id="frameInfo">0/0</span><div id="memInfo" style="color:#7dff9d;font-size:11px"></div></div><div id="stats"></div><div id="errorMsg"></div></div>
 <div id="toggleView">🗖</div>
 <div class="controls">
-<button id="playBtn">▶</button><button id="resetBtn">⟲</button>
+<button id="playBtn">▶</button><button id="resetBtn">⟲</button><button id="gridBtn">🧠 Grid: ON</button>
 <label>Speed:<select id="speed"><option value="0.5" selected>0.5x</option><option value="1">1x</option><option value="2">2x</option><option value="5">5x</option><option value="10">10x</option></select></label>
 <label>File:<select id="fileSelect"><option>Loading...</option></select></label>
 <input type="range" id="slider" min="0" max="0" value="0">
@@ -37,7 +37,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 
 const $=id=>document.getElementById(id),wrap=$('canvasWrap');
-let pts=[],playing=0,pos=0,spd=0.5,anim=null,mini=true;
+let pts=[],playing=0,pos=0,spd=0.5,anim=null,mini=true,gridOn=true;
 // follow=true: cursor rides the newest live point (default on Live source).
 // Cleared by ▶ play / slider scrub so the full recorded path can be replayed
 // without the poller yanking the cursor back to the head every 2 s (the
@@ -45,6 +45,8 @@ let pts=[],playing=0,pos=0,spd=0.5,anim=null,mini=true;
 let follow=true;
 // diagnostics hook (module scope is otherwise closed to external tooling)
 window.__liveState=()=>({n:pts.length,pos:Math.round(pos),playing,lastT:pts.length?pts[pts.length-1].t:null});
+window.__gridState=()=>({carpetVisible:carpet.visible,carpetCount:carpet.count,gridOn,
+  adjVisible:adjLines.visible,adjVerts:(adjGeo.getAttribute('position')?adjGeo.getAttribute('position').count/2:0)});
 
 const scene=new THREE.Scene();scene.background=new THREE.Color(0x0b1015);
 const camera=new THREE.PerspectiveCamera(50,1,1,200000);
@@ -66,6 +68,18 @@ const dotGeo=new THREE.BufferGeometry();const dots=new THREE.Points(dotGeo,dotMa
 // (green = ordered short-term path the brain's spatial memory actually holds)
 const memMat=new THREE.PointsMaterial({color:0x7dff9d,sizeAttenuation:true,transparent:true,opacity:.9});
 const memGeo=new THREE.BufferGeometry();const memDots=new THREE.Points(memGeo,memMat);memDots.visible=false;scene.add(memDots);
+// Spatial-memory ground layer: one translucent tile per visited grid cell,
+// coloured by heat (same cold→hot ramp as the 2D heatmap), plus green
+// LineSegments for the traversal topology (adjacency edges the brain holds).
+const carpetGeo=new THREE.PlaneGeometry(196,196);carpetGeo.rotateX(-Math.PI/2);
+const carpetMat=new THREE.MeshBasicMaterial({transparent:true,opacity:.42,side:THREE.DoubleSide,depthWrite:false});
+const carpet=new THREE.InstancedMesh(carpetGeo,carpetMat,2600);carpet.count=0;carpet.visible=false;scene.add(carpet);
+const adjGeo=new THREE.BufferGeometry();
+const adjLines=new THREE.LineSegments(adjGeo,new THREE.LineBasicMaterial({color:0x7dff9d,transparent:true,opacity:.55}));
+adjLines.visible=false;scene.add(adjLines);
+const _m4=new THREE.Matrix4(),_c3=new THREE.Color();
+function heatColor(t){ // cold(blue)→green→yellow→hot(red), matches 2D legend
+  _c3.setHSL(0.62-0.62*Math.max(0,Math.min(1,t)),0.85,0.5);return _c3;}
 const sphere=new THREE.Mesh(new THREE.SphereGeometry(1,12,12),new THREE.MeshBasicMaterial({color:0xffca72}));scene.add(sphere);
 const arrow=new THREE.ArrowHelper(new THREE.Vector3(1,0,0),new THREE.Vector3(0,0,0),1,0xffca72,.3,.15);scene.add(arrow);
 const mk=(t,c)=>{const d=document.createElement('div');d.textContent=t;d.style.color=c;d.style.fontSize='11px';d.style.fontWeight='bold';return new CSS2DObject(d);};
@@ -135,7 +149,7 @@ async function loadFile(name){
       $('frameInfo').textContent = (pts.length? pos+'/'+(pts.length-1) : 'waiting for points…');
     }
     else{setLive(false);const r=await fetch('/trajectory-load?file='+encodeURIComponent(name));if(!r.ok)throw Error('HTTP '+r.status);data=await r.json();
-      memDots.visible=false;$('memInfo').textContent='';
+      memDots.visible=false;carpet.visible=false;adjLines.visible=false;$('memInfo').textContent='';
       loadTrajectory(data, false);}
   }catch(e){$('errorMsg').textContent='Load error: '+e.message;$('errorMsg').style.display='block';}
 }
@@ -172,13 +186,37 @@ async function refreshLive(){
 }
 async function refreshMemoryOverlay(traj){
   try{const m=await fetch('/memory.json');if(!m.ok)return;const mem=await m.json();
+    // ground sample for tile height: y of nearest trajectory point (coarse)
+    const samp=traj&&traj.length?traj.filter((_,i)=>i%5===0):[];
+    const yAt=(x,z)=>{let best=0,bd=1e18;
+      for(let i=0;i<samp.length;i++){const dx=samp[i].x-x,dz=samp[i].z-z,d2=dx*dx+dz*dz;
+        if(d2<bd){bd=d2;best=samp[i].y;}}return bd<1e17?best-8:((traj[0]||{y:0}).y-8);};
+    if(Array.isArray(mem.heat_cells)&&mem.heat_cells.length){
+      const n=Math.min(mem.heat_cells.length,2600);
+      let vy=0;for(const c of mem.heat_cells.slice(0,n))vy=yAt(c[0],c[1]);
+      for(let i=0;i<n;i++){const c=mem.heat_cells[i];
+        _m4.makeTranslation(c[0],yAt(c[0],c[1]),c[1]);
+        carpet.setMatrixAt(i,_m4);
+        carpet.setColorAt(i,heatColor(c[2]));}
+      carpet.count=n;carpet.instanceMatrix.needsUpdate=true;
+      if(carpet.instanceColor)carpet.instanceColor.needsUpdate=true;
+      carpet.visible=gridOn;
+    }
+    if(Array.isArray(mem.adjacency)&&mem.adjacency.length){
+      const flat=[];
+      for(const e of mem.adjacency){const y1=yAt(e[0],e[1])+6,y2=yAt(e[2],e[3])+6;
+        flat.push(e[0],y1,e[1],e[2],y2,e[3]);}
+      adjGeo.setAttribute('position',new THREE.Float32BufferAttribute(flat,3));
+      adjLines.visible=gridOn;
+    }
     if(Array.isArray(mem.recent_path)&&mem.recent_path.length){
       const y0=(traj[0]||{y:0}).y;
       memGeo.setAttribute('position',new THREE.Float32BufferAttribute(
-        mem.recent_path.flatMap(c=>[c.x,y0,c.z]),3));
+        mem.recent_path.flatMap(c=>[c.x,y0+4,c.z]),3));
       memDots.visible=true;
-      $('memInfo').textContent='🧠 memory path: '+mem.recent_path.length+' cells · '
-        +(mem.adjacency_edges??'?')+' edges · noveltyDir '+(mem.cx_novelty_direction??'—');
+      $('memInfo').textContent='🧠 memory: '+mem.recent_path.length+' path cells · '
+        +(mem.adjacency_edges??'?')+' edges · '+(mem.heat_cells?mem.heat_cells.length:0)+' grid tiles'
+        +' · noveltyDir '+(mem.cx_novelty_direction??'—');
     }}catch(_){}}
 
 
@@ -208,6 +246,7 @@ $('playBtn').onclick=function(){
     pos=Math.min(pos+spd,pts.length-1);update();anim=requestAnimationFrame(step);};
   anim=requestAnimationFrame(step);
 };
+$('gridBtn').onclick=function(){gridOn=!gridOn;carpet.visible=gridOn&&carpet.count>0;adjLines.visible=gridOn&&adjGeo.getAttribute('position')!=null;this.textContent='🧠 Grid: '+(gridOn?'ON':'OFF');};
 $('resetBtn').onclick=function(){playing=0;cancelAnimationFrame(anim);$('playBtn').textContent='▶';if(sel.value==='__live__'){follow=true;pos=pts.length-1;}else pos=0;update();};
 function animate(){requestAnimationFrame(animate);ctrl.update();renderer.render(scene,camera);lr.render(scene,camera);}
 animate();

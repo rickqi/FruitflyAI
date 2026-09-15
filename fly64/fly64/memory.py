@@ -646,6 +646,21 @@ class SpatialMemoryMap:
         """Total recorded cell transitions (= sum of all edge counts)."""
         return sum(self._adj.values())
 
+    def adjacency_list(self, limit: int = 400) -> list[list[float]]:
+        """Traversal edges as world-coordinate pairs for 3D/map rendering.
+
+        Returns ``[ax, az, bx, bz]`` (cell centres), most-travelled edges
+        first, capped at *limit*.
+        """
+        edges = sorted(self._adj.items(), key=lambda kv: -kv[1])[:limit]
+        out = []
+        for (a, b), _c in edges:
+            out.append([a[0] * self.cell_size + self.cell_size * 0.5,
+                        a[1] * self.cell_size + self.cell_size * 0.5,
+                        b[0] * self.cell_size + self.cell_size * 0.5,
+                        b[1] * self.cell_size + self.cell_size * 0.5])
+        return out
+
     def save_state(self, path: str | Path) -> None:
         """Persist the visited-cell map + traversal graph (pickle).
 
