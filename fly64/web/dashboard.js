@@ -1243,6 +1243,13 @@ async function updateCoachStrategy() {
       row('turn_bias', ex.turn_bias != null ? ex.turn_bias : '—', '0-1 strength'),
       row('stuck_threshold_s', esc.stuck_threshold_s != null ? esc.stuck_threshold_s : '—', 's · smaller = faster escape'),
     ];
+    // EVO R21: surface fallen_recovery strategy (was hidden before)
+    const fr = d.fallen_recovery;
+    if (fr && fr.mode) rows.splice(1, 0,
+      row('climb_mode', fr.mode, ''),
+      row('climb_period', fr.climb_period != null ? fr.climb_period : '—', 's'),
+      row('persist_seconds', fr.persist_seconds != null ? fr.persist_seconds : '—', 's'),
+    );
     if (dd) rows.push(row('dialogue_decision', dd.action + (dd.timed_out ? ' (timeout→A)' : ''), dd.reason || ''));
     if (d.advice_ts) rows.push('<span class="note-stat muted">last write ' + new Date(d.advice_ts * 1000).toLocaleTimeString() + '</span>');
     fields.innerHTML = rows.join('');

@@ -1311,6 +1311,9 @@ async def run(args) -> None:
                     # EVO R13: dialogue pause-wait scene observability
                     "dialogue_active": bool(getattr(model, "dialogue_active", False)),
                     "scene_label": _scene_name(model, memory_ctrl, scene_recognizer),
+                    # EVO R21: coach layer reads memory_json["scene_name"] —
+                    # was missing, runner.py fell back to "?" every time.
+                    "scene_name": _scene_name(model, memory_ctrl, scene_recognizer),
                     # Health scoring
                     "health_score": round(memory_ctrl.health_score, 4),
                 }, separators=(",", ":")).encode()
