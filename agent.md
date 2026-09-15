@@ -20,6 +20,9 @@
 9. **进化历史持久化**（已实现）：`/evolution.json` 迭代记录持久化到 `runtime/evolution_history.json`，脑模型启动时自动恢复（仪表板 EVO 历史不再因重启归零）
 10. **二期门禁（12 小时稳定自动聘雇）**：自治服务连续稳定运行 ≥12 小时（零 ALERT/零连续失败/健康自检通过）→ `scripts/phase2_gate.sh`（cron 每分钟驱动）自动翻 GO → 开工二期薄 Cordis Tool 层（fly64_status/fly64_consult/fly64_strategy）。禁止在门禁 GO 前提前建设二期
 11. 每轮进化能力需配套**回归测试**（`tests/test_evolution_capability.py`），确保进化能力可重复验证、不退化
+12. **WSL↔Windows 双向同步是基本能力**：WSL `/root/fly64` 是运行时真实来源（并发进化会话可能直接推进 WSL 代码），Windows 仓库是版本化真实来源。每轮开始/结束运行 `fly64/tests/sync_inventory.sh` 盘点差异并回收（WSL→Windows 回收进化成果；Windows→WSL 下发修复）。PIN 测试断言**当前**实现形态——重构后同步更新 PIN，而不是回退代码
+13. **CPU 观察**：脑模型 CPU 持续 >600% 时，检查 HRC/EMD 计算的帧沿节流是否生效（compute_flow/compute_emd 仅应在 10Hz 帧沿执行）
+14. **stuck_ramp 高发地形（熔岩/斜坡）调参通道**：教官经 `escape.stuck_threshold_s` 热重载（active_strategy.json）调低 escape 触发秒数，无需改代码
 
 ## 项目结构
 
@@ -91,6 +94,19 @@ setsid nohup env FLY64_BRIDGE=/tmp/f64b_traj \
 ---
 
 # 变更日志
+
+## 2026-09-14: EVO Round 20 启动 — 空间导航回路（CX 升级，核心能力）
+
+**触发**：监控分析确认马里奥"运动中转圈"的行为本质——**270° 复眼已全向采样，运动策略却在用物理旋转采集已有信息**（无效动作）。机制根因：CX 环吸引子罗盘是外部航向副本（无自运动积分）、零路径积分（无"我在锚点系哪里"表征）、目标向量单源（novelty 枯竭→方向感归零）。
+
+**任务清单**（README「空间导航回路」待办同步勾选）：
+- CX-1 罗盘自主化：转向池放电差→角速度→bump 自主滚动 + hue_az 天空方位软校正 + 外部 heading 降级弱校正
+- CX-2 锚点路径积分：场景锚定→位移向量积分→距锚距离/方向角
+- CX-3 多源目标向量竞争：novelty+覆盖空隙质心+反失败格+锚点返回→向量和→目标列
+
+能力边界：全部为 CX 内神经状态/电流（自运动积分、向量加法竞争），转向执行走既有 turn 池通路，零 Python 控制判断。版本随各部分递增（CX-1→2.13.0 / CX-2→2.14.0 / CX-3→2.15.0），README 待办逐项勾选。
+
+---
 
 ## 2026-09-14: t19 结构修复一 — Brain v2.12.1（seqlock 停更看门狗：SM64 冻结检测 + 仪表板告警）
 

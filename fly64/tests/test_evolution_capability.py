@@ -259,12 +259,14 @@ class TestEvoRound6:
         assert rc.cooldowns[rc.STUCK_RAMP] == pytest.approx(rc.cooldown_duration)
 
     def test_fallen_initial_direction_is_random_not_fixed(self):
-        import re
+        """EVO R6, refactored by v2.8-v2.12: the fixed -50 initial direction
+        and the 5-phase escape state machine are GONE — fallen/bold recovery
+        emerges from turn-pool current drive with spontaneous alternation
+        (reflex.bold_direction()) plus coach-tunable strategy params."""
         main_src = (Path(__file__).resolve().parent.parent / "fly64" / "main.py").read_text(encoding="utf-8")
-        m = re.search(r"if escape_x == 0:\s*\n\s*escape_x = (.+)", main_src)
-        assert m, "fallen recovery initial direction not found"
-        expr = m.group(1).strip()
-        assert "rng" in expr, f"initial direction must be random, got: {expr}"
+        assert "escape_x = -50" not in main_src, "fixed leftward direction must stay retired"
+        assert "bold_turn_drive" in main_src, "bold recovery drives turn pools via current"
+        assert "reflex.bold_direction" in main_src, "spontaneous alternation via reflex direction memory"
 
 
 # ── 7. L2/L3 coach-help: /help.json snapshot + strategy hot-reload ────
@@ -380,9 +382,11 @@ class TestEvoRound10:
         assert "visited_cells < 20" in src
 
     def test_bold_explore_overrides_reflex_in_cascade(self):
+        """EVO R10, refactored by v2.12: bold_now replaces bold_override —
+        bold explore still overrides an active reflex in the cascade."""
         src = self._src("main.py")
-        assert "bold_override" in src
-        assert re.search(r"not reflex_override or bold_override", src), \
+        assert "bold_now" in src
+        assert re.search(r"bold_now or not reflex_override", src), \
             "bold explore must be able to override an active reflex"
 
     def test_cliff_low_conf_turn_branch_retired(self):
@@ -394,12 +398,18 @@ class TestEvoRound10:
             "low-conf cliff turn branch must stay retired"
         assert "Directional openness" in self._src("retina.py")
 
-    def test_bold_explore_has_own_decision_source(self):
+    def test_bold_explore_decision_source(self):
+        """v2.12 refactor: bold_explore/collision symbolic channels retired —
+        bold is attributed through escape (cascade comment at P1), and the
+        retired branches must not silently return."""
         src = self._src("main.py")
-        assert 'decision_source = "bold_explore"' in src
-        # attribution must precede anomaly_reflex (bold overrides reflex)
-        assert src.index('decision_source = "bold_explore"') < \
-               src.index('decision_source = "anomaly_reflex"')
+        assert 'decision_source = "bold_explore"' not in src, \
+            "v2.12 retired the bold_explore channel (alternating turn-pool current)"
+        assert 'decision_source = "collision"' not in src, \
+            "collision branch retired with its bypass code path"
+        # core attribution channels must remain
+        for ch in ("dialogue", "cliff_reflex", "anomaly_reflex", "escape", "steering"):
+            assert f'decision_source = "{ch}"' in src
 
     def test_opening_injection_wired_into_step(self):
         """EVO R11: directional openness reaches the turn pools as current
@@ -446,7 +456,7 @@ class TestEvoRound13:
         assert "model.add_setback(0.8)" in src, "habituation lock deepens setback"
 
     def test_llm_env_file_autoload(self):
-        src = self._src("plugin/llm_consult.py")
+        src = (Path(__file__).resolve().parent.parent / "plugin" / "llm_consult.py").read_text(encoding="utf-8")
         assert "_load_llm_env" in src and "llm.env" in src
 
     def test_memory_json_dialogue_observability(self):

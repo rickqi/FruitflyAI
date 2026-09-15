@@ -1195,6 +1195,19 @@ async def run(args) -> None:
                 # EVO R19: restlessness inputs (loop pressure) + recognition
                 model.loop_score = memory_ctrl.spatial.loop_score
                 model.scene_danger = scene_recognizer.danger_level()
+                # EVO R20 (CX-1): sky azimuth from blue-dominant hue bands —
+                # visual compass correction for the CX ring attractor
+                _sx = _sy = 0.0
+                for _i in range(8):
+                    _hue = (model.color_azimuth or {}).get(f"hue_az{_i}")
+                    if _hue is None:
+                        continue
+                    _w = max(0.0, math.cos(math.radians(_hue - 230.0)))
+                    _baz = -135.0 + (_i + 0.5) * 33.75
+                    _sx += _w * math.cos(math.radians(_baz))
+                    _sy += _w * math.sin(math.radians(_baz))
+                model.visual_azimuth = (math.atan2(_sy, _sx)
+                                        if (_sx or _sy) else None)
                 # Periodic scene-database persistence (every ~600 ticks ≈ 12s)
                 scene_save_counter += 1
                 if scene_save_counter >= 600:

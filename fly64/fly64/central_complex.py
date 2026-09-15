@@ -82,6 +82,45 @@ class CentralComplex:
         # History for diagnostics
         self._compass_history = deque(maxlen=60)
 
+        # EVO R20 · CX-1 罗盘自主化: the bump integrates self-motion
+        # (turn-pool angular velocity) autonomously; external heading and
+        # visual azimuth act as WEAK corrections, not the primary drive.
+        self._col_accum = 0.0   # fractional column drift awaiting rollover
+
+    def _roll_fractional(self, columns: float) -> None:
+        """Rotate the compass bump by a fractional number of columns.
+
+        Positive = clockwise (turning right).  Implemented as integer roll
+        plus linear blend into the adjacent column for the fractional part.
+        """
+        i = int(np.floor(columns))
+        frac = columns - i
+        if i == 0 and abs(frac) < 1e-9:
+            return
+        a = np.roll(self.compass, i)
+        b = np.roll(self.compass, i + (1 if columns >= 0 else -1))
+        self.compass = ((1.0 - abs(frac)) * a + abs(frac) * b).astype(np.float32)
+        self.compass /= (self.compass.sum() + EPS)
+
+    def _self_motion_update(self, heading_rate: float, dt: float) -> None:
+        """CX-1: move the bump by integrated angular velocity (rad/s).
+
+        Positive heading_rate (turning right) rotates the bump clockwise.
+        The fractional remainder accumulates so slow turns are not lost.
+        """
+        cols = heading_rate * dt / (2.0 * np.pi) * self.n_columns
+        self._col_accum += cols
+        whole = int(np.floor(self._col_accum))
+        if whole != 0:
+            self._roll_fractional(whole)
+            self._col_accum -= whole
+
+    def _weak_correction(self, azimuth_rad: float, weight: float) -> None:
+        """Weakly pull the bump toward an azimuth (visual/sky compass)."""
+        drive = self._heading_drive(azimuth_rad) * weight
+        self.compass = ((self.compass + drive) /
+                        (self.compass.sum() + drive.sum() + EPS)).astype(np.float32)
+
     def _imprint_heading(self, column_idx: float) -> None:
         """Set compass to a Gaussian bump centred at *column_idx*."""
         cols = np.arange(self.n_columns, dtype=np.float32)
@@ -116,28 +155,28 @@ class CentralComplex:
     def update(self, heading: float, heading_rate: float,
                flow_asymmetry: float = 0.0,
                novelty: float = 0.5,
-               novelty_direction: float = 0.0) -> float:
+               novelty_direction: float = 0.0,
+               dt: float = 0.02,
+               visual_azimuth: float | None = None) -> float:
         """One timestep of CX processing.
+
+        EVO R20 (CX-1): the ring attractor integrates SELF-MOTION — the
+        bump rolls by angular velocity (heading_rate × dt) autonomously.
+        The external SM64 heading and the visual sky azimuth act as WEAK
+        corrections pulling the bump back when they disagree, so the
+        compass is an internal state corrected by vision, not a copy of
+        the game's heading value.
 
         Parameters
         ----------
         heading : float
-            Current heading in radians (from SM64 game state).
+            External heading in radians (SM64 game state) — weak correction.
         heading_rate : float
-            Angular velocity in rad/s (positive = turning right).
-        flow_asymmetry : float
-            Left/right optic flow imbalance in [-1, 1].
-        novelty : float
-            Scene novelty in [0, 1] (0=familiar, 1=novel).
-        novelty_direction : float
-            Direction bias from novelty in [-1, 1]; positive = steer
-            right, negative = steer left.
-
-        Returns
-        -------
-        steering_bias : float
-            Steering output in [-1, 1]; positive = turn right,
-            negative = turn left.  Injected into turn motor pools.
+            Angular velocity in rad/s (positive = turning right) — SELF-MOTION.
+        dt : float
+            Simulation tick interval.
+        visual_azimuth : float | None
+            Sky azimuth in radians (from hue_az bands) — drift correction.
         """
         # ---- 1. Ring-attractor heading compass ----
         # The compass maintains a stable activity bump through local
@@ -145,6 +184,12 @@ class CentralComplex:
         # A heading drive pulls the bump toward the current heading.
 
         n = self.n_columns
+
+        # ---- CX-1: self-motion integration (autonomous bump roll) ----
+        # The bump moves by angular velocity FIRST, autonomously — this is
+        # the path-integration term that makes the compass an internal
+        # state rather than a copy of the external heading.
+        self._self_motion_update(heading_rate, dt)
 
         # Local excitation: each column receives input from its neighbours
         # using a [1, 2, 1] kernel (centre-weighted).
@@ -155,8 +200,13 @@ class CentralComplex:
         # Global inhibition: mean activity suppresses all columns equally
         mean_activity = float(self.compass.mean())
 
-        # Heading drive: Gaussian bump at the current heading
-        drive = self._heading_drive(heading)
+        # External heading drive: WEAK correction (EVO R20 demoted from
+        # primary drive — was the only bump mover before CX-1).
+        drive = self._heading_drive(heading) * 0.25
+
+        # Visual azimuth correction: even weaker (sky compass, when visible)
+        if visual_azimuth is not None:
+            drive = drive + self._heading_drive(visual_azimuth) * 0.10
 
         # Ring attractor update (divisive normalisation)
         raw = (

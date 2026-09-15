@@ -475,6 +475,8 @@ class FlyModel:
         # EVO R19: restlessness inputs (loop pressure + scene danger)
         self.loop_score = 0.0
         self.scene_danger = 0.0
+        # EVO R20 (CX-1): sky azimuth for compass drift correction
+        self.visual_azimuth = None
         # Visual short-term memory (scene change detection)
         self.scene_memory = SceneMemory(buffer_size=30)
         self.scene_mean = 0.0
@@ -1441,6 +1443,8 @@ class FlyModel:
             flow_asymmetry=self.flow_asymmetry,
             novelty=novelty,
             novelty_direction=self.cx_novelty_direction,
+            dt=self.dt,
+            visual_azimuth=getattr(self, "visual_azimuth", None),
         )
         self.v[self.turn_left] += cx_bias * self.cx_steering_gain_turn
         self.v[self.turn_right] -= cx_bias * self.cx_steering_gain_turn
