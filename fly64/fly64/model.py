@@ -30,7 +30,7 @@ class SceneMemory:
     Maintains a 30-frame (~600 ms at 50 Hz) circular buffer of per-frame mean
     retina brightness (a scalar per frame).  Computes the mean and standard
     deviation of the buffer, and flags a scene change when the current frame
-    deviates from the buffer mean by more than 3锜?(three standard deviations).
+    deviates from the buffer mean by more than 3σ (three standard deviations).
 
     Attributes
     ----------
@@ -41,9 +41,9 @@ class SceneMemory:
     scene_var : float
         Variance of the buffer values.
     scene_change : bool
-        True when ``|current_drive_mean 閳?scene_mean| > 3锜絗`.
+        True when ``|current_drive_mean − scene_mean| > 3σ``.
     scene_change_rate : float
-        Fraction of the last 10 frames that were flagged as scene changes (0閳?).
+        Fraction of the last 10 frames that were flagged as scene changes (0–1).
     """
 
     def __init__(self, buffer_size: int = 30, sigma_threshold: float = 3.0):
@@ -55,7 +55,7 @@ class SceneMemory:
 
         self.scene_mean = 0.0       # mean of buffer
         self.scene_var = 0.0        # variance of buffer
-        self.scene_change = False   # |current 閳?mean| > 3锜?
+        self.scene_change = False   # |current − mean| > 3σ
 
         # Rolling window for scene_change_rate
         self._change_history: deque[bool] = deque(maxlen=10)
@@ -71,11 +71,11 @@ class SceneMemory:
         Returns
         -------
         dict with keys:
-            scene_mean        閳?mean of buffer values
-            scene_var         閳?variance of buffer values
-            scene_change      閳?True when |drive_mean 閳?scene_mean| > 3锜?
-            scene_change_rate 閳?fraction of last 10 frames that were changes (0閳?)
-            buffer_fill       閳?number of frames currently in the buffer
+            scene_mean        — mean of buffer values
+            scene_var         — variance of buffer values
+            scene_change      — True when |drive_mean − scene_mean| > 3σ
+            scene_change_rate — fraction of last 10 frames that were changes (0–1)
+            buffer_fill       — number of frames currently in the buffer
         """
         self.scene_buffer.append(drive_mean)
 
@@ -104,7 +104,7 @@ class SceneMemory:
 
     @property
     def scene_change_rate(self) -> float:
-        """Fraction of the last 10 frames that were scene changes (0閳?)."""
+        """Fraction of the last 10 frames that were scene changes (0–1)."""
         h = self._change_history
         return float(np.mean(h)) if h else 0.0
 
@@ -257,12 +257,12 @@ class TargetTracker:
                 else:
                     t.time_to_intercept = float("inf")
 
-            # Unassigned tracks 閳?increment miss
+            # Unassigned tracks → increment miss
             for i in range(n_tracks):
                 if i not in assigned_tracks:
                     self.tracks[i].missed_count += 1
 
-            # Unassigned detections 閳?new tracks
+            # Unassigned detections → new tracks
             for j in range(n_det):
                 if j not in assigned_dets:
                     new_track = TrackState(
@@ -314,14 +314,14 @@ class TargetTracker:
 
 
 class TurnAdaptation:
-    """Homeostatic turn-circuit adaptation 閳?spontaneous alternation.
+    """Homeostatic turn-circuit adaptation — spontaneous alternation.
 
     Drosophila spontaneously alternates turn direction: a sustained turn in
     one direction fatigues the dominant turning circuit and progressively
     recruits the competitor.  Implemented as paired low-pass fatigue states
     over the LIF turn-pool firing; the fatigue feeds back as a COUNTER-DRIVE
     current injected pre-spike, so direction selection remains inside the
-    network dynamics 閳?no Python direction decision is involved.
+    network dynamics — no Python direction decision is involved.
     """
 
     def __init__(self, tau: float = 3.0, saturation: float = 0.5,
@@ -329,7 +329,7 @@ class TurnAdaptation:
         self.tau = tau                # fatigue integration window (s)
         self.saturation = saturation  # pool activity (fraction) at full fatigue
         self.gain = gain              # max counter-drive current (V)
-        self.breakout_gain = breakout_gain  # oscillation 閳?forward breakthrough
+        self.breakout_gain = breakout_gain  # oscillation → forward breakthrough
         self.left = 0.0               # fatigue of left-turn circuit
         self.right = 0.0              # fatigue of right-turn circuit
 
@@ -346,9 +346,9 @@ class TurnAdaptation:
         return nl * self.gain, nr * self.gain
 
     def breakout_drive(self) -> float:
-        """Oscillation-in-place detector 閳?forward breakthrough current.
+        """Oscillation-in-place detector → forward breakthrough current.
 
-        BOTH circuits fatigued 閳?left/right alternation with no net heading 閳?
+        BOTH circuits fatigued ≈ left/right alternation with no net heading —
         the weavi-in-place signature.  Returns a forward-pool current that
         scales with the balanced fatigue level, so the network breaks out of
         the weave with straight displacement instead of turning.
@@ -370,7 +370,7 @@ class FlyModel:
     tau_m = 0.100
     threshold = 1.0
     reset = 0.0
-    SELF_MOTION_K = 0.08  # maps heading_rate (rad/s) 閳?flow_asymmetry correction
+    SELF_MOTION_K = 0.08  # maps heading_rate (rad/s) → flow_asymmetry correction
     scene_mean = 0.0       # class-level default for hasattr checks
     scene_var = 0.0
     scene_change = False
@@ -381,12 +381,12 @@ class FlyModel:
         self.seed = seed
         if demo:
             self._load_demo()
-            self.label = "DEMO FIXTURE 閳?modeled graph"
+            self.label = "DEMO FIXTURE — modeled graph"
         else:
             if cache is None or not (cache / "manifest.json").exists():
                 raise FileNotFoundError("Prepared MaleCNS model missing; run ./run-fly64 --prepare-data")
             self._load_cache(cache)
-            self.label = "MaleCNS v1.0 閳?measured wiring, modeled dynamics"
+            self.label = "MaleCNS v1.0 — measured wiring, modeled dynamics"
         self.v = np.zeros(self.n, dtype=np.float32)
         # CSC event propagation traverses every outgoing edge of each spiking
         # cell. Zero-spike columns contribute exactly zero; no graph pruning.
@@ -397,7 +397,7 @@ class FlyModel:
         self.previous_rgb = np.zeros((len(self.visual), 3), dtype=np.float32)
 
         # ---- Landmark memory: random projection of retina output to scene signatures ----
-        # Project 1536-dim retina drive 閳?128-dim scene signature using a random
+        # Project 1536-dim retina drive → 128-dim scene signature using a random
         # matrix drawn from N(0, scale=0.1) with PROJECTION_SEED=42 for cross-run
         # reproducibility (independent of the model's main RNG seeding).
         PROJECTION_SEED = 42
@@ -421,7 +421,6 @@ class FlyModel:
         self.step_count = 0
         self.mean_luminance = 0.0
         self.temporal_energy = 0.0
-        self.flow_quality = 1.0      # optic flow signal quality [0,1]; <0.3 = unreliable
         self.visual_connected = True
         self.tonic_current = 0.180
         self.synaptic_gain = 1.50
@@ -458,12 +457,12 @@ class FlyModel:
         # Novelty-driven modulation and escape
         self.escape_mode = False
         self.escape_current = 0.15  # extra depolarisation during escape
-        # P1 (BRAIN 2.7.0): escape sub-drives set by the brain runner 閳?
+        # P1 (BRAIN 2.7.0): escape sub-drives set by the brain runner —
         # jump-burst drive during falls, alternating breakout turn drive.
         self.escape_jump_drive = False
         self.bold_turn_drive = 0.0
         # EVO R14: homeostatic turn-circuit adaptation (spontaneous
-        # alternation) 閳?sustained one-direction turning fatigues that
+        # alternation) — sustained one-direction turning fatigues that
         # circuit and counter-drives the competitor, all pre-spike.
         self._turn_adapt = TurnAdaptation()
         # EVO R14: anomaly-state mirror (sensory input for the DAN dopamine
@@ -503,9 +502,9 @@ class FlyModel:
         self.off_energy = 0.0       # OFF channel: negative luminance transients
         self.sustained_energy = 0.0 # Sustained: slow contrast change
         self.edge_0 = 0.0           # Horizontal edge energy
-        self.edge_45 = 0.0          # Diagonal (45鎺? edge energy
+        self.edge_45 = 0.0          # Diagonal (45°) edge energy
         self.edge_90 = 0.0          # Vertical edge energy
-        self.edge_135 = 0.0         # Anti-diagonal (135鎺? edge energy
+        self.edge_135 = 0.0         # Anti-diagonal (135°) edge energy
 
         # ---- Color vision channels ----
         self.sky_blue_index = 0.0       # 0-1: open sky above
@@ -521,7 +520,7 @@ class FlyModel:
         # EVO R14: enabled.  The 5-channel (luminance + red/UV/green
         # salience + mean RGB) projection feeds both the Kenyon Cells of the
         # mushroom body and the scene database, giving the brain colour-
-        # discriminative scene codes (collision rate 10椴?day 閳?<1/yr).
+        # discriminative scene codes (collision rate 10³/day → <1/yr).
         # Persisted scene signatures rebuild within one loop_window.
         self.color_signature = True
 
@@ -539,8 +538,8 @@ class FlyModel:
         # Derived compound signals
         self.emd_horizontal = 0.0  # emd_on_right + emd_on_left + emd_off_right + emd_off_left
         self.emd_vertical = 0.0    # emd_on_up + emd_on_down + emd_off_up + emd_off_down
-        self.emd_net_lateral = 0.0 # (right - left) / (right + left + eps) 閳?signed lateral bias
-        self.emd_net_vertical = 0.0 # (down - up) / (down + up + eps) 閳?signed vertical bias
+        self.emd_net_lateral = 0.0 # (right - left) / (right + left + eps) — signed lateral bias
+        self.emd_net_vertical = 0.0 # (down - up) / (down + up + eps) — signed vertical bias
 
         # ---- Cliff detection (multi-frame confirmation) ----
         self._cliff_history = deque(maxlen=10)  # last 10 lower_field_green values
@@ -563,9 +562,9 @@ class FlyModel:
 
         # ---- Tau (time-to-contact) for collision avoidance ----
         self.tau = float("inf")  # seconds until contact; inf = no collision risk
-        self.TAU_SHARP_TURN = 0.5   # 锜?below this 閳?emergency sharp turn
-        self.TAU_DECELERATE = 1.0   # 锜?below this 閳?reduce speed
-        self.TAU_NEAR = 2.0         # 锜?below this 閳?cautious modulation
+        self.TAU_SHARP_TURN = 0.5   # τ below this → emergency sharp turn
+        self.TAU_DECELERATE = 1.0   # τ below this → reduce speed
+        self.TAU_NEAR = 2.0         # τ below this → cautious modulation
 
         # ---- Mushroom Body associative learning ----
         self.mushroom = MushroomBody()
@@ -573,17 +572,6 @@ class FlyModel:
         self.mbon_gain_turn = 0.12
         self.mbon_gain_jump = 0.20
         self.mbon_gain_explore = 0.10
-
-        # ---- MBON閳姦otor real weight plasticity (M2 fix) ----
-        # Independent adjustable scaling for each MBON channel's current
-        # injection into motor pools.  Unlike gain_modulation (which scales
-        # all pathway currents uniformly), these are per-MBON-channel weights
-        # that the learning system can independently tune 閳?the biological
-        # equivalent of MBON閳妿escending-neuron synaptic weights.
-        self.mbon_forward_weight = 0.35
-        self.mbon_turn_weight = 0.35
-        self.mbon_jump_weight = 0.35
-        self.mbon_explore_weight = 0.35
 
         # ---- Dopamine-gated gain modulation (plasticity proxy) ----
         # Per-pathway gains modulate connectome current injection without
@@ -607,7 +595,7 @@ class FlyModel:
 
         # ---- Central Complex navigation module ----
         self.cx = CentralComplex()
-        self.cx_steering_gain_turn = 0.12   # CX steering 閳?turn motor pool
+        self.cx_steering_gain_turn = 0.12   # CX steering → turn motor pool
         self.cx_novelty_direction = 0.0     # from memory controller
 
         # ---- Small target tracking (LPLC/LC11 equivalent) ----
@@ -620,7 +608,7 @@ class FlyModel:
         self.fg_fraction = 0.0
         self.max_target_energy = 0.0
 
-        # ---- Python閳姧euron error gradient bridge (t3) ----
+        # ---- Python→neuron error gradient bridge (t3) ----
         self._last_error_gradient = {
             "error": 0.0, "neural_bias": 0.0, "python_bias": 0.0,
             "corrective_left": 0.0, "corrective_right": 0.0,
@@ -678,7 +666,7 @@ class FlyModel:
             flat_pixels = np.linspace(0, 48 * 64 - 1, len(self.visual)).astype(np.int32)
             self.visual_pixels = np.column_stack((flat_pixels // 64, flat_pixels % 64)).astype(np.uint8)
 
-    def encode_retina(self, rgb: np.ndarray, heading: float = 0.0, skip_layers: int = 0) -> np.ndarray:
+    def encode_retina(self, rgb: np.ndarray, heading: float = 0.0) -> np.ndarray:
         frame = self.retina.sample(rgb)
         lum = frame @ np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
         prev_lum = self.previous_rgb @ np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
@@ -704,12 +692,6 @@ class FlyModel:
         self.previous_rgb = frame
         self.mean_luminance = float(lum.mean())
         self.temporal_energy = float(temporal.mean())
-        # ---- Flow quality gate (M1 fix) ----
-        # When temporal_energy is low (static scene), optic flow signals
-        # are unreliable noise.  flow_quality 閳?[0, 1] where < 0.3 means
-        # the flow signal should be treated as noise.  Threshold 0.02 is
-        # calibrated against typical luminance variance in static frames.
-        self.flow_quality = float(np.clip(self.temporal_energy / 0.02, 0.0, 1.0))
         # --- Local motion detection: external moving objects when Mario is still ---
         # Self-motion produces global temporal energy; when stationary (low heading
         # rate), residual temporal energy must come from external moving objects.
@@ -717,7 +699,7 @@ class FlyModel:
         self.local_motion_energy = max(0.0, self.temporal_energy - self_motion_est)
         self.local_motion_detected = self.local_motion_energy > 0.30
         # --- Dialogue box detection: lower visual field suddenly covered by a
-        # large uniform block 閳?DUAL ZONE: SM64 places standard dialogue at the
+        # large uniform block — DUAL ZONE: SM64 places standard dialogue at the
         # BOTTOM (key-sign at top). Detect dark+uniform+drop in either half.
         def _zone_state(region, prev_attr, frames_attr):
             lum = float(region[..., 1].mean()) if region.ndim == 3 else float(region.mean())
@@ -747,12 +729,11 @@ class FlyModel:
         self.dialogue_active = ((lo_hit or hi_hit)
                                 and self._dialogue_total < 20.0)
         # --- Optic flow signals ---
-        flow = self.retina.compute_flow(rgb, skip_layers=skip_layers)
+        flow = self.retina.compute_flow(rgb)
         self.tau = float(flow.get("tau", float("inf")))
         self.flow_asymmetry = float(flow["left_right_asymmetry"])  # RAW (backward compat)
         self.flow_looming = float(flow["center_expansion"])
         self.flow_cliff = float(flow["lower_field_green"])
-        self.flow_quality = float(flow.get("flow_quality", 1.0))  # M1: signal reliability
         self.terrain = str(flow.get("terrain", "mixed"))
         # Underwater/void: below ground + strong blue dominance in view
         self.blue_dom = float(flow.get("blue_dom", 0.0))
@@ -956,9 +937,9 @@ class FlyModel:
         """Self-motion separation state.
 
         Returns a dict with:
-            heading_rate (float) 閳?angular velocity in rad/s
-            true_asymmetry (float) 閳?self-motion corrected flow asymmetry (-1..1)
-            k (float) 閳?scale factor applied to heading_rate
+            heading_rate (float) — angular velocity in rad/s
+            true_asymmetry (float) — self-motion corrected flow asymmetry (-1..1)
+            k (float) — scale factor applied to heading_rate
         """
         return self._self_motion_cache
 
@@ -1034,13 +1015,13 @@ class FlyModel:
             except Exception:
                 pass
 
-    # ---- Python閳姧euron error gradient bridge (t3) ----
+    # ---- Python→neuron error gradient bridge (t3) ----
 
     def compute_error_gradient(self, python_turn_x: int) -> dict:
         """Compare Python escape turn decision with neural network's preferred bias.
 
         The 'neural bias' is the decoded turn preference from the motor pool
-        rolling-window firing rates (right_rate 閳?left_rate, in [-1, 1]).
+        rolling-window firing rates (right_rate − left_rate, in [-1, 1]).
 
         Parameters
         ----------
@@ -1050,15 +1031,15 @@ class FlyModel:
         Returns
         -------
         dict with keys:
-            error           閳?signed error in [-1, 1] (positive = Python wants
+            error           — signed error in [-1, 1] (positive = Python wants
                               more right-turn than the network)
-            neural_bias     閳?the network's turn bias in [-1, 1]
-            python_bias     閳?signed Python turn direction in [-1, 1]
-            corrective_left 閳?current to inject into turn_left pool
-            corrective_right 閳?current to inject into turn_right pool
+            neural_bias     — the network's turn bias in [-1, 1]
+            python_bias     — signed Python turn direction in [-1, 1]
+            corrective_left — current to inject into turn_left pool
+            corrective_right — current to inject into turn_right pool
         """
         # Neural bias from the decoded motor firing rates
-        neural_bias = getattr(self, "turn_rate", 0.0)  # right_rate 閳?left_rate
+        neural_bias = getattr(self, "turn_rate", 0.0)  # right_rate − left_rate
 
         # Python's intended turn direction, normalised to [-1, 1]
         if abs(python_turn_x) > 8:
@@ -1066,7 +1047,7 @@ class FlyModel:
         else:
             python_bias = 0.0
 
-        # Error = what Python wants 閳?what the network provided
+        # Error = what Python wants − what the network provided
         error = python_bias - neural_bias
 
         # Corrective currents: amplify the under-performing motor pool,
@@ -1097,7 +1078,7 @@ class FlyModel:
                                    reward_signal: float = 0.0) -> None:
         """Inject error-signed corrective currents into turn motor pools.
 
-        Currents are gated by the reward signal 閳?correction is strongest when
+        Currents are gated by the reward signal — correction is strongest when
         the reward is low/negative (the network's decision led to a poor
         outcome).  High reward means the network is doing well and corrections
         are suppressed.
@@ -1153,9 +1134,9 @@ class FlyModel:
         """EVO R11: displacement-based dopamine feedback for the mushroom body.
 
         main.py feeds observed net displacement (game units over the last
-        ~2.4 s burst window).  Moving 閳?reward, being stuck 閳?punishment:
-        the MB depresses KC閳墷BON synapses for scene/action contexts that keep
-        producing zero displacement 閳?the network learns to stop choosing
+        ~2.4 s burst window).  Moving ≈ reward, being stuck ≈ punishment:
+        the MB depresses KC→MBON synapses for scene/action contexts that keep
+        producing zero displacement — the network learns to stop choosing
         'face the wall' without any new Python branch.
         """
         self.movement_reward = max(-1.0, min(1.0, displacement / max(expected, 1e-6) - 0.25))
@@ -1165,16 +1146,16 @@ class FlyModel:
 
     def add_setback(self, strength: float = 0.6) -> None:
         """EVO R13: external setback discovered by supervision (e.g. dialogue
-        interaction blocked, locked door) 閳?negative dopamine pulse consumed
-        by the mushroom body at the next tick, teaching the KC閳墷BON pathway
+        interaction blocked, locked door) → negative dopamine pulse consumed
+        by the mushroom body at the next tick, teaching the KC→MBON pathway
         that THIS scene context carries negative value (PPL1-like)."""
         self._pending_dopamine = max(-1.0, self._pending_dopamine - abs(strength))
 
-    # 閳光偓閳光偓 DAN signal shaping (EVO R18) 閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓
+    # ── DAN signal shaping (EVO R18) ─────────────────────────────────────
     # Explicit, single-place dopamine weights.  The exploration reward was
-    # lowered 0.50 閳?0.30 (EVO R18): persistent +dopamine kept re-inflating
+    # lowered 0.50 → 0.30 (EVO R18): persistent +dopamine kept re-inflating
     # the forward MBON column into tanh saturation against the homeostatic
-    # scaling 閳?the equilibrium now sits inside the responsive range.
+    # scaling — the equilibrium now sits inside the responsive range.
     DAN_REWARD_EXPLORATION = 0.30   # scene novelty (scene_change_rate > 0.1)
     DAN_REWARD_PROGRESS = 0.30      # sustained forward movement
     DAN_PUNISH_STUCK = 0.30         # per-5s stuck (capped)
@@ -1188,7 +1169,7 @@ class FlyModel:
     def restlessness_level(self) -> float:
         """EVO R19: escape-motivation build-up in [0, 1].
 
-        Driven by cliff-edge standoff time and loop pressure 閳?the
+        Driven by cliff-edge standoff time and loop pressure — the
         motivational current that converts standoff/weave stillness into
         forward displacement (biological: escape motivation builds with
         entrapment time).
@@ -1200,7 +1181,7 @@ class FlyModel:
     def _compute_dopamine(self) -> float:
         """Compute the dopaminergic-neuron (DAN) signal.
 
-        Weights are the class-level ``DAN_*`` shaping constants 閳?tune the
+        Weights are the class-level ``DAN_*`` shaping constants — tune the
         DA system in one place without touching the detection logic.
         """
         reward = 0.0
@@ -1229,49 +1210,36 @@ class FlyModel:
         revisit = getattr(self, "_revisit_penalty", 0.0)
         if revisit > 0.5:
             punishment = max(punishment, self.DAN_PUNISH_REVISIT)
-        # EVO R14 璺?Negative: circling-family anomaly states.  This is the
-        # dopaminergic-neuron (DAN) input for loop suppression 閳?the mushroom
-        # body's three-factor rule then weakens the scene閳姲urn associations
+        # EVO R14 · Negative: circling-family anomaly states.  This is the
+        # dopaminergic-neuron (DAN) input for loop suppression — the mushroom
+        # body's three-factor rule then weakens the scene→turn associations
         # that produced the loop.  Detection lives in the memory controller
         # (mirrored here each tick); the LEARNING is purely neural.
         if getattr(self, "anomaly_state_name", "idle") in (
                 "micro_loop", "stuck_ramp", "wall_stuck", "oscillating"):
             punishment = max(punishment, self.DAN_PUNISH_LOOP_STATES)
-        # EVO R15 璺?Negative: cliff-edge standoff (>20s parked at the edge).
-        # Teaches the mushroom body "this scene + forward 閳?bad", biasing
+        # EVO R15 · Negative: cliff-edge standoff (>20s parked at the edge).
+        # Teaches the mushroom body "this scene + forward → bad", biasing
         # subsequent MBON output toward lateral exploration.
         if getattr(self, "cliff_standoff_s", 0.0) > 20.0:
             punishment = max(punishment, self.DAN_PUNISH_STANDOFF)
-
-        # ---- B4 fix: MBON saturation adaptive DA gating ----
-        # When the forward MBON column is saturated (|output| 閳?0.95),
-        # attenuate positive dopamine by 50%.  This prevents the DAN from
-        # continuously re-inflating a saturated column while the homeostatic
-        # scaling tries to shrink it 閳?breaking the tug-of-war at the
-        # dopamine-source side.  Negative (punishment) DA is NOT affected so
-        # the learning system can still suppress unwanted behaviours.
-        _mb_fwd = getattr(self, "mb_mbon_forward", 0.0)
-        if _mb_fwd >= 0.95 and reward > 0:
-            reward *= 0.5  # halve reward when forward MBON is saturated
-
         return reward - punishment
 
     def step(self, rgb: np.ndarray, now: float | None = None,
-             novelty: float = 0.5, heading: float = 0.0,
-             skip_layers: int = 0) -> tuple[Control, np.ndarray]:
+             novelty: float = 0.5, heading: float = 0.0) -> tuple[Control, np.ndarray]:
         now = self.step_count * self.dt if now is None else now
-        sensory = self.encode_retina(rgb, heading=heading, skip_layers=skip_layers)
+        sensory = self.encode_retina(rgb, heading=heading)
 
         # Novelty-driven visual modulation:
-        # Low novelty (familiar) 閳?boost sensory to seek variety
-        # High novelty (unexplored) 閳?slight suppression for caution
-        # B10 (P1): piecewise branches replaced by a smooth sigmoid 閳?same
-        # 鍗?.10 range, no discontinuities at the old 0.3 / 0.7 breakpoints.
+        # Low novelty (familiar) → boost sensory to seek variety
+        # High novelty (unexplored) → slight suppression for caution
+        # B10 (P1): piecewise branches replaced by a smooth sigmoid — same
+        # ±0.10 range, no discontinuities at the old 0.3 / 0.7 breakpoints.
         novelty_gain = 1.0 + 0.10 * float(np.tanh((0.5 - novelty) * 4.0))
 
         # ---- Reward signal from stuck_duration changes (for gain modulation) ----
-        # When stuck_duration drops significantly (escape succeeded) 閳?reward=+1
-        # When stuck increases 閳?reward=-0.1; when fallen 閳?reward=-0.5
+        # When stuck_duration drops significantly (escape succeeded) → reward=+1
+        # When stuck increases → reward=-0.1; when fallen → reward=-0.5
         _prev_stuck = self._prev_stuck_duration
         _cur_stuck = getattr(self, "stuck_duration", 0.0)
         self._prev_stuck_duration = _cur_stuck
@@ -1298,23 +1266,14 @@ class FlyModel:
                 self.dopamine_gain.pathway_eligibility["jump"] = min(
                     1.0, self.dopamine_gain.pathway_eligibility["jump"] + 0.3)
 
-        # ---- Adaptive learning rate (M2 fix) ----
-        # Set the scene-adaptive LR multiplier on the mushroom body before
-        # computing dopamine and updating weights.  When scene changes
-        # rapidly, learning rate increases; when stable, it stays conservative.
-        try:
-            self.mushroom.set_adaptive_lr(self.scene_change_rate)
-        except Exception:
-            pass
-
         # ---- Dopamine signal and Mushroom Body plasticity ----
         # Combine the existing behavioral dopamine with the t1 reward_signal
         # (stuck_duration-based escape success/failure signal) so that the
         # mushroom body learns from both scene-driven and escape-driven signals.
         _behavioral_dop = self._compute_dopamine()
         _reward_contrib = max(-0.3, min(0.5, self.reward_signal)) * 0.4
-        # EVO R13: external setback pulses (dialogue blocked, locked door 閳?
-        # join the dopamine sum 閳?one-shot, consumed after this tick.
+        # EVO R13: external setback pulses (dialogue blocked, locked door …)
+        # join the dopamine sum — one-shot, consumed after this tick.
         _pending = getattr(self, "_pending_dopamine", 0.0)
         dop = max(-1.0, min(1.0, _behavioral_dop + _reward_contrib + _pending))
         self._pending_dopamine = 0.0
@@ -1343,17 +1302,13 @@ class FlyModel:
         self.dopamine_gain.update_eligibility(pathway_activity)
         n_gain = self.dopamine_gain.apply_gain_update()
 
-        # ---- MBON-to-motor current injection (M2: real weight plasticity) ----
-        # The mbon_gain_* parameters provide the fine-grained gain (0.12閳?.20)
-        # while the mbon_*_weight parameters provide the MBON閳姦otor synaptic
-        # strength (default 0.35).  Together they amount to the biological
-        # equivalent of MBON閳妿escending-neuron weight 閳?independently tunable.
+        # ---- MBON-to-motor current injection ----
         try:
             mbon = self.mushroom.mbon_outputs
-            self.v[self.forward] += mbon[0] * self.mbon_gain_forward * self.mbon_forward_weight
-            self.v[self.turn_left] += mbon[1] * self.mbon_gain_turn * self.mbon_turn_weight
-            self.v[self.turn_right] += mbon[2] * self.mbon_gain_turn * self.mbon_turn_weight
-            self.v[self.jump_nodes] += mbon[3] * self.mbon_gain_jump * self.mbon_jump_weight
+            self.v[self.forward] += mbon[0] * self.mbon_gain_forward
+            self.v[self.turn_left] += mbon[1] * self.mbon_gain_turn
+            self.v[self.turn_right] += mbon[2] * self.mbon_gain_turn
+            self.v[self.jump_nodes] += mbon[3] * self.mbon_gain_jump
             if mbon[4] > 0.2:
                 self.escape_current = min(0.25, self.escape_current * 1.02)
             elif mbon[4] < -0.2:
@@ -1372,9 +1327,9 @@ class FlyModel:
                 self.v[self.jump_nodes] += _recalled[3] * self.mbon_gain_jump * 0.5
 
             # ---- Scene familiarity modulation (t7) ----
-            # Familiar scenes (high familiarity) 閳?reduce escape tendency
+            # Familiar scenes (high familiarity) → reduce escape tendency
             # (the agent is in known territory).  Novel scenes (low familiarity)
-            # 閳?slight increase in exploratory escape tendency.
+            # → slight increase in exploratory escape tendency.
             _familiarity = self.mushroom.familiarity
             if _familiarity > 0.5:
                 self.escape_current *= 0.90  # calm in familiar territory
@@ -1386,7 +1341,7 @@ class FlyModel:
         current = np.asarray(self.w[:, np.flatnonzero(self.spikes)].sum(axis=1)).ravel()
         # Pathway-specific gain modulation (plasticity proxy)
         # Instead of one scalar, each pathway gets its own gain from the
-        # dopamine-gated controller 閳?this mimics plasticity without
+        # dopamine-gated controller — this mimics plasticity without
         # modifying the fixed connectome weights self.w.
         self._pathway_gains_np[0] = self.dopamine_gain.get_gain("visual")
         self._pathway_gains_np[1] = self.dopamine_gain.get_gain("forward")
@@ -1424,9 +1379,9 @@ class FlyModel:
         # Escape-mode depolarisation of motor neurons
         if self.escape_mode:
             self.v[self.motor_nodes] += self.escape_current
-        # P1 (audit A3): fallen 閳?jump-pool burst drive; forced bold breakout
-        # 閳?mirrored turn-pool current.  The LIF competition 閳?not a Python
-        # control write 閳?executes the escape manoeuvre.
+        # P1 (audit A3): fallen → jump-pool burst drive; forced bold breakout
+        # → mirrored turn-pool current.  The LIF competition — not a Python
+        # control write — executes the escape manoeuvre.
         if self.escape_jump_drive:
             self.v[self.jump_nodes] += 0.45
         if self.bold_turn_drive:
@@ -1435,14 +1390,14 @@ class FlyModel:
             else:
                 self.v[self.turn_left] += 0.35 * min(1.0, -self.bold_turn_drive)
 
-        # ---- Tau (time-to-contact) 閳?jump motor pool current injection ----
-        # Imminent collision 閳?depolarise jump nodes directly so the neural
+        # ---- Tau (time-to-contact) → jump motor pool current injection ----
+        # Imminent collision → depolarise jump nodes directly so the neural
         # network drives the jump response instead of Python escape logic.
         if self.tau < self.TAU_NEAR and np.isfinite(self.tau):
             _tau_inj = max(0.0, (self.TAU_NEAR - self.tau) / self.TAU_NEAR) * 0.35
             self.v[self.jump_nodes] += _tau_inj
 
-        # ---- Small target tracking: approaching target 閳?jump & turn injection (pre-spike) ----
+        # ---- Small target tracking: approaching target → jump & turn injection (pre-spike) ----
         if self.target_approaching and self.target_intercept_time < 10.0:
             _frames_to_intercept = self.target_intercept_time
             if 2.0 < _frames_to_intercept < 6.0:
@@ -1458,16 +1413,16 @@ class FlyModel:
                 self.v[self.turn_left] -= _lateral_bias * 0.12
                 self.v[self.turn_right] += _lateral_bias * 0.12
 
-        # ---- Sky_score 閳?jump motor pool current injection ----
+        # ---- Sky_score → jump motor pool current injection ----
         # Open sky above signals a launch/escape opportunity; inject current
         # into jump motor nodes to bias toward an upward jump.
         if self.sky_score > 0.5:
             self.v[self.jump_nodes] += self.sky_score * 0.12
 
-        # ---- Opening azimuth 閳?steering pool current injection (EVO R11) ----
+        # ---- Opening azimuth → steering pool current injection (EVO R11) ----
         # Directional openness drives the turn pools through the same current
         # pathway as every other sensory channel; the LIF left/right
-        # competition 閳?not a Python branch 閳?decides which way to steer while
+        # competition — not a Python branch — decides which way to steer while
         # escaping.  This replaces the earlier random escape_x symbolic choice.
         if self.escape_mode and getattr(self, "opening_score", 0.0) > 0.2:
             _open_inj = (min(0.20, self.opening_score * 0.3)
@@ -1498,27 +1453,27 @@ class FlyModel:
         self.v[self.turn_right] -= cx_bias * self.cx_steering_gain_turn
 
         # P1 (audit A8): the dialogue neural pulse block is deleted together
-        # with the runner's legacy pulse-A fallback 閳?dialogue behaviour is
+        # with the runner's legacy pulse-A fallback — dialogue behaviour is
         # owned by the LLM pause-wait orchestration plus the habituation
         # safety breaker in the runner (BRAIN 2.4.0 contract).
         # ---- CX interactive-mode gating ----
-        # Interactive target near (door/sign) 閳?CX enters interaction mode:
+        # Interactive target near (door/sign) → CX enters interaction mode:
         # suppress escape circuitry current so the agent approaches, not flees.
         if getattr(self, "interactive_near", False) and not getattr(self, "dialogue_active", False):
             self.escape_current *= 0.3
             self.v[self.forward] += 0.10          # gentle approach bias
 
-        # EVO R14 璺?spontaneous alternation: turn-circuit fatigue counter-drive.
+        # EVO R14 · spontaneous alternation: turn-circuit fatigue counter-drive.
         # Sustained one-sided turning fatigues that circuit (TurnAdaptation)
-        # and progressively recruits the competitor 閳?pre-spike, so direction
+        # and progressively recruits the competitor — pre-spike, so direction
         # selection stays inside the LIF network dynamics.
         _ad_l, _ad_r = self._turn_adapt.counter_drive()
         if _ad_l > 0.0:
-            self.v[self.turn_right] += _ad_l      # left fatigue 閳?drive right
+            self.v[self.turn_right] += _ad_l      # left fatigue → drive right
         if _ad_r > 0.0:
-            self.v[self.turn_left] += _ad_r       # right fatigue 閳?drive left
+            self.v[self.turn_left] += _ad_r       # right fatigue → drive left
 
-        # EVO R16 璺?oscillation 閳?forward breakthrough.  BOTH turn circuits
+        # EVO R16 · oscillation → forward breakthrough.  BOTH turn circuits
         # fatigued = the weave-in-place signature (alternation with no net
         # heading).  A forward-pool current plus mild bilateral turn
         # inhibition converts the weave into straight displacement.
@@ -1528,10 +1483,10 @@ class FlyModel:
             self.v[self.turn_left] -= _brk * 0.5
             self.v[self.turn_right] -= _brk * 0.5
 
-        # EVO R15 璺?cliff-edge tangential detour (FailureMemory 閳?CX pathway).
+        # EVO R15 · cliff-edge tangential detour (FailureMemory → CX pathway).
         # When parked at a CONFIRMED cliff edge and FailureMemory knows a
         # failure cell ahead, inject an ALONG-EDGE turn current (sign chosen
-        # by ground freshness) and slightly suppress forward 閳?head-on into a
+        # by ground freshness) and slightly suppress forward — head-on into a
         # known cliff is replaced by edge-following.  The LIF network still
         # decides the actual heading through its own competition.
         if self.cliff_confirmed and self.cliff_tangent_bias:
@@ -1542,19 +1497,19 @@ class FlyModel:
                 self.v[self.turn_left] += _t
             self.v[self.forward] -= 0.08          # ease off head-on drive
 
-        # EVO R19 璺?restlessness: standoff/loop pressure builds forward drive
+        # EVO R19 · restlessness: standoff/loop pressure builds forward drive
         # (escape motivation accumulates with entrapment time).
         _rest = self.restlessness_level()
         if _rest > 0.0:
             self.v[self.forward] += _rest * 0.12
 
-        # EVO R21 璺?recognition 閳?behaviour closure: a recognised DANGEROUS
-        # scene (lava/hell tags) suppresses forward drive 閳?caution current.
+        # EVO R21 · recognition → behaviour closure: a recognised DANGEROUS
+        # scene (lava/hell tags) suppresses forward drive — caution current.
         # Direction selection stays with the turn-pool competition.
         if self.scene_danger > 0.0:
             self.v[self.forward] -= self.scene_danger * 0.06
 
-        # EVO R22 璺?spontaneous forward recovery when learner helplessness
+        # EVO R22 · spontaneous forward recovery when learner helplessness
         # has suppressed the forward MBON but the fly is still stuck.
         # This provides a mild "trying again" current that decays quickly
         # if movement produces no result, but may trigger forward once.
@@ -1602,7 +1557,7 @@ class FlyModel:
         recent = np.stack(tuple(self.history), axis=0).mean(axis=0)
         forward_rate, left_rate, right_rate, jump_rate = [float(pool.mean()) for pool in np.split(recent, self.motor_splits)]
         turn_rate = right_rate - left_rate
-        # EVO R14 璺?integrate turn-circuit fatigue from the decoded pool rates
+        # EVO R14 · integrate turn-circuit fatigue from the decoded pool rates
         self._turn_adapt.update(left_rate, right_rate, self.dt)
 
         raw_y = np.clip((forward_rate - 0.008) * 2000.0, 0, 70)
@@ -1611,60 +1566,53 @@ class FlyModel:
         # ---- Optic flow modulation (pre-emptive collision avoidance) ----
         # Only apply when synapses are active (no connectome shortcut test)
         if self.visual_connected and self.w.nnz > 0:
-            # ---- M1 fix: flow quality scaling ----
-            # When flow_quality is poor (static scene), attenuate all
-            # flow-driven modulation proportionally.  Below 0.3 quality
-            # the signals are unreliable (texture noise), so scale down
-            # to prevent false collision/avoidance decisions.
-            _flow_scale = max(0.0, min(1.0, self.flow_quality / 0.3))
-
-            # 1. Asymmetry 閳?bias turn toward the side with more motion
+            # 1. Asymmetry → bias turn toward the side with more motion
             if abs(self.flow_asymmetry) > 0.05:
-                raw_x -= self.flow_asymmetry * 20.0 * _flow_scale
+                raw_x -= self.flow_asymmetry * 20.0
 
-            # 2. Looming 閳?reduce forward drive, shorten jump cooldown
+            # 2. Looming → reduce forward drive, shorten jump cooldown
             if self.flow_looming > 0.15:
-                looming_factor = 1.0 - min(self.flow_looming * 1.2, 0.8) * (_flow_scale * 0.8 + 0.2)
+                looming_factor = 1.0 - min(self.flow_looming * 1.2, 0.8)
                 raw_y *= looming_factor
 
-            # P1 (audit A2): the flow_cliff < 0.3 random 鍗?0 turn branch is
+            # P1 (audit A2): the flow_cliff < 0.3 random ±40 turn branch is
             # deleted.  Cliff avoidance is owned by the runner's cliff reflex
             # (cliff_confirmed path) and, on the roadmap, by an LC4-derived
-            # turn-pool injection 閳?a coin-flip write is not a neural policy.
+            # turn-pool injection — a coin-flip write is not a neural policy.
 
             # ---- Multi-channel retina modulation ----
-            # 4a. High ON + low OFF = object appearing ahead 閳?increase jump probability
+            # 4a. High ON + low OFF = object appearing ahead → increase jump probability
             #     (handled via jump_rate boost below, not raw_x/raw_y here)
-            # 4b. High OFF = something passing 閳?possible obstacle on that side 閳?bias turn
+            # 4b. High OFF = something passing → possible obstacle on that side → bias turn
             if self.off_energy > 0.03 and self.on_energy < 0.01:
                 # Strong OFF without ON suggests lateral motion (object passing)
                 # Bias turn toward the side with less asymmetry
-                bias = self.off_energy * 30.0 * _flow_scale
+                bias = self.off_energy * 30.0
                 if self.flow_asymmetry > 0:
                     raw_x += bias  # already turning right, reinforce
                 elif self.flow_asymmetry < 0:
                     raw_x -= bias  # already turning left, reinforce
                 else:
-                    # No asymmetry 閳?random direction
+                    # No asymmetry — random direction
                     raw_x += bias * (1.0 if self.rng.random() < 0.5 else -1.0)
 
-            # 4c. High sustained = approaching a stationary object 閳?reduce forward speed
+            # 4c. High sustained = approaching a stationary object → reduce forward speed
             if self.sustained_energy > 0.03:
                 sustain_brake = 1.0 - min(self.sustained_energy * 1.5, 0.6)
                 raw_y *= sustain_brake
 
-            # 4d. Dominant edge orientation 閳?bias turn direction
+            # 4d. Dominant edge orientation → bias turn direction
             edges = [self.edge_0, self.edge_45, self.edge_90, self.edge_135]
             max_edge = max(edges)
             if max_edge > 0.05:
                 dominant_idx = edges.index(max_edge)
-                if dominant_idx == 0:   # horizontal edges 閳?turn less (open space)
+                if dominant_idx == 0:   # horizontal edges → turn less (open space)
                     raw_x *= 0.85
-                elif dominant_idx == 2: # vertical edges 閳?corridor, turn less
+                elif dominant_idx == 2: # vertical edges → corridor, turn less
                     raw_x *= 0.70
-                elif dominant_idx == 1: # diagonal (45鎺? 閳?bias turn away
+                elif dominant_idx == 1: # diagonal (45°) → bias turn away
                     raw_x += 8.0
-                elif dominant_idx == 3: # anti-diagonal (135鎺? 閳?bias turn opposite
+                elif dominant_idx == 3: # anti-diagonal (135°) → bias turn opposite
                     raw_x -= 8.0
 
             # ---- 5. 4-direction EMD modulation ----
@@ -1675,74 +1623,74 @@ class FlyModel:
             _emd_net_lat = self.emd_net_lateral
             _emd_net_vert = self.emd_net_vertical
 
-            # 5a. Strong vertical EMD (up/down) -> terrain change detected: reduce speed
+            # 5a. Strong vertical EMD (up/down) → terrain change detected: reduce speed
             if _emd_v > 0.03 and _emd_h < 0.01:
-                # Pure vertical motion = elevator/terrain drop -> slight caution
-                raw_y *= max(0.6, 1.0 - _emd_v * 3.0 * _flow_scale)
+                # Pure vertical motion = elevator/terrain drop → slight caution
+                raw_y *= max(0.6, 1.0 - _emd_v * 3.0)
 
-            # 5b. Asymmetric horizontal EMD -> precise turn bias
+            # 5b. Asymmetric horizontal EMD → precise turn bias
             # Unlike flow_asymmetry (global brightness), this is true direction-selective
             if abs(_emd_net_lat) > 0.1 and _emd_h > 0.02:
-                lat_bias = _emd_net_lat * 15.0 * _flow_scale
-                raw_x -= lat_bias  # net rightward motion -> turn right to steer into flow
+                lat_bias = _emd_net_lat * 15.0
+                raw_x -= lat_bias  # net rightward motion → turn right to steer into flow
 
-            # 5c. Strong symmetric horizontal EMD -> passing through corridor/opening
+            # 5c. Strong symmetric horizontal EMD → passing through corridor/opening
             if _emd_h > 0.05 and abs(_emd_net_lat) < 0.15:
-                # Optic flow on both sides equally -> reduce turn (straighten)
-                raw_x *= max(0.5, 1.0 - _emd_h * 2.0 * _flow_scale)
+                # Optic flow on both sides equally → reduce turn (straighten)
+                raw_x *= max(0.5, 1.0 - _emd_h * 2.0)
 
-            # 5d. OFF-dominant EMD -> external moving object detected
+            # 5d. OFF-dominant EMD → external moving object detected
             # (high off_total without on_total = passing dark edge, e.g. a Goomba passing)
             if (self.emd_off_total > self.emd_on_total * 2.0
                 and self.emd_off_total > 0.02):
                 # Possible moving threat on one side
-                threat_bias = self.emd_off_total * 20.0 * _flow_scale
+                threat_bias = self.emd_off_total * 20.0
                 if self.emd_off_right > self.emd_off_left:
                     raw_x += threat_bias  # turn left away from right-side threat
                 else:
                     raw_x -= threat_bias  # turn right away from left-side threat
 
             # ---- 6. Color vision modulation ----
-            # 6a. High danger_red_index 閳?avoid (lava = bad, red switch = interesting)
+            # 6a. High danger_red_index → avoid (lava = bad, red switch = interesting)
             #     Use contextual gating: red + high temperature (tau near) = avoid
             if self.danger_red_index > 0.4 and self.tau < 3.0:
-                # Red hazard near 閳?turn away
+                # Red hazard near → turn away
                 if self.rg_opponent_mean > 0:
-                    raw_x += 30.0  # left side is redder 閳?turn right
+                    raw_x += 30.0  # left side is redder → turn right
                 else:
-                    raw_x -= 30.0  # right side is redder 閳?turn left
+                    raw_x -= 30.0  # right side is redder → turn left
                 raw_y *= 0.6  # slow down approaching hazard
 
-            # 6b. High sky_blue_index 閳?open area detected: explore forward
+            # 6b. High sky_blue_index → open area detected: explore forward
             if self.sky_blue_index > 0.5 and self.danger_red_index < 0.3:
                 raw_y = min(70, raw_y * 1.15)  # slight forward boost in open areas
 
-            # 6c. High color_contrast + high saturation 閳?interactive objects nearby
+            # 6c. High color_contrast + high saturation → interactive objects nearby
             #     (coins, switches have saturated colors against neutral backgrounds)
             if self.color_contrast > 0.3 and self.saturation_mean > 0.25:
                 # Interesting scene: reduce random turns, keep heading
                 raw_x *= 0.7
 
             # ---- 7. Small target tracking: peripheral avoidance (post-spike, raw_x/raw_y level) ----
-            # 7a. Strong figure-ground energy without approaching 閳?lateral object avoidance
+            # 7a. Strong figure-ground energy without approaching → lateral object avoidance
             if (self.max_target_energy > 0.05
                 and self.fg_fraction < 0.08
                 and not self.target_approaching):
-                # Object in periphery 閳?mild avoidance bias
+                # Object in periphery — mild avoidance bias
                 if self.target_count > 0:
                     _tgt_r, _tgt_c = self.target_nearest_centroid
                     _lateral_bias = (_tgt_c - 32.0) / 32.0
                     _avoid = self.max_target_energy * 20.0
                     if abs(_lateral_bias) > 0.3:
-                        if _lateral_bias > 0:  # target on right 閳?turn left
+                        if _lateral_bias > 0:  # target on right → turn left
                             raw_x -= _avoid * 0.10
-                        else:                   # target on left 閳?turn right
+                        else:                   # target on left → turn right
                             raw_x += _avoid * 0.10
 
-            # 7b. High fg_fraction (>15%) = wide-field disturbance 閳?suppress target tracking
+            # 7b. High fg_fraction (>15%) = wide-field disturbance → suppress target tracking
             #     (defer to existing optic flow navigation)
             if self.fg_fraction > 0.15:
-                pass  # wide-field motion 閳?let existing rules handle it
+                pass  # wide-field motion — let existing rules handle it
 
             # ---- Tau-based collision avoidance ----
             tau = self.tau
@@ -1755,7 +1703,7 @@ class FlyModel:
                 # Approaching: reduce forward speed, bias turn
                 urgency = 1.0 - tau / self.TAU_DECELERATE
                 raw_y *= max(1.0 - urgency * 0.7, 0.1)
-                turn_bias = urgency * 30.0 * _flow_scale
+                turn_bias = urgency * 30.0
                 if self.flow_asymmetry > 0:
                     raw_x -= turn_bias  # turn left (away from rightward flow)
                 else:
@@ -1766,39 +1714,39 @@ class FlyModel:
                 raw_x += self.rng.uniform(-5.0, 5.0)  # exploratory turn noise
 
             # ---- Terrain modulation (between optic flow and escape) ----
-            # 5a. High wall_score > 0.5 閳?wall ahead: increase turn away from wall
+            # 5a. High wall_score > 0.5 → wall ahead: increase turn away from wall
             #     (wall creates motion asymmetry on the side it occupies)
             if self.wall_score > 0.5:
                 # Turn away from the side with more visual motion (the wall)
-                wall_turn = self.wall_score * 25.0 * _flow_scale
-                if self.flow_asymmetry > 0:
+                wall_turn = self.wall_score * 25.0
+                if self.flow_asymmetry > 0:  # more motion on left → wall left → turn right
                     raw_x += wall_turn
-                else:
+                else:  # more motion on right → wall right → turn left
                     raw_x -= wall_turn
 
-            # 5b. High ramp_score > 0.5 閳?slope, not cliff: suppress random cliff turns
+            # 5b. High ramp_score > 0.5 → slope, not cliff: suppress random cliff turns
             if self.ramp_score > 0.5:
                 # Cancel any previous random cliff turn by pulling x toward zero
                 raw_x *= 0.3
                 # Maintain forward drive (slopes are traversable)
                 raw_y = max(raw_y, 30)
 
-            # 5c. High opening_score > 0.5 閳?passage/opening ahead: explore toward it
+            # 5c. High opening_score > 0.5 → passage/opening ahead: explore toward it
             if self.opening_score > 0.5:
-                # Opening ahead 閳?reduce turn rate to aim for the opening
+                # Opening ahead — reduce turn rate to aim for the opening
                 raw_x *= 0.5
                 # Slight forward boost
                 opening_boost = 1.0 + self.opening_score * 0.3
                 raw_y = min(70, raw_y * opening_boost)
 
-            # 5d. door_frame_score > 0.5 閳?doorway detected: priority turn toward it
+            # 5d. door_frame_score > 0.5 → doorway detected: priority turn toward it
             if self.door_frame_score > 0.5:
                 # Doorway = turn toward the side with less visual energy (the opening)
                 # Use asymmetry inverted: turning toward the quieter side
-                door_turn = self.door_frame_score * 35.0 * _flow_scale
-                if self.flow_asymmetry < 0:
+                door_turn = self.door_frame_score * 35.0
+                if self.flow_asymmetry < 0:  # more motion on right → door on left → turn left
                     raw_x -= door_turn
-                else:
+                else:  # more motion on left → door on right → turn right
                     raw_x += door_turn
                 # Reduce forward speed approaching the door
                 raw_y *= max(0.5, 1.0 - self.door_frame_score * 0.3)
@@ -1814,4 +1762,3 @@ class FlyModel:
         return Control(int(self.filtered_x) if abs(self.filtered_x) >= 8 else 0,
                        int(self.filtered_y) if self.filtered_y >= 8 else 0,
                        jump, forward_rate, turn_rate, jump_rate), np.flatnonzero(fired)
-

@@ -33,26 +33,10 @@ try:  # package-relative (fly64 on sys.path)
                                     build_consult_request,
                                     raw_rgb_b64_to_png_b64)
     from plugin.strategy_writer import StrategyWriter
-    try:
-        from plugin.scene_context import (
-            SceneContext, assemble_scene_context,
-            build_scene_context_summary, scene_context_to_dict,
-        )
-        _SCENE_CONTEXT_AVAILABLE = True
-    except ImportError:
-        _SCENE_CONTEXT_AVAILABLE = False
 except ImportError:  # direct execution from fly64/
     from llm_consult import (ConsultError, GLMConsultant, build_consult_request,
                              raw_rgb_b64_to_png_b64)
     from strategy_writer import StrategyWriter
-    try:
-        from scene_context import (  # type: ignore[import-untyped]
-            SceneContext, assemble_scene_context,
-            build_scene_context_summary, scene_context_to_dict,
-        )
-        _SCENE_CONTEXT_AVAILABLE = True
-    except ImportError:
-        _SCENE_CONTEXT_AVAILABLE = False
 
 PLUGIN_DIR = Path(__file__).resolve().parent
 DEFAULT_DASHBOARD = "http://127.0.0.1:8765"
@@ -163,35 +147,6 @@ class PluginRunner:
             return help_["frame_b64"]
         return None
 
-    def capture_consult_data(self) -> tuple[Optional[str], Optional[str], Optional[list]]:
-        """Fetch the game frame AND assemble the structured scene context.
-
-        Returns ``(frame_b64, scene_context_summary, scene_tags)`` where
-        ``scene_context_summary`` is a human-readable string describing what
-        the fly's visual system actually perceives, and ``scene_tags`` is
-        a list of auto-generated semantic scene descriptors.  Any element
-        may be None when its data source is unavailable.
-
-        The summary is injected into the enhanced LLM prompt so the coach
-        understands the perception gap between the game frame and the fly's
-        own visual processing.
-        """
-        frame_b64 = self.capture_frame()
-        summary: Optional[str] = None
-        tags: Optional[list] = None
-        if _SCENE_CONTEXT_AVAILABLE:
-            try:
-                flow = self._fetcher("/flow.json")
-                mem = self._fetcher("/memory.json")
-                if isinstance(flow, dict) and isinstance(mem, dict):
-                    from plugin.scene_context import generate_scene_tags
-                    ctx = assemble_scene_context(flow, mem)
-                    summary = build_scene_context_summary(ctx)
-                    tags = generate_scene_tags(flow, mem)
-            except Exception:
-                pass  # best-effort; never block the consult
-        return frame_b64, summary, tags
-
     # ── consult frame snapshot (t21 wrap-up) ─────────────────────────
     FRAME_DIR = PLUGIN_DIR.parent / "runtime" / "coach_frames"
 
@@ -241,30 +196,22 @@ class PluginRunner:
                 self.last_error = None
                 return result
             result["context"] = context
-            frame_b64, scene_summary, scene_tags = self.capture_consult_data()
+            frame_b64 = self.capture_frame()
             # t21 wrap-up: snapshot the frame the coach is about to see, so
             # "what did the coach look at" is retroactively answerable.
             try:
                 self.save_consult_frame(frame_b64, context.get("help_reason"))
             except Exception:
                 pass  # snapshot is best-effort; never block the consult
-            # t21+ (what_i_see protocol): pass scene context summary for
-            # enhanced prompt injection.
-            parsed = self.consultant.consult(context, frame_b64,
-                                             scene_context_summary=scene_summary)
+            parsed = self.consultant.consult(context, frame_b64)
             result["consulted"] = True
-            result["scene_context_available"] = scene_summary is not None
             self.consultations += 1
             strategy = parsed.get("strategy") or {}
-            # t21+: persist auto-generated scene_tags in advice history.
-            # scene_tags come from the scene context aggregator, NOT from
-            # the LLM response (semantic data, never written to strategy).
             self.writer.write_strategy(strategy, advice=parsed.get("advice", ""),
                                        source=self.consultant.model)
             self.writer.write_advice(parsed.get("advice", ""), context=context,
                                      strategy=strategy,
-                                     model=self.consultant.model,
-                                     scene_tags=scene_tags)
+                                     model=self.consultant.model)
             result["strategy_written"] = True
             result["advice"] = parsed.get("advice", "")
             result["status"] = "ok"

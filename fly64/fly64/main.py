@@ -31,14 +31,11 @@ from .retina import BASES, CALIBRATION
 from .telemetry import Observatory
 from .memory import MemoryController
 from .scene_recognition import SceneRecognizer
-from .compute_discipline import FrameBudgetController, PerfTimer
-from .telemetry_audit import (generate_key_manifest, FlowKeyValidator,
-                              DeadValueDetector, build_telemetry_audit_section)
 
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.14.0"
+BRAIN_VERSION = "2.13.3"
 SKILL_VERSION = "3.0.0"   # must mirror fly64/skills/evolution_skill.py SKILL_VERSION
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
@@ -583,23 +580,6 @@ async def run(args) -> None:
     last_frame_seq = -1
     dropped = 0
     observatory = Observatory(model)
-    # ---- t4 B5: computational discipline ----
-    _budget = FrameBudgetController()
-    _perf = PerfTimer()
-    # ---- t4 B6/B7: telemetry audit ----
-    _key_validator = FlowKeyValidator()
-    _dead_detector = DeadValueDetector()
-    # Run startup key validation
-    _key_manifest = generate_key_manifest()
-    print(f"[fly64] Telemetry key manifest: {len(_key_manifest.get('required_keys', []))} "
-          f"keys from {_key_manifest.get('pattern_count', 0)} patterns "
-          f"({_key_manifest.get('source', '?')})")
-    # Startup key validation: deferred to first real flow_json publish.
-    # The empty-dict check is skipped — see _audit_tick below for live validation.
-    print(f"[fly64] FlowKeyValidator initialised: key check runs on first flow_json")
-    _audit_tick = 0  # counter for periodic telemetry audit (every 100 ticks)
-    _audit_flow_section: dict = {}  # latest audit section (rebuilt every 100 ticks)
-    _audit_last_section: dict = {}  # fallback for intervening ticks
     pending_jump = False
     dash_seq = 0
     DashboardHTTP.trajectory_points = []
@@ -799,14 +779,9 @@ async def run(args) -> None:
                 memory_ctrl.reflex_ineffective = False
                 memory_ctrl.disp_60s = None
             heading = pose_ev[3]
-            # ---- t4 B5: compute discipline ----
-            _skip = _budget.get_skip_layers()
-            _perf.start("model_step")
             control, spikes = model.step(frame, model.step_count * model.dt,
                                          novelty=memory_ctrl.novelty,
-                                         heading=heading,
-                                         skip_layers=_skip)
-            _perf.stop("model_step")
+                                         heading=heading)
 
             # ---- Corollary discharge: action-effect comparator ----
             # Forward command issued but position static = pushing into
@@ -1467,41 +1442,7 @@ async def run(args) -> None:
                     "reward_trend": round(_plasticity_metrics["reward_trend"], 4),
                     "error_gradient_mean": round(_plasticity_metrics["error_gradient_mean"], 4),
                     "gain_update_count": _plasticity_metrics["gain_update_count"],
-                    # ---- t4 B5/B6/B7: compute discipline + telemetry audit ----
-                    "skip_layers": _skip,
-                    "skip_layers_names": _budget.get_skip_names(),
-                    "frame_compute_ms": round(_budget.average_duration() * 1000, 3),
-                    # ---- t4/t7: periodic telemetry audit (every 100 ticks) ----
-                    "audit": (_audit_flow_section if _audit_tick % 100 == 0
-                              else _audit_last_section),
                 }, separators=(",", ":")).encode()
-                # ---- t4/t7: periodic telemetry audit (every 100 ticks) ----
-                _audit_tick += 1
-                if _audit_tick % 100 == 0:
-                    try:
-                        _flow_snap = json.loads(DashboardHTTP.flow_json)
-                        # First real publish: run key validation against actual flow
-                        if _audit_tick == 100:
-                            _key_check = _key_validator.check(_flow_snap)
-                            if _key_check.get("missing"):
-                                print(f"[fly64] Telemetry key validation: "
-                                      f"{len(_key_check['missing'])} missing keys")
-                            else:
-                                print("[fly64] Telemetry key validation: "
-                                      "all pattern-condition keys present ✓")
-                        _audit_flow_section = build_telemetry_audit_section(
-                            _key_validator, _dead_detector, _flow_snap)
-                        _audit_last_section = _audit_flow_section
-                    except Exception:
-                        _audit_flow_section = _audit_last_section
-                # ---- t4 B7: push numeric flow fields to dead-value detector ----
-                try:
-                    _flow_dict = json.loads(DashboardHTTP.flow_json)
-                    _num_flow = {k: v for k, v in _flow_dict.items()
-                                 if isinstance(v, (int, float)) and not isinstance(v, bool)}
-                    _dead_detector.push(_num_flow)
-                except Exception:
-                    pass
                 # Log anomaly state transitions to events buffer
                 current_anomaly = memory_ctrl.anomaly_state_name
                 if current_anomaly and current_anomaly != previous_anomaly_state and current_anomaly != "idle":
@@ -1588,9 +1529,6 @@ async def run(args) -> None:
                             sum(_error_gradient_buffer) / max(len(_error_gradient_buffer), 1), 4),
                         "gain_update_count": model.dopamine_gain.gain_update_count,
                     })
-
-            # ---- t4 B5: record tick duration for frame-budget controller ----
-            _budget.record_tick(time.monotonic() - tick_start)
 
             next_tick += model.dt
             delay = next_tick - time.monotonic()

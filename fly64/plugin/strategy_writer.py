@@ -50,8 +50,7 @@ class StrategyWriter:
     # ── strategy ──────────────────────────────────────────────────────
     def write_strategy(self, strategy: dict, advice: str = "",
                        source: str = "glm-5.3-flash",
-                       what_i_see: Optional[list] = None,
-                       scene_tags: Optional[list] = None) -> dict:
+                       what_i_see: Optional[list] = None) -> dict:
         """Write active_strategy.json (brain hot-reloads every 600 ticks).
 
         ``strategy`` may carry ``fallen_recovery`` / ``exploration`` /
@@ -59,11 +58,6 @@ class StrategyWriter:
         so the dashboard can show why the strategy changed.  t21: pass
         ``what_i_see`` (explicit screen-text readout) to persist it at the
         payload top level.
-
-        t21+ (what_i_see protocol): ``scene_tags`` are NOT written to
-        active_strategy.json (semantic data must not descend to the brain
-        model).  They are accepted here for API consistency with the runner
-        and are only persisted to coach_advice.json via ``write_advice``.
         """
         payload = dict(strategy or {})
         if what_i_see:
@@ -118,17 +112,12 @@ class StrategyWriter:
     def write_advice(self, advice: str, context: Optional[dict] = None,
                      strategy: Optional[dict] = None,
                      model: str = "glm-5.3-flash",
-                     what_i_see: Optional[list] = None,
-                     scene_tags: Optional[list] = None) -> dict:
+                     what_i_see: Optional[list] = None) -> dict:
         """Update coach_advice.json with the latest advice + history entry.
 
         t21: ``what_i_see`` (explicit screen-text readout) is stored at the
         payload top level when provided; it also rides inside ``strategy``
         when the caller passes the sanitised strategy dict.
-
-        t21+ (what_i_see protocol): ``scene_tags`` (auto-generated semantic
-        scene descriptors) are persisted in the history entry for audit.
-        They are NOT written to active_strategy.json (语义不下沉).
         """
         data = self.load_advice()
         history = data.get("history")
@@ -143,8 +132,6 @@ class StrategyWriter:
         }
         if what_i_see:
             entry["what_i_see"] = list(what_i_see)
-        if scene_tags:
-            entry["scene_tags"] = list(scene_tags)
         history.append(entry)
         history = history[-self.history_limit:]
         payload = {
@@ -156,7 +143,5 @@ class StrategyWriter:
         }
         if what_i_see:
             payload["what_i_see"] = list(what_i_see)
-        if scene_tags:
-            payload["scene_tags"] = list(scene_tags)
         self._atomic_write(self.advice_path, payload)
         return payload

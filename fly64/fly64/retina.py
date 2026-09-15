@@ -911,24 +911,8 @@ class SphericalRetina:
         image[~self.mask] = 0
         return image.astype(np.uint8)
 
-    def compute_flow(self, atlas, skip_layers: int = 0):
+    def compute_flow(self, atlas):
         """Compute optic flow signals from the six-face first-person RGB atlas.
-
-        Parameters
-        ----------
-        atlas : ndarray, shape (256, 384, 3)
-            Six-face first-person RGB atlas.
-        skip_layers : int
-            Bitmask from compute_discipline.FrameBudgetController indicating
-            which expensive layers to skip this frame.  When a bit is set,
-            the corresponding computation is replaced with a default/fallback
-            value.  Bits::
-                1 << 0 = door_frame (heavy pairwise spatial analysis)
-                1 << 1 = color_azimuth (8-band hue distribution)
-                1 << 2 = small_targets (connected-component labeling)
-                1 << 3 = HRC looming (16-sector population readout)
-                1 << 4 = full per-cell color encode
-                1 << 5 = edge orientation (4-direction)
 
         Returns a dict with per-sector temporal-energy estimates, three
         higher-level collision-relevant signals, and per-frame ON/OFF/sustained
@@ -943,32 +927,15 @@ class SphericalRetina:
         Added channel-mean keys:
           * on_raw, off_raw, sustained_raw (Python float, mean across visual cells)
         """
-        # ---- t4 B5: skip-layer bitmask constants ----
-        _SK = type("_SK", (), {})() if False else None  # no-op type sentinel
-        SKIP_DOOR_FRAME = 1 << 0
-        SKIP_COLOR_AZIMUTH = 1 << 1
-        SKIP_SMALL_TARGETS = 1 << 2
-        SKIP_HRC_LOOMING = 1 << 3
-        SKIP_COLOR = 1 << 4
-        SKIP_EDGE_ORIENT = 1 << 5
-
         # Sample current frame
         rgb = atlas.reshape(-1, 3)[self.indices].astype(np.float32)
         rgb = np.sum(rgb * self.weights[None, :, None], axis=1) / 255.0  # (1536, 3)
 
         # ---- Compute ON/OFF/sustained (drives _prev_lum for temporal tracking) ----
-        # Retained even under skip — this drives temporal state
         on_off = self.encode_on_off(atlas)
         on_raw = float(np.mean(on_off["on_channel"]).item())
         off_raw = float(np.mean(on_off["off_channel"]).item())
         sustained_raw = float(np.mean(on_off["sustained"]).item())
-
-        # ---- Flow quality gate (M1 fix) ----
-        # Estimates optic flow signal reliability from total temporal energy.
-        # When the scene is static (low on+off energy), flow signals are noise.
-        # flow_quality ∈ [0, 1]; < 0.3 means unreliable (static scene).
-        _temporal_total = on_raw + off_raw + 1e-8
-        _flow_quality = float(np.clip(_temporal_total / 0.02, 0.0, 1.0))
 
         # Per-cell brightness as a proxy for local energy
         brightness = rgb.mean(axis=1)  # (1536,)
@@ -1024,27 +991,20 @@ class SphericalRetina:
         # Divide field into 8 azimuth bands and report mean hue in each
         az_bounds = np.linspace(-135, 135, 9)
         color_azimuth = {}
-        if not (skip_layers & SKIP_COLOR_AZIMUTH):
-            hue_deg = color_info["hue"]
-            for i in range(8):
-                band = (self.azimuth_deg >= az_bounds[i]) & (self.azimuth_deg < az_bounds[i + 1])
-                if band.any():
-                    _h = hue_deg[band]
-                    # Circular mean of hue in this band
-                    _sin = np.sin(np.deg2rad(_h)).mean()
-                    _cos = np.cos(np.deg2rad(_h)).mean()
-                    color_azimuth[f"hue_az{i}"] = float(np.rad2deg(np.arctan2(_sin, _cos)) % 360)
-                else:
-                    color_azimuth[f"hue_az{i}"] = 0.0
-        else:
-            for i in range(8):
+        hue_deg = color_info["hue"]
+        for i in range(8):
+            band = (self.azimuth_deg >= az_bounds[i]) & (self.azimuth_deg < az_bounds[i + 1])
+            if band.any():
+                _h = hue_deg[band]
+                # Circular mean of hue in this band
+                _sin = np.sin(np.deg2rad(_h)).mean()
+                _cos = np.cos(np.deg2rad(_h)).mean()
+                color_azimuth[f"hue_az{i}"] = float(np.rad2deg(np.arctan2(_sin, _cos)) % 360)
+            else:
                 color_azimuth[f"hue_az{i}"] = 0.0
 
         # ---- Edge orientation means ----
-        if skip_layers & SKIP_EDGE_ORIENT:
-            edges = {"edge_0": 0.0, "edge_45": 0.0, "edge_90": 0.0, "edge_135": 0.0}
-        else:
-            edges = self.edge_orientation(atlas)
+        edges = self.edge_orientation(atlas)
 
         # ---- 4-direction EMD from ON/OFF channels ----
         emd = self.compute_emd(on_off["on_channel"], on_off["off_channel"])
@@ -1056,51 +1016,12 @@ class SphericalRetina:
         # Read-only additive channel: new keys only, no old keys removed.
         hrc = self.compute_hrc(_per_cell_lum)
 
-        # ---- M1 fix: gate HRC by flow quality ----
-        # When flow quality is poor (static scene), the HRC correlator
-        # produces spurious direction signals from texture noise.  Attenuate
-        # HRC outputs proportionally to quality so they don't drive false
-        # motion discrimination during stillness.
-        if _flow_quality < 0.3:
-            _hrc_scale = _flow_quality / 0.3  # 0.0 → 1.0 quality scaling
-            for _k in ("hrc_right", "hrc_left", "hrc_up", "hrc_down",
-                       "hrc_asymmetry", "hrc_translation_x", "hrc_translation_y", "hrc_rotation"):
-                hrc[_k] *= _hrc_scale
-            # Also scale the looming population (keys starting with hrc_looming_)
-            for _lk in list(hrc.get("_looming", {}).keys()):
-                hrc["_looming"][_lk] *= _hrc_scale
-
-        # ---- Skip-layer: color encode ----
-        if skip_layers & SKIP_COLOR:
-            color_info = {
-                "r_channel": np.zeros_like(rgb[..., 0]),
-                "g_channel": np.zeros_like(rgb[..., 0]),
-                "b_channel": np.zeros_like(rgb[..., 0]),
-                "uv_appx": np.zeros_like(rgb[..., 0]),
-                "hue": np.zeros_like(rgb[..., 0]),
-                "saturation": np.zeros_like(rgb[..., 0]),
-                "value": np.zeros_like(rgb[..., 0]),
-                "opponent_rg": np.zeros_like(rgb[..., 0]),
-                "opponent_by": np.zeros_like(rgb[..., 0]),
-                "opponent_uvl": np.zeros_like(rgb[..., 0]),
-                "color_contrast": 0.0,
-                "rg_mean": 0.0,
-                "by_mean": 0.0,
-                "uvl_mean": 0.0,
-            }
-        else:
-            color_info = self.encode_color(atlas)
-
         # ---- Ground angle detection (cliff vs slope discrimination) ----
         # Analyze horizontal green gradient across elevation bands in lower field
         ground_angle = self._compute_ground_angle(rgb)
 
         # ---- Door frame detection from vertical edge pair spatial analysis ----
-        if skip_layers & SKIP_DOOR_FRAME:
-            door_frame_score = 0.0
-            opening_width = 0.0
-        else:
-            door_frame_score, opening_width = self._compute_door_frame(_per_cell_lum)
+        door_frame_score, opening_width = self._compute_door_frame(_per_cell_lum)
 
         # ---- Tau (time-to-contact) estimation from radial divergence ----
         # During approach, the optic flow field expands radially outward:
@@ -1214,7 +1135,20 @@ class SphericalRetina:
             terrain = "indoor"
 
         # ---- Small target detection (LPLC/LC11 equivalent) ----
-        if skip_layers & SKIP_SMALL_TARGETS:
+        # Inline fast-path: if motion energy is negligible, skip full computation
+        _me = on_off["on_channel"] + on_off["off_channel"]
+        if float(np.mean(_me)) >= 0.005:
+            targets = self.compute_small_targets(
+                on_off["on_channel"], on_off["off_channel"]
+            )
+            _target_count = targets["target_count"]
+            _target_centroids = targets["target_centroids"]
+            _target_sizes = targets["target_sizes"]
+            _target_energies = targets["target_energies"]
+            _target_directions = targets["target_directions"]
+            _fg_fraction = targets["fg_fraction"]
+            _max_target_energy = targets["max_target_energy"]
+        else:
             _target_count = 0
             _target_centroids = []
             _target_sizes = []
@@ -1222,28 +1156,6 @@ class SphericalRetina:
             _target_directions = []
             _fg_fraction = 0.0
             _max_target_energy = 0.0
-        else:
-            # Inline fast-path: if motion energy is negligible, skip full computation
-            _me = on_off["on_channel"] + on_off["off_channel"]
-            if float(np.mean(_me)) >= 0.005:
-                targets = self.compute_small_targets(
-                    on_off["on_channel"], on_off["off_channel"]
-                )
-                _target_count = targets["target_count"]
-                _target_centroids = targets["target_centroids"]
-                _target_sizes = targets["target_sizes"]
-                _target_energies = targets["target_energies"]
-                _target_directions = targets["target_directions"]
-                _fg_fraction = targets["fg_fraction"]
-                _max_target_energy = targets["max_target_energy"]
-            else:
-                _target_count = 0
-                _target_centroids = []
-                _target_sizes = []
-                _target_energies = []
-                _target_directions = []
-                _fg_fraction = 0.0
-                _max_target_energy = 0.0
 
         return {"tau": tau,
             "sectors": sectors,
@@ -1277,8 +1189,6 @@ class SphericalRetina:
             "on_raw": on_raw,
             "off_raw": off_raw,
             "sustained_raw": sustained_raw,
-            # Optic flow signal quality (M1 fix)
-            "flow_quality": round(_flow_quality, 4),
             # Edge orientation means
             "edge_0": edges["edge_0"],
             "edge_45": edges["edge_45"],

@@ -292,8 +292,11 @@ class TestCoachHelpSnapshot:
         snap = m.build_help_snapshot(
             "墙体 #abcd", {"x": 1.0, "y": 2.0, "z": 3.0},
             "interaction habituated", frame)
-        assert set(snap) == {"scene_name", "position", "diagnosis",
-                             "frame_b64", "help_reason", "ts"}
+        # v2.13: snapshot now also carries the GLM coach screenshot (forward
+        # face, screen_b64) alongside the raw cubemap frame.
+        assert {"scene_name", "position", "diagnosis",
+                "frame_b64", "help_reason", "ts"} <= set(snap)
+        assert "screen_b64" in snap, "coach screenshot field expected"
         assert snap["help_reason"] == "interaction_blocked"
         assert snap["scene_name"] == "墙体 #abcd"
         assert snap["position"] == {"x": 1.0, "y": 2.0, "z": 3.0}
