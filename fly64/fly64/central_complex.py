@@ -152,7 +152,7 @@ class CentralComplex:
         drive = np.exp(-dist * dist * 1.5).astype(np.float32)
         return drive / (drive.sum() + EPS)
 
-    def update(self, heading: float, heading_rate: float,
+    def update(self, heading: float | None, heading_rate: float,
                flow_asymmetry: float = 0.0,
                novelty: float = 0.5,
                novelty_direction: float = 0.0,
@@ -202,18 +202,25 @@ class CentralComplex:
 
         # External heading drive: WEAK correction (EVO R20 demoted from
         # primary drive — was the only bump mover before CX-1).
-        drive = self._heading_drive(heading) * 0.25
+        # EVO R20 tuning: game heading 0.10 < sky compass 0.12 — the fly's
+        # own visual compass outranks the game-provided value (brain-first).
+        # heading=None (game value unavailable) → no game drive at all:
+        # fully autonomous integration (sky compass still corrects).
+        drive = (self._heading_drive(heading) * 0.10
+                 if heading is not None else 0.0)
 
-        # Visual azimuth correction: even weaker (sky compass, when visible)
+        # Visual azimuth correction: sky compass, slightly stronger
         if visual_azimuth is not None:
-            drive = drive + self._heading_drive(visual_azimuth) * 0.10
+            drive = drive + self._heading_drive(visual_azimuth) * 0.12
 
-        # Ring attractor update (divisive normalisation)
+        # Ring attractor update (divisive normalisation).
+        # NOTE: drive weights above already include their gain — the legacy
+        # HEADING_DRIVE_WEIGHT multiplier is intentionally dropped here.
         raw = (
             self.compass * COMPASS_PERSISTENCE
             + local * LOCAL_EXCITATION
             - mean_activity * GLOBAL_INHIBITION
-            + drive * HEADING_DRIVE_WEIGHT
+            + drive
         )
         # Ensure non-negative; divisive normalisation.
         raw = np.maximum(raw, 0)
@@ -226,7 +233,10 @@ class CentralComplex:
         # ---- 2. Goal-direction update ----
         # The goal tracks where novelty signals suggest steering.
         # Convert novelty_direction into a desired goal column offset.
-        h_norm = heading % (2 * np.pi)
+        # EVO R20 (CX-1): use the CX's OWN heading estimate when the game
+        # heading is unavailable — goal tracking stays autonomous.
+        h_ref = heading if heading is not None else self.heading_estimate
+        h_norm = h_ref % (2 * np.pi)
         column_idx = int(h_norm / (2 * np.pi) * n) % n
 
         if abs(novelty_direction) > 0.1 or abs(novelty - 0.5) > 0.3:
