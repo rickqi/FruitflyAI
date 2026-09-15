@@ -1138,7 +1138,10 @@ let lastHelpB64 = '';
 // encoded image (PNG magic returned as-is) or a raw w*h*3 byte string, which
 // is painted through a canvas + toDataURL.  This is the conversion the coach
 // snapshot thumbnail needs (backend sends raw RGB, no PNG header).
-function snapshotDataUri(b64, w, h, label) {
+// flipY: the game-side screen capture is raw glReadPixels output, which is
+// bottom-up (the cubemap atlas path flips its rows, the screen path does not),
+// so the screen thumbnail needs an explicit vertical flip.
+function snapshotDataUri(b64, w, h, label, flipY) {
   try {
     const bin = atob(b64);
     const n = bin.length;
@@ -1151,13 +1154,18 @@ function snapshotDataUri(b64, w, h, label) {
     cv.width = w; cv.height = h;
     const ctx = cv.getContext('2d');
     const frame = ctx.createImageData(w, h);
-    for (let i = 0, j = 0; i < n; i += 3, j += 4) {
-      frame.data[j] = rgb[i]; frame.data[j + 1] = rgb[i + 1];
-      frame.data[j + 2] = rgb[i + 2]; frame.data[j + 3] = 255;
+    const rowBytes = w * 3;
+    for (let y = 0; y < h; y++) {
+      const srcRow = flipY ? (h - 1 - y) : y;
+      for (let x = 0; x < w; x++) {
+        const s = srcRow * rowBytes + x * 3, o = (y * w + x) * 4;
+        frame.data[o] = rgb[s]; frame.data[o + 1] = rgb[s + 1];
+        frame.data[o + 2] = rgb[s + 2]; frame.data[o + 3] = 255;
+      }
     }
     ctx.putImageData(frame, 0, 0);
     const img = $('helpFrame');
-    if (img) img.title = 'coach snapshot · ' + label + ' · ' + w + '×' + h;
+    if (img) img.title = 'coach snapshot · ' + label + ' · ' + w + '×' + h + (flipY ? ' · flipped' : '');
     return cv.toDataURL('image/png');
   } catch (error) { return ''; }
 }
@@ -1190,7 +1198,7 @@ export function renderHelpSnapshot(d) {
     // Prefixing them with data:image/png never decoded, which is why the
     // coach snapshot had no thumbnail.  screen_b64 (real game view showing
     // Mario) is preferred; the cubemap face is the fallback.
-    const src = d.screen_b64 ? snapshotDataUri(d.screen_b64, 320, 240, 'screen')
+    const src = d.screen_b64 ? snapshotDataUri(d.screen_b64, 320, 240, 'screen', true)
               : d.frame_b64 ? snapshotDataUri(d.frame_b64, 128, 128, 'cubemap face')
               : '';
     if (src && src !== lastHelpB64) {
