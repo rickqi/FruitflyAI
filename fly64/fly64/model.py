@@ -480,6 +480,7 @@ class FlyModel:
         self.reward_signal = 0.0
         self.movement_reward = 0.0  # EVO R11: displacement-based dopamine feedback
         self._pending_dopamine = 0.0  # EVO R13: external setback pulses (PPL1-like)
+        self._success_pulse_floor = 0.0  # M3.2: success-tick dopamine floor
         self._prev_stuck_duration = 0.0
         self._cumulative_reward = 0.0
         # Local motion detection: moving objects when Mario is stationary
@@ -783,9 +784,16 @@ class FlyModel:
 
         MBON columns 5..8 (punch/dive/groundpound/longjump) learn which
         contexts pay off for each primitive (Bennett-style RPE shaping).
+
+        M3.2 fix: a success pulse sets ``_success_pulse_floor`` so the
+        completion tick's total dopamine is floored at +0.2 — concurrent
+        behavioral setbacks (ramp/door) were swamping the +0.6 one-shot and
+        netting the tick negative, suppressing the very association the
+        primitive column needs to learn.
         """
         if success:
             self._pending_dopamine += 0.6    # rewarding pulse
+            self._success_pulse_floor = 0.2
         else:
             self.add_setback(0.4)            # aversive pulse
         self._last_primitive_outcome = (primitive, bool(success))
@@ -1402,6 +1410,12 @@ class FlyModel:
         _pending = getattr(self, "_pending_dopamine", 0.0)
         dop = max(-1.0, min(1.0, _behavioral_dop + _reward_contrib + _pending))
         self._pending_dopamine = 0.0
+        # M3.2 fix: a primitive success this tick floors the total dopamine —
+        # the completion must never be learned as negative just because a
+        # behavioral setback coincided with it.
+        if getattr(self, "_success_pulse_floor", 0.0) > 0.0:
+            dop = max(dop, self._success_pulse_floor)
+            self._success_pulse_floor = 0.0
         try:
             self.mushroom.set_dopamine(dop)
             n_syn = self.mushroom.update_weights()
