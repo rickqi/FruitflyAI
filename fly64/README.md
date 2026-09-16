@@ -328,7 +328,7 @@ cat runtime/phase2_gate.json      # 连续稳定 ≥12h 后由 scripts/phase2_ga
 | 组件 | 说明 |
 |------|------|
 | `skills/evolution_skill.py` | **EVO v3.0.0**：Monitor→Diagnose→Fix→Verify→Document 五阶段闭环 + 常驻循环 + pattern 匹配 + fix 效果量化 + **`EvolutionHistory` 进化记录器**（脑模型版本变化自动补录 + fix/verification 记录 + `--history-check` 强制校验） |
-| `skills/default_patterns.json` | pattern 目录（13 条，JSON Schema draft-07 校验），含 `telemetry_gap` 遥测自诊断 |
+| `skills/default_patterns.json` | pattern 目录（15 条，JSON Schema draft-07 校验），含 `telemetry_gap` 遥测自诊断与运动原语 `primitive_timeout`/`primitive_zero_disp` |
 | `skills/fix_catalog.json` · `skills/evolution_log.jsonl` | 修复条目（基线/结果/effective 判定）与逐轮执行日志 |
 | `skills/evolution_history.json` | **进化权威记录**：R1→R21 全部轮次的结构化档案（版本/时间/触发/变更/测试/来源，32 条），agent.md 规则 15 强制契约的数据载体 |
 | `skills/neural_viz_skill.py` | 离线因果链路分析技能（cliff 误报/门控抖动/preempt 风暴/信号→行动延迟检测 + Markdown 报告） |
@@ -781,7 +781,7 @@ EvolutionSkill 具备**自我更新迭代**能力，七步循环已制度化：
 | 阶段 | 组件 | 行为 |
 |------|------|------|
 | ① Monitor | `DataCollector` | 轮询 `/bridge-status.json`、`/memory.json`、`/flow.json`、`/events.json` 等端点，维护 120s 滚动窗口（位置/控制/stuck/覆盖率） |
-| ② Diagnose | `DiagnosisEngine` + `PatternCatalog` | 按 `default_patterns.json` 的 **13 条 pattern** 逐条匹配（JSON Schema draft-07 校验），条件字段缺失时**主动生成 `telemetry_gap` finding**（不再静默失效） |
+| ② Diagnose | `DiagnosisEngine` + `PatternCatalog` | 按 `default_patterns.json` 的 **15 条 pattern** 逐条匹配（JSON Schema draft-07 校验），条件字段缺失时**主动生成 `telemetry_gap` finding**（不再静默失效） |
 | ③ Fix | `FixCatalog` | 记录版本化修复条目（`fix_NNNN`，含基线 stuck/coverage、诊断原文、fix_template、目标文件），落盘 `skills/fix_catalog.json` |
 | ④ Verify | `VerificationEngine` | 修复后 60s 观察窗，量化 effectiveness score（stuck 降幅 0.7 + 覆盖率增幅 0.3），≥0.3 判有效；判定无效即回滚候选 |
 | ⑤ Document | `SelfDocumenter` | 自动重写 `skills/README.md`（metrics/pattern 目录/fix 历史/最近周期摘要），并追加 `skills/evolution_log.jsonl` |
@@ -852,8 +852,51 @@ python3 fly64/skills/evolution_skill.py --history-check
 | 21 | 2.13.2 | GLM 教练显式读屏 `what_i_see`（prompt 指令 + 解析 + advice "👁 屏幕"行全链路）| 无法验证教练是否真在看屏幕；屏幕文字语义丢失 |
 | 21 | 2.13.3 | consult 帧留存 `runtime/coach_frames/`（PNG 魔数校验）+ Coach Help 面板缩略图 + `/coach_frames` 端点 | 回溯无法知道教练当时看到了什么画面 |
 | 21 | 2.13.3 | coach strategy visibility：memory_json 补 `scene_name` 键 + 面板渲染 fallen_recovery mode/climb_period/persist_seconds | runner 读 scene_name 但 memory_json 只有 scene_label；策略细节不可见 |
+| 22 | 2.14.0 | **运动扩展 Phase 1**：桥接 Z 触发解锁（`Z_TRIG` 全链路 + b/z 脉冲事件计数，extension 区双向兼容）+ 解锁拳击/俯冲/砸地/长跳/后空翻/爬行的物理通路 | ramp_trap 逃逸 0u、B/Z 动作不可控 |
+| 23 | 2.15.0 | **运动扩展 Phase 2**：VNC 式 CPG 运动原语层（`motor_primitives.py`，级联优先级 4.5）+ pose 状态机 + `decision_source=cpg_primitive:<name>` 归因 + 2s 超时熔断 | 斜坡逃逸仅靠神经电流无大位移脱困手段 |
+| 24 | 2.16.0 | **运动扩展 Phase 3**：strike/crouch 双 20 神经元解码池（motor_splits 4→6 段）+ MBON 5→9 列（原语成败多巴胺塑形）+ `set_cpg_gate()` 电流注入（无旁路） | 新动作原语缺乏神经读出与联想学习 |
+| 24 | 2.16.0 | **运动扩展 Phase 4/5**：监控 4 处必改（strike/crouch 曲线、cpg_primitive 归因、primitive_disp/cpg_status 遥测）+ EVO `primitive_timeout`/`primitive_zero_disp` pattern + evolution_skill 惰性种子修复（跨文件版本污染）+ R21 热修回写仓库补丁（新鲜 checkout 可复现） | 新能力不可观测、EVO 无法量化原语效果 |
 
 Round 4/5 正是**能力边界判定的实战示范**：钥匙门的"行为层"问题（反复撞门）属内生能力群 → skill 自己进化出双区检测+习惯化解决；而"语义层"问题（文字内容不可读、需要钥匙的任务理解）超出内生边界 → 走 SEEK-HELP 向教官层求助（Phase 4）。
+
+## 🦾 运动原语扩展（Motor Expansion，Brain v2.14.0 → v2.16.0）
+
+以果蝇 MaleCNS 运动控制文献为蓝本（flyGNN 低维读出、VNC CPG 分布式控制、MB 多巴胺塑形——详见 `docs/analysis/motor-expansion/`）扩展马里奥可控运动能力。
+
+### 可控动作词汇（扩展后 12+ 原语）
+
+| 原语 | 按键时序 | 触发门控（复用既有信号） | 状态 |
+|:---|:---|:---|:---|
+| 行走/转向/跳跃/后退 | 摇杆 + A（神经解码 4 池） | 既有六级级联 | ✅ 一直有 |
+| **长跳 longjump** | 跑动中 Z→A（CPG 相位脚本） | `ramp_score/ground_angle` + `stuck>3s` + 前进中 | ✅ v2.15.0 |
+| **后空翻 backflip** | 蹲 Z→A | `fallen`（复用 escape_jump_drive） | ✅ v2.15.0 |
+| **落地砸 groundpound** | 空中 Z | AIRBORNE + `cliff_confirmed` | ✅ v2.15.0 |
+| 拳击 punch / 俯冲 dive / 游泳 swim / 爬行 crawl | B 脉冲 / B+前向 / A 节律 / Z+慢速 | 交互目标 / 小目标锁定 / 水面 / 低净空 | 🔜 已实现未启用 |
+| 踢墙跳 / 侧空翻 | 贴墙时机 A / 转向反转+A | WALL 态（需精化） | 📋 计划中 |
+
+### 分层架构（文献思路落地）
+
+```
+LIF 脑模型（门控/读出） ──────────┐
+MemoryController（stuck/fallen/cliff）┼→ 级联优先级 4.5：CPGController
+pose 状态机（grounded/airborne）────┘   （脑发门控，相位脚本出按键时序）
+        │ strike/crouch 池 ← set_cpg_gate() LIF 电流注入（P1 无旁路 PIN 合规）
+        └ MBON 5→9 列：原语成败 → 多巴胺 → KC→MBON 可塑（场景-动作联想）
+桥接层：stick + A/B/Z 脉冲事件（extension 区，mmap 版本不变，双向兼容）
+```
+
+### 实机验收（WSL，2026-09-16）
+
+| 指标 | 基线（README 历史） | 实测 |
+|:---|:---|:---|
+| stuck_ramp 逃逸位移 | **0u**（5 次事件） | **disp_60s 最高 3797u** |
+| 长跳执行 | 不可控 | 485 次完成 / 0 超时熔断 |
+| 归因 | — | `decision_source=cpg_primitive:longjump` 实时可见 |
+| stuck 时序 | 单调增长 100s+ | 周期性复位（门控自愈） |
+
+监控：jump 图表自动叠加 strike/crouch 曲线、因果卡 CPG PRIMITIVE 行、`/flow.json` 新增 `primitive_disp`/`cpg_status`/`mb_mbon_{punch,dive,groundpound,longjump}`。EVO 收编 `primitive_timeout`/`primitive_zero_disp` pattern（13→15 条）。
+
+**已知边界**：语义场景（拿钥匙开门）仍需教官层；原语门控当前为规则式，MBON 列学习效果待 A/B 评估后才接入门控闭环。
 
 ### 完整进化历史档案
 
