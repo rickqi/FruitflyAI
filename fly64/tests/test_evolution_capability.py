@@ -211,8 +211,13 @@ class TestSceneNamingCapability:
 # ── 5. pipeline end-to-end closed loop ───────────────────────────────
 
 class TestClosedLoop:
-    def test_pipeline_completes_cycle(self):
-        pipe = EvolutionPipeline(auto_fix=False, window_seconds=120)
+    def test_pipeline_completes_cycle(self, tmp_path):
+        # Isolation: point every persistent path at tmp so the cycle never
+        # writes the repo's runtime files (fix_catalog/history/log).
+        pipe = EvolutionPipeline(auto_fix=False, window_seconds=120,
+                                 fix_catalog_path=tmp_path / "fix_catalog.json",
+                                 readme_path=tmp_path / "README.md",
+                                 history_path=tmp_path / "evolution_history.json")
         res = pipe.run_one_cycle()
         assert hasattr(res, "findings")
         assert isinstance(res.findings, list)

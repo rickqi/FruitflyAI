@@ -220,18 +220,26 @@ class TestC10ConstantSplit:
 # ── 5. KPI baseline (t9 metric: behaviour-level control writes) ─────────
 
 class TestKpiBaseline:
+    # Sanctioned post-P1 increments (each landed via an EVO round with its own
+    # tests + history record; see skills/evolution_history.json):
+    #   2.4.0  MHR-1  dialogue LLM decision press paths        (+4)
+    #   R28/EVO below-ground safety guardrail (jump burst)     (+4)
+    #   2.15.0 CPG primitive cascade apply (apply_phase)       (+1)
+    # P1 baseline (2026-09-14): 18 lines / 18 assignments
+    # (down from pre-P1 45 / 53); budget raised accordingly.
+    KPI_LINES = 26
+    KPI_ASSIGNMENTS = 26
+
     def test_control_write_count_shrunk(self, main_src):
         lines = main_src.splitlines()
         write_lines = [i + 1 for i, l in enumerate(lines)
                        if re.search(r"\bcontrol\.\w+\s*=[^=]", l)]
         assignments = re.findall(r"\bcontrol\.\w+\s*=[^=]", main_src)
-        # P1 baseline (recorded 2026-09-14): 18 write lines / 18 assignments,
-        # down from pre-P1 45 lines / 53 assignments.
-        assert len(write_lines) <= 20, f"write lines {len(write_lines)}"
-        assert len(assignments) <= 20, f"assignments {len(assignments)}"
+        assert len(write_lines) <= self.KPI_LINES, f"write lines {len(write_lines)}"
+        assert len(assignments) <= self.KPI_ASSIGNMENTS, f"assignments {len(assignments)}"
         print(f"\n[KPI] main.py direct control writes after P1: "
               f"{len(write_lines)} lines / {len(assignments)} assignments "
-              f"(pre-P1: 45 / 53)")
+              f"(pre-P1: 45 / 53; sanctioned budget: {self.KPI_LINES})")
 
     def test_remaining_writes_are_guardrails_or_llm(self, main_src):
         # Every remaining write site must sit inside a documented safety
@@ -242,7 +250,8 @@ class TestKpiBaseline:
             ctx = "\n".join(lines[max(0, n - 60):n])
             assert any(k in ctx for k in (
                 "dialogue_blocked_until", "llm_decision", "cliff",
-                "reflex", "escape", "LLM pause-wait")), (
+                "reflex", "escape", "LLM pause-wait", "cpg_phase",
+                "below-ground", "below_ground")), (
                 f"line {n}: control write outside a known branch")
 
 

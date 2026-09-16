@@ -1315,7 +1315,8 @@ class BrainMutator:
 class EvolutionPipeline:
     def __init__(self, auto_fix: bool = False, window_seconds: int = 120,
                  verification_window: int = 60, patterns_path: Optional[Path] = None,
-                 fix_catalog_path: Path = FIX_CATALOG_PATH, readme_path: Path = SKILL_README_PATH):
+                 fix_catalog_path: Path = FIX_CATALOG_PATH, readme_path: Path = SKILL_README_PATH,
+                 history_path: Path = EVOLUTION_HISTORY_PATH):
         self.auto_fix = auto_fix
         self.collector = DataCollector(window_seconds=window_seconds)
         self.pattern_catalog = PatternCatalog(path=patterns_path)
@@ -1323,7 +1324,7 @@ class EvolutionPipeline:
         self.fix_catalog = FixCatalog(path=fix_catalog_path)
         self.verification_engine = VerificationEngine(self.collector, self.fix_catalog, window=verification_window)
         self.documenter = SelfDocumenter(self.fix_catalog, readme_path, pattern_catalog=self.pattern_catalog)
-        self.history = EvolutionHistory()
+        self.history = EvolutionHistory(path=history_path)
         # Lazy seed: _last_brain_version is resolved from the *current*
         # self.history at first check, not captured here — the pipeline may
         # have its history object replaced after construction (tests, tmp

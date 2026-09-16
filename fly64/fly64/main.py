@@ -35,7 +35,7 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.16.0"  # Phase 3 motor expansion: strike/crouch pools + MBON 9 columns
+BRAIN_VERSION = "2.17.0"  # M1.1 debt cleanup: fix_catalog repair + write-KPI budget
 SKILL_VERSION = "3.0.0"   # must mirror fly64/skills/evolution_skill.py SKILL_VERSION
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
@@ -1253,6 +1253,9 @@ async def run(args) -> None:
                              or getattr(model, "ground_angle", 0.0) > 0.3)
                 if (_cpg_ramp and memory_ctrl.stuck_duration > 3.0
                         and control.y > 40):
+                    cpg.request(tick_start, Primitive.LONG_JUMP)
+                elif (memory_ctrl.fallen and memory_ctrl.stuck_duration > 60
+                      and control.y > 40):
                     cpg.request(tick_start, Primitive.LONG_JUMP)
                 elif memory_ctrl.fallen:
                     cpg.request(tick_start, Primitive.BACKFLIP)
