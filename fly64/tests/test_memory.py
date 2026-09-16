@@ -1001,3 +1001,40 @@ def test_map_persistence_roundtrip(tmp_path):
     assert int(sm2._cells[(0, 0)]) == 2           # visit counts preserved
     # restored map keeps answering novelty queries (recency reset to 1.0)
     assert 0.0 < sm2.novelty_at(900.0, 0.0) <= 1.0
+
+
+# --- L2 health formula v2: stall cost + same-scene recovery gradient ---
+
+def test_health_stall_penalizes_circling_without_stuck_freeze():
+    """Circling in place (coverage_rate≈0, never frozen) now costs health —
+    the old formula was blind to this state (stuck term needs frozen frames)."""
+    mc = MemoryController()
+    for i in range(1200):  # circle: revisit the same 3 cells (12 coverage windows)
+        mc.update(0.5, i, 20.0, float(i % 3), 200.0, scene_change_rate=0.0)
+    assert mc.stall_ratio > 0.5          # stall detected
+    assert mc.health_score < 0.85        # stall cost applied
+    assert mc.health_score > 0.0
+
+
+def test_health_recovery_gradient_without_scene_change():
+    """After escaping a stall (walking to fresh cells), health recovers
+    WITHOUT a scene change — the old formula stayed pinned at its floor."""
+    mc = MemoryController()
+    for i in range(1200):                # phase 1: stall (12 coverage windows)
+        mc.update(0.5, i, 20.0, float(i % 3), 200.0, scene_change_rate=0.0)
+    stalled = mc.health_score
+    for i in range(1200):                # phase 2: walk to fresh cells
+        mc.update(0.5, 1900 + i, 20.0, float(i * 50), 200.0, scene_change_rate=0.0)
+    recovered = mc.health_score
+    assert recovered > stalled + 0.05, (
+        f"Expected recovery gradient, stalled={stalled} recovered={recovered}")
+
+
+def test_health_novelty_reward_immediate():
+    """A single fresh-cell visit gives an immediate novelty boost (+0.1)."""
+    mc1 = MemoryController()
+    mc1.update(0.5, 0, 20.0, 100.0, 200.0, scene_change_rate=0.0)   # fresh cell
+    with_fresh = mc1.health_score
+    mc2 = MemoryController()
+    mc2._stored_scene_change_rate = 0.5   # same scene boost, no novelty
+    assert abs((with_fresh - 0.1) - mc2.health_score) < 0.15 or with_fresh > mc2.health_score

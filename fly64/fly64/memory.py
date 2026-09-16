@@ -625,6 +625,14 @@ class SpatialMemoryMap:
         pct_per_tick = (last_pct - first_pct) / delta_ticks
         return round(pct_per_tick * 1000, 4)  # per 1000 ticks
 
+    @property
+    def coverage_stalled(self) -> bool | None:
+        """``None`` while the coverage history warms up (<10 windows), else
+        True when coverage_rate ≈ 0 (no new cells visited recently)."""
+        if len(self._coverage_history) < 10:
+            return None
+        return self.coverage_rate < 0.01
+
     def recent_path(self, n: int = 80) -> list[dict]:
         """Last *n* distinct cell centres actually walked through (oldest first).
 
@@ -1618,6 +1626,9 @@ class MemoryController:
 
         # Health-scoring state
         self._stored_scene_change_rate: float = 0.0
+        # EVO L2: exploration-stall tracking for health scoring — rolling
+        # window of "coverage_rate ≈ 0" flags (600 ticks ≈ 12 s at 50 Hz).
+        self._stall_flags: deque = deque(maxlen=600)
 
     def update(self, temporal_energy: float, frame_seq: int,
                forward_rate: float, x: float, z: float,
@@ -1650,6 +1661,10 @@ class MemoryController:
 
         # Store scene_change_rate for health scoring
         self._stored_scene_change_rate = scene_change_rate
+        # EVO L2: exploration-stall flag for the health formula
+        stalled = self.spatial.coverage_stalled
+        if stalled is not None:
+            self._stall_flags.append(stalled)
 
         # Update motion anomaly detector
         anomaly_result = self.anomaly.update(
@@ -1815,17 +1830,28 @@ class MemoryController:
 
     @property
     def health_score(self) -> float:
-        """Health score in [0, 1] based on revisit penalty, stuck duration, and scene change rate.
+        """Health score in [0, 1] — navigation-quality self assessment.
 
-        ``health_score = 1.0 - revisit_penalty*0.4 - min(stuck_duration/300, 0.3) + scene_change_rate*0.2``
+        ``health = 1.0
+                   - revisit_penalty * 0.35             # scene familiarity
+                   - min(stuck_duration/300, 0.3)       # stuck duration (capped)
+                   - stall_ratio * 0.25                 # exploration stall (L2)
+                   + scene_change_rate * 0.2            # scene change boost
+                   + novelty * 0.1                      # immediate novelty (L2)``
 
-        Values near 1.0 = healthy exploration, near 0.0 = critically stuck/overtraveled.
+        v2 (EVO L2): the old formula saturated at a sticky 0.5 floor and could
+        not reflect recovery without a scene change.  The stall term now
+        penalises circling-without-progress (coverage_rate ≈ 0), and the
+        novelty term rewards escaping a loop even inside the same scene —
+        giving health a recovery gradient.
         """
-        revisit_cost = self.revisit_penalty * 0.4
+        revisit_cost = self.revisit_penalty * 0.35
         stuck_cost = min(self._stuck_duration / 300.0, 0.3)
+        stall_cost = self.stall_ratio * 0.25
         scene_boost = self._stored_scene_change_rate * 0.2
+        novelty_boost = self._novelty * 0.1
         return round(max(0.0, min(1.0,
-            1.0 - revisit_cost - stuck_cost + scene_boost
+            1.0 - revisit_cost - stuck_cost - stall_cost + scene_boost + novelty_boost
         )), 4)
 
     @property
@@ -1853,6 +1879,17 @@ class MemoryController:
     def dead_end_count(self) -> int:
         """Number of recorded (cell, heading) dead-end pairs."""
         return self.failures.dead_end_count
+
+    @property
+    def stall_ratio(self) -> float:
+        """Fraction of recent ticks with coverage_rate ≈ 0 (0–1).
+
+        0 = exploring new ground; 1 = coverage fully stalled (circling).
+        Returns 0 during the warm-up window so startup doesn't read as stall.
+        """
+        if len(self._stall_flags) < 200:
+            return 0.0
+        return sum(self._stall_flags) / len(self._stall_flags)
 
     @property
     def dead_end_cells(self) -> set[tuple[int, int]]:

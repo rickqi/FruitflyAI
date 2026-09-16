@@ -1569,6 +1569,7 @@ async def run(args) -> None:
                     "scene_name": _scene_name(model, memory_ctrl, scene_recognizer),
                     # Health scoring
                     "health_score": round(memory_ctrl.health_score, 4),
+                    "stall_ratio": round(memory_ctrl.stall_ratio, 3),
                 }, separators=(",", ":")).encode()
                 DashboardHTTP.flow_json = json.dumps({
                     "asymmetry": round(model.flow_asymmetry, 4),
