@@ -1837,11 +1837,14 @@ class MemoryController:
         # anomaly_override can re-activate it.
         # t23 fix①: cooldown 1800s → 60s, and a NEW anomaly activation
         # immediately clears the cooldown — a fresh anomaly is fresh
-        # evidence, the old release must not mute it.
+        # evidence, the old release must not mute it.  The activation clock
+        # also restarts so the fresh escape isn't instantly re-released by
+        # the stale _escape_s.
         if _release_escape:
             self._escape_released_at = _now
         if anomaly_override and not getattr(self, "_prev_anomaly_override", False):
             self._escape_released_at = 0.0
+            self._escape_activated_at = _now
         self._prev_anomaly_override = anomaly_override
         _released_recently = _now - self._escape_released_at < 60.0
 

@@ -36,8 +36,8 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.19.1"  # R31-fix: success-tick dopamine floor (primitive learning)
-SKILL_VERSION = "3.1.0"   # primitive scoring + history isolation (must mirror evolution_skill)
+BRAIN_VERSION = "2.19.2"  # t23: escape release lockup triple fix (cooldown 60s / fallen bypass / stuck decouple)
+SKILL_VERSION = "3.1.1"   # primitive scoring + history isolation (must mirror evolution_skill)
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
 _evo_iter_counter = 0

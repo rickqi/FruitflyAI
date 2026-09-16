@@ -96,6 +96,21 @@ setsid nohup env FLY64_BRIDGE=/tmp/f64b_traj \
 
 # 变更日志
 
+## 2026-09-15: t23 逃逸释放锁死三合一修复 — Brain v2.19.2
+
+**触发**：幽灵公馆场景 fallen→escape 被释放冷却锁死 30 分钟，loop_score 饱和不回落，突围失败。
+
+**三重根因与修复**（memory.py）：
+1. **冷却 1800s→60s**：`_released_recently` 阈值下调；且**新异常激活（anomaly_override 上升沿）立即重置 `_escape_released_at=0` 并重启 `_escape_activated_at`**——新鲜证据不被旧释放冷却消音（否则 fresh escape 会被残留 `_escape_s>60` 瞬间再释放，实测发现）。
+2. **fallen 越过冷却闸门**：`_fallen` 移到 `(not _release_escape and not _released_recently)` 括号外侧 OR——坠落恢复是生存刚需，冷却永不阻断。
+3. **stuck_score 去 fallen 钉死**：`StuckDetector` 删除 `max(..., 1.0 if fallen)`（update 与 property 两处）——fallen 不再把 stuck_score 钉在 1.0，位移恢复后分数正常回落，loop_score 随之解除饱和。
+
+**回归**：新增 `tests/test_escape_release.py` 7 用例（FakeClock 快进冷却；fallen 即刻逃逸；释放后 fallen 越过闸门仍逃逸；60s 冷却过期恢复；+19s 新异常立即恢复；stuck_score 位移回落不钉死；端到端 stuck_score 归零）。测试隔离：替换 `mem.time` 模块引用防其他用例泄漏的 time.monotonic 污染。全量与 HEAD worktree 基线失败集一致，零新增。
+
+**版本**：Brain 2.19.1→**2.19.2**（SKILL 3.1.1 镜像不变）；skills.md 当前版本行同步。
+
+---
+
 ## 2026-09-15: t22 轨迹 3D 高度可视化（纯前端 trajectory.html，不 bump 版本）
 
 **变更**（全部在 web/ 端）：

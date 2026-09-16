@@ -12,6 +12,7 @@ cooldown without sleeping.
 from __future__ import annotations
 
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -38,7 +39,10 @@ class FakeClock:
 
 def make_controller(clock):
     mc = MemoryController()
-    mem.time.monotonic = clock
+    # Replace the whole module-level time reference (not just monotonic on
+    # the shared stdlib module) so leaked fakes from other test files can
+    # never skew the cooldown arithmetic.
+    mem.time = types.SimpleNamespace(monotonic=clock)
     return mc
 
 
@@ -61,12 +65,18 @@ def tick_normal(mc, clock, n=2, x=0.0, z=0.0):
     return out
 
 
-def oscillate(mc, clock, n=10):
-    """Drive control.x oscillation — activates the 'oscillating' anomaly."""
+def oscillate(mc, clock, n=40):
+    """Drive control.x oscillation — activates the 'oscillating' anomaly.
+
+    n=40 flushes the detector's 30-sample majority window with oscillating
+    votes so the state becomes active.
+    """
     out = None
+    seq = 2000
     for i in range(n):
         clock.advance(0.02)
-        out = mc.update(temporal_energy=0.5, frame_seq=2000 + i,
+        seq += 1
+        out = mc.update(temporal_energy=0.5, frame_seq=seq,
                         forward_rate=30.0, x=0.0, z=0.0, pos_y=50.0,
                         control_x=60 if i % 2 == 0 else -60)
     return out
@@ -104,7 +114,8 @@ class TestCooldownFix:
         out = tick_normal(mc, clock)          # fallen gone; cooldown blocks
         assert out[3] is False                # still inside 60s cooldown
         clock.t += 61.0                       # 60s cooldown expired
-        out = tick_normal(mc, clock, wall_score=0.9)  # anomaly re-activates
+        out = oscillate(mc, clock)            # anomaly re-activates
+        assert mc.anomaly.active
         assert out[3] is True                 # recoverable after 60s (was 1800s)
 
     def test_new_anomaly_clears_cooldown_immediately(self, clock):
@@ -117,7 +128,7 @@ class TestCooldownFix:
         clock.t += 2.0
         tick_normal(mc, clock)                # fallen gone -> cooldown pause
         clock.t += 17.0                       # only +19s since release
-        out = tick_normal(mc, clock, wall_score=0.9)  # fresh anomaly
+        out = oscillate(mc, clock)            # fresh anomaly
         assert mc.anomaly.active
         assert out[3] is True                 # immediate recovery (fix①)
 
