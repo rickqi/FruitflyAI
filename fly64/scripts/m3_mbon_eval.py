@@ -92,11 +92,16 @@ def analyse(csv_path: str) -> None:
                f"zero_n={len(zero):3d} mean={_mean(zero):+.3f} | " \
                f"abort_n={len(fail):3d} mean={_mean(fail):+.3f}"
         print(line)
-        # direction check: success mean should exceed failure mean
-        if suc and (fail or zero):
-            ref = _mean(fail) if fail else _mean(zero)
-            if _mean(suc) <= ref:
-                ok = False
+        # direction check: success mean should exceed failure/zero mean,
+        # and we need enough samples on both sides to say anything.
+        if len(suc) < 5 or not (fail or zero):
+            print(f"  -> INCONCLUSIVE (need >=5 successes and >=1 failure/zero sample)")
+            ok = False
+            continue
+        ref = _mean(fail) if fail else _mean(zero)
+        if _mean(suc) <= ref:
+            ok = False
+            print(f"  -> WRONG DIRECTION (success { _mean(suc):+.3f} <= ref {ref:+.3f})")
     verdict = "PASS: columns rise on success vs failure (RPE direction correct)" if ok \
         else "INCONCLUSIVE/WRONG DIRECTION: inspect dopamine sign path in add_primitive_outcome"
     print(verdict)

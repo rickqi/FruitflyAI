@@ -1364,8 +1364,22 @@ async def run(args) -> None:
                 model.set_cpg_gate(0.0, 0.0)
                 if cpg.completed > _cpg_last_completed:
                     model.add_primitive_outcome(cpg.last_primitive, True)
+                    # M3.3/S2: record a completion event (distance filled by
+                    # the next memory update cycle; escape table renders it).
+                    escape_buffer.start_event(
+                        tick_start, f"cpg_{cpg.last_primitive}",
+                        pose_ev[0] if len(pose_ev) > 0 else 0.0,
+                        pose_ev[2] if len(pose_ev) > 2 else 0.0)
+                    escape_buffer.resolve_current(
+                        float(getattr(memory_ctrl, "disp_60s", 0) or 0))
                 elif cpg.aborted > _cpg_last_aborted:
                     model.add_primitive_outcome(cpg.last_primitive, False)
+                    escape_buffer.start_event(
+                        tick_start, f"cpg_abort_{cpg.last_primitive}",
+                        pose_ev[0] if len(pose_ev) > 0 else 0.0,
+                        pose_ev[2] if len(pose_ev) > 2 else 0.0)
+                    escape_buffer.resolve_current(
+                        float(getattr(memory_ctrl, "disp_60s", 0) or 0))
             _cpg_last_completed, _cpg_last_aborted = cpg.completed, cpg.aborted
             bridge.write_control(control.x, control.y, control.jump,
                                  b=getattr(control, "b", False),

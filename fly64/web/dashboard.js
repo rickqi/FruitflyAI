@@ -480,6 +480,11 @@ function drawTimeline() {
   ctx.stroke();
   ctx.fillStyle = GOLD;
   for (const r of rows) if (r.t >= t0 && r.jump_event) ctx.fillRect(X(r.t) - 1, lanes[3][0] + 2, 2, 5);
+  // S1 (motor expansion): B (purple) / Z (green) action ticks on the action lane
+  ctx.fillStyle = PURPLE;
+  for (const r of rows) if (r.t >= t0 && r.ctrl_b) ctx.fillRect(X(r.t) - 1, lanes[3][0] + 8, 2, 4);
+  ctx.fillStyle = GREEN;
+  for (const r of rows) if (r.t >= t0 && r.ctrl_z) ctx.fillRect(X(r.t) - 1, lanes[3][0] + 13, 2, 4);
   // Replay cursor
   if (replayRow && replayRow.t >= t0) {
     ctx.strokeStyle = PURPLE; ctx.setLineDash([3, 3]);
@@ -783,6 +788,14 @@ async function fetchEscapeEvents() {
 
 const escapeReasonLabels = { stuck: 'Stuck', fallen: 'Fall', flow: 'Flow', cliff: 'Cliff' };
 const escapeReasonClasses = { stuck: 'reason-stuck', fallen: 'reason-fallen', flow: 'reason-flow', cliff: 'reason-cliff' };
+// S2 (motor expansion): CPG primitive completion/abort events
+function escapeReasonInfo(reason) {
+  if (typeof reason === 'string' && reason.startsWith('cpg_abort_'))
+    return { label: 'CPG✗ ' + reason.slice('cpg_abort_'.length), cls: 'reason-cliff' };
+  if (typeof reason === 'string' && reason.startsWith('cpg_'))
+    return { label: 'CPG✓ ' + reason.slice('cpg_'.length), cls: 'reason-flow' };
+  return { label: escapeReasonLabels[reason] || reason, cls: escapeReasonClasses[reason] || '' };
+}
 
 function renderEscapeTable(data) {
   const tbody = $('escapeBody');
@@ -802,8 +815,9 @@ function renderEscapeTable(data) {
   let html = '';
   const reversed = [...events].reverse().slice(0, 50);
   for (const ev of reversed) {
-    const reasonClass = escapeReasonClasses[ev.reason] || '';
-    const reasonLabel = escapeReasonLabels[ev.reason] || ev.reason;
+    const info = escapeReasonInfo(ev.reason);
+    const reasonClass = info.cls;
+    const reasonLabel = info.label;
     const dur = ev.duration !== undefined ? ev.duration.toFixed(1) + 's' : '—';
     const dist = ev.distance_moved !== undefined ? ev.distance_moved.toFixed(0) + 'u' : '—';
     const time = ev.timestamp !== undefined ? ev.timestamp.toFixed(1) + 's' : '—';
@@ -1317,6 +1331,11 @@ async function updateCoachStrategy() {
       row('persist_seconds', fr.persist_seconds != null ? fr.persist_seconds : '—', 's'),
     );
     if (dd) rows.push(row('dialogue_decision', dd.action + (dd.timed_out ? ' (timeout→A)' : ''), dd.reason || ''));
+    // M2.1: surface the CPG primitive strategy (whitelist + scene prefer)
+    const prim = d.primitives || {};
+    if (Array.isArray(prim.enabled)) rows.push(row('primitives', prim.enabled.join(', ') || 'none', 'whitelist'));
+    if (prim.prefer && Object.keys(prim.prefer).length)
+      rows.push(row('primitive_prefer', Object.entries(prim.prefer).map(([k, v]) => k + '→' + v).join(', '), ''));
     if (d.advice_ts) rows.push('<span class="note-stat muted">last write ' + new Date(d.advice_ts * 1000).toLocaleTimeString() + '</span>');
     fields.innerHTML = rows.join('');
     const src = $('strategySourceLabel');
