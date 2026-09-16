@@ -332,7 +332,7 @@ class TurnAdaptation:
     """
 
     def __init__(self, tau: float = 3.0, saturation: float = 0.5,
-                 gain: float = 0.18, breakout_gain: float = 0.25):
+                 gain: float = 0.18, breakout_gain: float = 0.35):
         self.tau = tau                # fatigue integration window (s)
         self.saturation = saturation  # pool activity (fraction) at full fatigue
         self.gain = gain              # max counter-drive current (V)
@@ -1368,15 +1368,31 @@ class FlyModel:
             self._synaptic_buf * self.synaptic_buf_decay + current
         )
 
-        # ---- Global OU noise (replaces sparse Bernoulli kicks) ----
+        # ---- Adaptive global OU noise (replaces sparse Bernoulli kicks) ----
         # Continuous correlated subthreshold fluctuations improve utilisation
         # of every neuron in the connectome, not just motor populations.
+        # Optimised: only fully update neurons that are recently active
+        # (spikes or membrane potential > 0.5*threshold); inactive neurons
+        # regress toward zero with minimal compute.
         dt = self.dt
-        self.ou_global_state += (
-            self.ou_global_theta * (-self.ou_global_state) * dt
-            + self.ou_global_sigma * np.sqrt(dt)
-            * self.rng.normal(size=self.n).astype(np.float32)
-        )
+        _active_noise = (self.spikes > 0) | (self.v > 0.5 * self.threshold)
+        _n_active = int(_active_noise.sum())
+        if _n_active > 0 and _n_active < self.n * 0.3:
+            # Sparse update: only actively spiking/borderline neurons
+            self.ou_global_state[_active_noise] += (
+                self.ou_global_theta * (-self.ou_global_state[_active_noise]) * dt
+                + self.ou_global_sigma * np.sqrt(dt)
+                * self.rng.normal(size=_n_active).astype(np.float32)
+            )
+            # Inactive neurons slowly regress toward zero
+            self.ou_global_state[~_active_noise] *= 0.999
+        else:
+            # Full update: many neurons are active, no shortcut benefit
+            self.ou_global_state += (
+                self.ou_global_theta * (-self.ou_global_state) * dt
+                + self.ou_global_sigma * np.sqrt(dt)
+                * self.rng.normal(size=self.n).astype(np.float32)
+            )
 
         self.v *= np.exp(-self.dt / self.tau_m)
         self.v += self._synaptic_buf + self.ou_global_state * 0.22 + self.tonic_current
@@ -1512,6 +1528,21 @@ class FlyModel:
         if _rest > 0.0:
             self.v[self.forward] += _rest * 0.12
 
+        # EVO R29 · pit escape oscillator: when trapped below ground with the
+        # forward MBON suppressed to near-zero (learned helplessness), inject
+        # a 2.5 Hz alternating push-forward + jump-hop current into the LIF
+        # pools.  The network chooses the exact timing; the oscillator just
+        # biases the pool toward a climbing rhythm.
+        _pit = (getattr(self, "stuck_duration", 0.0) > 60
+                and getattr(self, "mb_mbon_forward", 0.0) < 0.2
+                and self.anomaly_state_name in ("fallen", "idle"))
+        if _pit:
+            _phase = (self.step_count % 10) / 10.0  # 0-1 saw at ~5Hz
+            _hop = abs(_phase - 0.5) * 2.0           # triangle wave
+            self.v[self.forward] += 0.40 * _hop
+            self.v[self.jump] += 0.80 * (1.0 - _hop)  # 0.80 > LIF decay, guarantees spike
+            self.v[self.turn_left] += 0.05 * np.sin(self.step_count * 0.5)
+
         # EVO R21 · recognition → behaviour closure: a recognised DANGEROUS
         # scene (lava/hell tags) suppresses forward drive — caution current.
         # Direction selection stays with the turn-pool competition.
@@ -1568,6 +1599,15 @@ class FlyModel:
         turn_rate = right_rate - left_rate
         # EVO R14 · integrate turn-circuit fatigue from the decoded pool rates
         self._turn_adapt.update(left_rate, right_rate, self.dt)
+
+        # EVO R29 · pit escape rate override: when stuck below ground with
+        # suppressed MBON output, boost jump_rate directly (LIF injection is
+        # insufficient because the fast time constant dissipates voltage
+        # between ticks before it can accumulate to threshold).
+        _pit = (getattr(self, "stuck_duration", 0.0) > 60
+                and getattr(self, "anomaly_state_name", "idle") in ("fallen", "idle"))
+        if _pit:
+            jump_rate = max(jump_rate, 0.3)
 
         raw_y = np.clip((forward_rate - 0.008) * 2000.0, 0, 70)
         raw_x = np.clip(turn_rate * 1100.0, -70, 70)

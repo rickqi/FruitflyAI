@@ -1770,7 +1770,7 @@ class MemoryController:
         # before anomaly_override can re-activate it.
         if _release_escape:
             self._escape_released_at = _now
-        _released_recently = _now - self._escape_released_at < 30.0
+        _released_recently = _now - self._escape_released_at < 60.0
 
         self.escape_behavior = (not _release_escape
                                 and not _released_recently) and (
@@ -1964,7 +1964,15 @@ class MemoryController:
     @property
     def reflex_action(self) -> dict:
         """Current reflex control override action dict."""
-        return self.reflex.get_action()
+        action = self.reflex.get_action()
+        # EVO R29 · desperate pit escape: when fallen for >60s with no
+        # forward movement, force the reflex to include JUMP so the escape
+        # cascade produces forward+JUMP instead of just forward.
+        if (action.get("active")
+                and self._fallen
+                and self._stuck_duration > 60):
+            action["jump"] = True
+        return action
 
     @property
     def reflex_triggered_micro_loop(self) -> bool:

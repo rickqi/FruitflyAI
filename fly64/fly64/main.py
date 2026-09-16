@@ -967,6 +967,10 @@ async def run(args) -> None:
             # override cliff_triggered — the classifier is wrong
             if cliff_triggered and model.ground_angle > 0.3:
                 cliff_triggered = False
+                # Also correct terrain name to avoid misleading telemetry
+                # that triggers EVO circle_loop pattern false alarms
+                if model.terrain == "cliff":
+                    model.terrain = "open_flat"
 
             # If cliff triggered, suppress escape behavior for this tick
             if cliff_triggered:

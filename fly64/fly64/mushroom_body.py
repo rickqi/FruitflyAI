@@ -137,9 +137,9 @@ class MushroomBody:
         # "learned helplessness" (column pinned at 0), slow noise+drift
         # spontaneously reintroduces the output so the column can re-learn.
         self._suppression_counter = np.zeros(n_mbon, dtype=np.int32)
-        self.suppression_threshold = 200   # ~4s at 50Hz (was 500, EVO R29)
-        self.recovery_noise_scale = 0.006  # faster recovery (was 0.003)
-        self.recovery_drift_rate = 0.001   # stronger drift (was 0.0008)
+        self.suppression_threshold = 50    # ~1s at 50Hz (was 200, EVO R29)
+        self.recovery_noise_scale = 0.02   # stronger noise (was 0.006)
+        self.recovery_drift_rate = 0.003   # stronger drift (was 0.001)
 
     def encode(self, scene_sig: np.ndarray) -> np.ndarray:
         """Encode scene signature through Kenyon Cells -> produce MBON outputs.
@@ -233,8 +233,9 @@ class MushroomBody:
             active = self.kc_activity > 0
             if active.any():
                 self.weights[active, j] += self.recovery_noise_scale * (
-                    np.random.default_rng().random(active.sum()).astype(np.float32) - 0.5)
-                self.weights[active, j] -= self.recovery_drift_rate
+                    np.random.default_rng().random(active.sum()).astype(np.float32))
+                # Drift toward zero (positive bias for suppressed columns)
+                self.weights[active, j] += self.recovery_drift_rate
                 np.clip(self.weights[:, 0], -1.0, 1.0, out=self.weights[:, 0])
             self._suppression_counter[j] = 0
 
@@ -320,7 +321,7 @@ class MushroomBody:
         if self._suppression_counter.max() >= self.suppression_threshold:
             _rm = np.where(
                 self._suppression_counter >= self.suppression_threshold,
-                0.1, 1.0).astype(np.float32)
+                0.01, 1.0).astype(np.float32)
             delta = self.lr * self.dopamine * _rm * self.eligibility
         else:
             delta = self.lr * self.dopamine * self.eligibility
