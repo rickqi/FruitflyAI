@@ -28,7 +28,7 @@ except ImportError:
     HAS_JSONSCHEMA = False
     ValidationError = type("ValidationError", (Exception,), {})
 
-SKILL_VERSION = "3.1.0"
+SKILL_VERSION = "3.1.1"
 SKILL_NAME = "evolution_skill"
 SKILL_DIR = Path(__file__).resolve().parent
 WORKSPACE = SKILL_DIR.parent.parent
@@ -507,6 +507,11 @@ class SensorSample:
     cpg_aborted: int = 0
     cpg_last_abort: str = ""  # last abort reason (e.g. "timeout") from cpg_status
     primitive_disp: Optional[float] = None
+    # M3-default: scene-independent MBON column weight means (learning dir)
+    mb_w_punch: Optional[float] = None
+    mb_w_dive: Optional[float] = None
+    mb_w_groundpound: Optional[float] = None
+    mb_w_longjump: Optional[float] = None
 
     def to_dict(self) -> dict: return asdict(self)
 
@@ -660,7 +665,11 @@ class DataCollector:
             cpg_completed=int((flow.get("cpg_status") or {}).get("completed", 0) or 0),
             cpg_aborted=int((flow.get("cpg_status") or {}).get("aborted", 0) or 0),
             cpg_last_abort=str((flow.get("cpg_status") or {}).get("last_abort", "") or ""),
-            primitive_disp=flow.get("primitive_disp", None))
+            primitive_disp=flow.get("primitive_disp", None),
+            mb_w_punch=flow.get("mb_w_punch", None),
+            mb_w_dive=flow.get("mb_w_dive", None),
+            mb_w_groundpound=flow.get("mb_w_groundpound", None),
+            mb_w_longjump=flow.get("mb_w_longjump", None))
         # Track consecutive motor-vs-motion mismatch frames (wall corners)
         self._decoupled_run = self._decoupled_run + 1 if s.command_decoupled else 0
         self.samples.append(s)
@@ -699,6 +708,38 @@ class DataCollector:
         if total == 0: return 0.0
         probs = [h/total for h in hist if h > 0]
         return -sum(p * math.log2(p) for p in probs)
+
+    def _mbon_slopes(self) -> dict:
+        """M3-default: per-primitive MBON weight-mean slope (units/min).
+
+        Linear endpoints over the collector window; requires >=8 samples and
+        a >=3 min span so the slope is meaningful.  Exposes:
+          mb_w_<prim>_slope_per_min  for each column
+          mbon_w_min_slope           most negative slope (diagnosis hook)
+          mbon_w_min_slope_prim      which column it belongs to
+        """
+        cols = {"punch": "mb_w_punch", "dive": "mb_w_dive",
+                "groundpound": "mb_w_groundpound", "longjump": "mb_w_longjump"}
+        out: dict = {}
+        worst = None
+        for prim, key in cols.items():
+            pts = [(s.timestamp, getattr(s, key)) for s in self.samples
+                   if getattr(s, key, None) is not None]
+            out[f"mb_w_{prim}_slope_per_min"] = None
+            if len(pts) < 8:
+                continue
+            (t0, w0), (t1, w1) = pts[0], pts[-1]
+            span_min = (t1 - t0) / 60.0
+            if span_min < 3.0:
+                continue
+            slope = (w1 - w0) / span_min
+            out[f"mb_w_{prim}_slope_per_min"] = round(slope, 6)
+            if worst is None or slope < worst[0]:
+                worst = (slope, prim)
+        if worst:
+            out["mbon_w_min_slope"] = round(worst[0], 6)
+            out["mbon_w_min_slope_prim"] = worst[1]
+        return out
 
     def get_metrics(self) -> dict:
         vals: dict = {}
@@ -740,6 +781,12 @@ class DataCollector:
                 cpg_aborted=s.cpg_aborted,
                 cpg_last_abort=s.cpg_last_abort,
                 primitive_disp=s.primitive_disp,
+                # ── M3-default: MBON column weight means + learning slopes ──
+                mb_w_punch=s.mb_w_punch,
+                mb_w_dive=s.mb_w_dive,
+                mb_w_groundpound=s.mb_w_groundpound,
+                mb_w_longjump=s.mb_w_longjump,
+                **self._mbon_slopes(),
                 # ── EVO R16: loop/standoff/plasticity heads ──
                 loop_score=s.loop_score,
                 danger_red_index=s.danger_red_index,

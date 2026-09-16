@@ -190,7 +190,12 @@ class StuckDetector:
         t_score = min(1.0, self._temporal_low_s / self.temporal_stuck_s)
         f_score = min(1.0, self._frame_still_s / self.frame_stuck_s)
         r_score = min(1.0, self._rate_low_s / self.rate_stuck_s)
-        stuck_score = max(t_score, f_score, r_score, 1.0 if self._fallen else 0.0)
+        # t23 fix③: the fallen term no longer PINS stuck_score at 1.0 —
+        # the score decays normally once displacement resumes.  Fallen
+        # still drives escape via escape_behavior's unconditional clause;
+        # feeding a synthetic 1.0 here kept loop_score saturated for the
+        # whole recovery (Ghost House lock factor 3).
+        stuck_score = max(t_score, f_score, r_score)
 
         currently_stuck = temporal_stuck or frame_stuck or rate_stuck or self._fallen
         if currently_stuck:
@@ -203,11 +208,11 @@ class StuckDetector:
 
     @property
     def stuck_score(self) -> float:
+        # t23 fix③: no fallen pin — decays normally with displacement.
         return max(
             min(1.0, self._temporal_low_s / self.temporal_stuck_s),
             min(1.0, self._frame_still_s / self.frame_stuck_s),
             min(1.0, self._rate_low_s / self.rate_stuck_s),
-            1.0 if self._fallen else 0.0,
         )
 
     @property
@@ -1828,22 +1833,30 @@ class MemoryController:
                                 or (_escape_s > 30
                                     and self._latest_anomaly_state in ("idle", "micro_loop"))))
 
-        # EVO R28 · when escape releases, give CX a 30s steering window
-        # before anomaly_override can re-activate it.
+        # EVO R28 · when escape releases, give CX a steering window before
+        # anomaly_override can re-activate it.
+        # t23 fix①: cooldown 1800s → 60s, and a NEW anomaly activation
+        # immediately clears the cooldown — a fresh anomaly is fresh
+        # evidence, the old release must not mute it.
         if _release_escape:
             self._escape_released_at = _now
-        _released_recently = _now - self._escape_released_at < 1800.0
+        if anomaly_override and not getattr(self, "_prev_anomaly_override", False):
+            self._escape_released_at = 0.0
+        self._prev_anomaly_override = anomaly_override
+        _released_recently = _now - self._escape_released_at < 60.0
 
-        self.escape_behavior = (not _release_escape
-                                and not _released_recently) and (
-            (self._stuck_score >= adjusted_threshold
-             and self.spatial.exploration_mode)
-            or self._fallen
-            or cliff_emergency
-            or self._forced_bold_explore
-            or anomaly_override
-            or _coach_stuck
-        )
+        # t23 fix②: _fallen moved OUTSIDE the release/cooldown gate — being
+        # on the ground is unconditional evidence; the post-release cooldown
+        # must never stop fall recovery (Ghost House lock, 30 min).
+        self.escape_behavior = (
+            self._fallen
+            or ((not _release_escape and not _released_recently) and (
+                (self._stuck_score >= adjusted_threshold
+                 and self.spatial.exploration_mode)
+                or cliff_emergency
+                or self._forced_bold_explore
+                or anomaly_override
+                or _coach_stuck)))
         return (self._stuck_score, self._stuck_duration,
                 self._novelty, self.escape_behavior, self._fallen,
                 self._forced_bold_explore)

@@ -1,0 +1,30 @@
+{
+ "ts": 1789580458.6541243,
+ "cycle": 1,
+ "window_s": 30.0,
+ "keys": {
+  "fallen_recovery": {
+   "mode": "directional_climb",
+   "climb_period": 3.0,
+   "persist_seconds": 1.0
+  },
+  "exploration": {
+   "bold_explore_stuck_s": 45.0,
+   "turn_bias": 30.0
+  },
+  "escape": {
+   "stuck_threshold_s": 20.0,
+   "reverse_seconds": 0.8
+  }
+ },
+ "scene_id": "",
+ "scene_label": "",
+ "anomaly": "fallen",
+ "help_reason": "unsolvable_stuck",
+ "baseline": {
+  "stuck_duration": 150.0,
+  "health_score": 0.6,
+  "disp_60s": 0.0,
+  "loop_score": 0.0
+ }
+}

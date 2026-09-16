@@ -1,453 +1,483 @@
 {
-  "$schema_version": "2.0",
-  "patterns": [
-    {
-      "id": "circle_loop",
-      "name": "Circle loop — 无障碍转圈",
-      "version": "1.0.0",
-      "description": "Mario circles in place on flat ground, cliff avoidance blocking forward movement.",
-      "conditions": {
-        "wall_score": {
-          "max": 0.1
-        },
-        "asymmetry_magnitude": {
-          "max": 0.06
-        },
-        "stuck_duration": {
-          "min": 120
-        },
-        "ground_angle": {
-          "min": 0.3
-        }
-      },
-      "contradiction": "terrain=cliff but ground_angle>0.3 (not a cliff)",
-      "diagnosis": "Terrain classifier false-positive 'cliff'; cliff avoidance overrides straight-forward escape.",
-      "fix_template": "# Fix: Add ground_angle gate before cliff avoidance\n# File: fly64/fly64/main.py\n# Find: {cliff_trigger_line}\n# Replace: {cliff_trigger_replace}\n",
-      "fix_files": [
-        "fly64/fly64/main.py"
-      ],
-      "severity": "high",
-      "tags": [
-        "navigation",
-        "terrain",
-        "cliff"
-      ],
-      "rollback_strategy": "revert_line",
-      "threshold_justification": "wall_score<0.1=flat terrain, asymmetry<0.06=symmetrical movement (tuned from 0.05 based on real measured values), stuck>120s=abnormal duration, ground_angle>0.3=not a cliff edge"
+ "$schema_version": "2.0",
+ "patterns": [
+  {
+   "id": "circle_loop",
+   "name": "Circle loop — 无障碍转圈",
+   "version": "1.0.0",
+   "description": "Mario circles in place on flat ground, cliff avoidance blocking forward movement.",
+   "conditions": {
+    "wall_score": {
+     "max": 0.1
     },
-    {
-      "id": "ramp_trap",
-      "name": "Ramp trap — 斜坡上无法脱困",
-      "version": "1.0.0",
-      "description": "Mario stuck on a ramp, suppression blocks turning.",
-      "conditions": {
-        "ramp_score": {
-          "min": 0.5
-        },
-        "stuck_duration": {
-          "min": 180
-        },
-        "position_unchanged_60s": true
-      },
-      "diagnosis": "Ramp suppression blocks turning; Mario stays on slope.",
-      "fix_template": "# Fix: Add ramp escape override when stuck >180s on slope\n# File: fly64/fly64/main.py\n# Add after slope detection:\nif ramp_score > 0.5 and stuck_duration > 180:\n    control.x = rng.integers(60, 80) * (-1 if rng.random() < 0.5 else 1)\n    control.y = 40\n",
-      "fix_files": [
-        "fly64/fly64/main.py"
-      ],
-      "severity": "high",
-      "tags": [
-        "navigation",
-        "terrain",
-        "ramp"
-      ],
-      "rollback_strategy": "revert_added_block",
-      "threshold_justification": "ramp_score>0.5=strong slope signal, stuck>180s=3min threshold, position_unchanged=no progress despite effort"
+    "asymmetry_magnitude": {
+     "max": 0.06
     },
-    {
-      "id": "reflex_cooldown_gap",
-      "name": "Reflex cooldown — 冷却期内无效 escape (adaptive cooldown)",
-      "version": "2.0.0",
-      "description": "Reflex correctly detects anomaly but fixed cooldown prevents re-trigger during prolonged stuck. Cooldown should adapt to how long the agent has been stuck.",
-      "conditions": {
-        "anomaly_state_not_idle": true,
-        "reflex_active": false,
-        "stuck_duration": {
-          "min": 60
-        }
-      },
-      "diagnosis": "Adaptive cooldown already exists (memory.py _start_reflex, EVO R6). The finding means the reflex is NOT being (re)triggered at all during prolonged stuck: the anomaly detector sees the state but ReflexController's trigger gate (hysteresis / cooldown map / aggressive factor) never fires a new reflex. Investigate the trigger path, not the cooldown value.",
-      "fix_template": "# Fix: Investigate reflex re-trigger gate, not cooldown\n# File: fly64/fly64/memory.py\n# In the ReflexController update/check path: log why a trigger candidate\n# is rejected (cooldown remaining, hysteresis, aggressive factor).\n# If cooldown is the blocker, tune _aggressive_cooldown_factor or the\n# adaptive floor (max(0.25, 1.0 - stuck/120)) — do NOT reintroduce a\n# fixed cooldown.\n",
-      "fix_files": [
-        "fly64/fly64/memory.py"
-      ],
-      "severity": "medium",
-      "tags": [
-        "reflex",
-        "cooldown",
-        "escape",
-        "adaptive"
-      ],
-      "rollback_strategy": "revert_value",
-      "threshold_justification": "anomaly_state_not_idle=anomaly active, reflex_active=False=cooldown period, stuck>60s=1min without effective escape; adaptive cooldown formula derived from stuck_duration to allow more frequent reflex firings as stuck persists"
+    "stuck_duration": {
+     "min": 120
     },
-    {
-      "id": "low_coverage_stagnation",
-      "name": "Coverage stagnation — 覆盖率长期不增长",
-      "version": "1.0.0",
-      "description": "Mario trapped in small area; exploration strategy insufficient.",
-      "conditions": {
-        "coverage_stagnant_120s": true,
-        "visited_cells": {
-          "max": 50
-        }
-      },
-      "diagnosis": "Mario trapped in small area; exploration strategy insufficient.",
-      "fix_template": "# Fix: Trigger forced_bold_explore immediately when coverage stagnant\n# File: fly64/fly64/main.py\n# Add before normal escape:\nif coverage_stagnant_120s and visited_cells < 50:\n    forced_bold_explore = True\n",
-      "fix_files": [
-        "fly64/fly64/main.py"
-      ],
-      "severity": "medium",
-      "tags": [
-        "exploration",
-        "coverage",
-        "stagnation"
-      ],
-      "rollback_strategy": "revert_added_block",
-      "threshold_justification": "coverage_stagnant_120s=no new cells in 2min, visited_cells<50=very small explored area"
-    },
-    {
-      "id": "below_ground_stuck",
-      "name": "Below ground stuck — Y坐标异常导致无法移动",
-      "version": "1.0.0",
-      "description": "Mario is below normal ground level (Y<50) but above the -100 fallen threshold, so fallen anomaly doesn't trigger. Mario cannot move properly at this height and sits idle.",
-      "conditions": {
-        "pos_y": {
-          "min": -99,
-          "max": 49
-        },
-        "stuck_duration": {
-          "min": 30
-        },
-        "control_magnitude": {
-          "max": 10
-        }
-      },
-      "contradiction": "pos_y=-35 is clearly below ground (normal=120) but fallen threshold is Y<-100",
-      "diagnosis": "Fallen detection threshold (Y<-100) is too permissive. SM64 normal ground is Y=120. Y<50 already indicates below-ground (void/water). Fix: change fallen threshold from Y<-100 to Y<50.",
-      "fix_template": "# Fix: Lower fallen detection threshold from -100 to 50\n# File: fly64/fly64/memory.py\n# In MotionStateDetector and MemoryController:\n# CHANGE:\n#   fallen = pos_y < -100 or pos_y > 1000\n# TO:\n#   fallen = pos_y < 50 or pos_y > 1000\n# SM64 ground level is Y=120; any Y<50 means Mario is below ground surface.",
-      "fix_files": [
-        "fly64/fly64/memory.py"
-      ],
-      "severity": "high",
-      "tags": [
-        "fallen",
-        "y_coordinate",
-        "below_ground",
-        "threshold"
-      ],
-      "rollback_strategy": "revert_value",
-      "threshold_justification": "pos_y between -99 and 49=abnormal height (SM64 ground=120), stuck>30s=stuck in place, control_magnitude<10=no effective movement; the -100 fallen threshold was designed for extreme falls but misses partial falls into void/water at Y=-30 to Y=-80"
-    },
-    {
-      "id": "fallen_recovery_stuck",
-      "name": "Fallen recovery stuck — 跌落恢复循环无效",
-      "version": "1.0.0",
-      "description": "Agent is in fallen anomaly state and recovery cycles (jump+burst+turn) are not making progress. The recovery stuck means the agent repeatedly attempts jump-forward-turn cycles but remains in the fallen state without escaping the fall zone.",
-      "conditions": {
-        "anomaly_state": {
-          "eq": "fallen"
-        },
-        "stuck_duration": {
-          "min": 30
-        }
-      },
-      "diagnosis": "The escape 5-phase state machine (escape_x / escape_toggle_timer) was deleted in P1 audit A3; fallen recovery now runs as: escape_jump_drive (jump-pool burst, main.py) + spontaneous alternation via reflex.bold_direction() (TurnAdaptation counter-drive in model.py). If recovery stalls, the jump-pool drive or the alternation sign memory is failing — investigate those paths, not symbolic control writes.",
-      "fix_template": "# Fix: Fallen recovery — audit jump drive + alternation paths\n# Files: fly64/fly64/main.py, fly64/fly64/memory.py, fly64/fly64/model.py\n# 1. main.py: verify model.escape_jump_drive is set True while memory_ctrl.fallen\n#    and that model.step actually injects jump-pool current when the flag is on.\n# 2. memory.py ReflexController.bold_direction(): verify _last_direction flips\n#    each cycle (mirror alternation) and is not stuck at one sign.\n# 3. model.py TurnAdaptation: verify counter_drive/breakout currents reach the\n#    turn pools during fallen escape (no zero-current gate blocking them).\n",
-      "fix_files": [
-        "fly64/fly64/main.py"
-      ],
-      "severity": "high",
-      "tags": [
-        "fallen",
-        "recovery",
-        "stuck",
-        "escape",
-        "cycle"
-      ],
-      "rollback_strategy": "revert_block",
-      "threshold_justification": "anomaly_state='fallen'=agent detected in fall zone, stuck_duration>30s=persistent stuck despite recovery attempts; 30s allows ~15 recovery cycles before intervention"
-    },
-    {
-      "id": "suspended_animation",
-      "name": "Suspended animation — 控制信号为零停止响应",
-      "version": "1.0.0",
-      "description": "All control signals are zero (x=0, y=0, jump=False) while stuck_duration is increasing. Mario is completely idle without any escape attempt.",
-      "conditions": {
-        "control_x_zero": true,
-        "control_y_zero": true,
-        "stuck_duration": {
-          "min": 15
-        },
-        "jump_not_active": true
-      },
-      "diagnosis": "Brain model is outputting zero control signals while Mario is not in an escape state. This could indicate a visual disconnection, bridge issue, or the model has entered a dead state.",
-      "fix_template": "# Investigate: All control signals zero while game state=1 neural control active\n# Check: bridge connectivity, model.visual_connected flag, encode_retina() output\n# Check: timeout recovery in main.py for visual disconnection\n",
-      "fix_files": [
-        "fly64/fly64/main.py",
-        "fly64/fly64/model.py"
-      ],
-      "severity": "high",
-      "tags": [
-        "control",
-        "dead_state",
-        "disconnected",
-        "bridge"
-      ],
-      "rollback_strategy": "investigate",
-      "threshold_justification": "control_x/y both zero=no movement, stuck>15s=not just startup transient, jump=False=no escape attempt; combined with seq advancing indicates brain is running but outputting zero"
-    },
-    {
-      "id": "wall_corner_command_decoupled",
-      "name": "Wall corner — 视觉盲区：动作-效果失配卡角",
-      "version": "1.0.0",
-      "description": "Mario wedged in wall corner. Invisible to texture-based vision (static frame, symmetric walls, zero transients) — detected only via motor-vs-motion mismatch (corollary discharge comparator).",
-      "conditions": {
-        "command_effect_mismatch": true,
-        "mismatch_duration": {
-          "min": 15
-        }
-      },
-      "contradiction": "visual signals (temporal=0, ON/OFF=0, asymmetry=0) are identical to standing still in open field",
-      "diagnosis": "Visual causal chain has no action-effect comparator: 'stuck' is defined by commanded vs measured displacement (proprioception), which texture-based vision cannot supply. Fix: corollary-discharge comparator + reverse-out reflex.",
-      "fix_template": "# Fix: corollary discharge comparator (action-effect mismatch)\n# File: fly64/fly64/main.py\n# expected = control.y * 0.6; actual = pose displacement\n# mismatch if expected>25 && moved<3 for >15 frames\n# Reflex: reverse y=-50 + alternating turn to un-wedge",
-      "fix_files": [
-        "fly64/fly64/main.py"
-      ],
-      "severity": "high",
-      "tags": [
-        "corner",
-        "proprioception",
-        "corollary_discharge",
-        "blind_spot"
-      ],
-      "rollback_strategy": "revert_added_block",
-      "threshold_justification": "expected>25 units/tick = meaningful forward command, moved<3 = static, >15 frames = not transient; reverse+turn physically un-wedges from 90-degree corners where asymmetry guidance is zero"
-    },
-    {
-      "id": "dopamine_plateau",
-      "name": "Dopamine gain plateau — Learning saturation detected",
-      "version": "1.0.0",
-      "description": "Dopamine-gated gain has reached a maximum plateau without further improvement in error gradient. The plasticity proxy may be saturated — suggests exploring a new strategy or resetting gains.",
-      "conditions": {
-        "dopamine_gain_avg": {
-          "min": 2.0
-        },
-        "learning_progress": {
-          "max": 0.05
-        },
-        "stuck_duration": {
-          "min": 60
-        }
-      },
-      "diagnosis": "Dopamine gain saturated at ceiling (>=2.0) while learning_progress (mean abs error gradient) stagnates below 0.05. The gain modulation cannot further improve motor adaptation — consider resetting gains or switching to a new exploration strategy.",
-      "fix_template": "# Reset dopamine gains to break plateau\n# File: fly64/fly64/model.py\n# model.dopamine_gain.reset_gains() to restart adaptation",
-      "fix_files": [
-        "fly64/fly64/model.py"
-      ],
-      "severity": "medium",
-      "tags": [
-        "plasticity",
-        "dopamine",
-        "plateau",
-        "t4"
-      ],
-      "rollback_strategy": "revert_value",
-      "threshold_justification": "dopamine_gain_avg>=2.0=near ceiling (GAIN_MAX=2.5), learning_progress<0.05=minimal error gradient (converged), stuck>60s=sufficient run time"
-    },
-    {
-      "id": "cliff_standoff",
-      "name": "Cliff standoff — 悬崖边缘对峙驻留",
-      "version": "1.0.0",
-      "description": "Mario parks at a confirmed cliff edge: cliff reflex blocks forward, escape keeps re-approaching — standoff with near-zero net displacement instead of progressing along the edge.",
-      "conditions": {
-        "cliff_confirmed": true,
-        "cliff_standoff_s": {
-          "min": 20
-        },
-        "escape_behavior": true
-      },
-      "contradiction": "cliff avoidance is working (no falls) yet exploration stalls — protection has become paralysis",
-      "diagnosis": "Head-on cliff approach loop: forward drive and cliff retreat cancel out. FailureMemory knows this cliff — the tangential detour current (FailureMemory → turn-pool injection) should route Mario ALONG the edge; if standoff persists, the tangent gate or its freshness sign is mis-firing.",
-      "fix_template": "# Cliff standoff — verify tangential detour injection\n# File: fly64/fly64/main.py + fly64/fly64/model.py\n# model.cliff_tangent_bias must be non-zero when failures.nearest_failure_vector(x,z) hits\n# and model.step must inject it into turn pools before spike generation",
-      "fix_files": [
-        "fly64/fly64/main.py",
-        "fly64/fly64/model.py",
-        "fly64/fly64/memory.py"
-      ],
-      "severity": "medium",
-      "tags": [
-        "cliff",
-        "standoff",
-        "tangent",
-        "detour",
-        "brain_first"
-      ],
-      "rollback_strategy": "revert_added_block",
-      "threshold_justification": "cliff_confirmed=multi-frame edge confirmed, standoff>20s = protection plateau (retreat+re-approach cycles), escape active = brain wants to move but cannot"
-    },
-    {
-      "id": "micro_loop_weave",
-      "name": "Micro-loop weave — 原地编织（交替未产生位移）",
-      "version": "1.0.0",
-      "description": "TurnAdaptation alternation is active (heading oscillates) but the loop window is still near-fully revisits: the weave produces no net displacement.",
-      "conditions": {
-        "anomaly_state": {
-          "eq": "micro_loop"
-        },
-        "loop_score": {
-          "min": 0.8
-        },
-        "stuck_duration": {
-          "min": 60
-        }
-      },
-      "diagnosis": "Spontaneous alternation converts circling into weaving, but weave-in-place still means zero displacement. Check breakout_drive gain and forward-pool injection placement.",
-      "fix_template": "# Strengthen oscillation-to-forward breakthrough\n# File: fly64/fly64/model.py\n# TurnAdaptation.breakout_drive: raise breakout_gain (0.15 to 0.25)",
-      "fix_files": [
-        "fly64/fly64/model.py"
-      ],
-      "severity": "high",
-      "tags": [
-        "loop",
-        "weave",
-        "alternation",
-        "breakout",
-        "brain_first"
-      ],
-      "rollback_strategy": "revert_value",
-      "threshold_justification": "anomaly=micro_loop=detector-confirmed circling, loop_score>=0.8=window near-fully revisits, stuck>60s=sustained weave despite alternation"
-    },
-    {
-      "id": "micro_loop_weave_signal",
-      "name": "Micro-loop weave (signal-only) — 原地编织（行为信号判定，绕过 anomaly 分类器）",
-      "version": "1.0.0",
-      "description": "Same weave-in-place signature as micro_loop_weave but detected purely from behavioral signals, so it fires even when the brain's anomaly classifier still reports idle (classifier/behavior disagreement).",
-      "conditions": {
-        "loop_score": {
-          "min": 0.95
-        },
-        "escape_behavior": true,
-        "stuck_duration": {
-          "min": 45
-        }
-      },
-      "diagnosis": "Behavioral weave signature (loop window near-fully revisits, escape active, stuck rising) without a detector-confirmed micro_loop state: the anomaly classifier and the behavior disagree. The weave is real — check breakout_drive gain and forward-pool injection placement.",
-      "fix_template": "# Strengthen oscillation-to-forward breakthrough\n# File: fly64/fly64/model.py\n# TurnAdaptation.breakout_drive: verify breakout_gain (0.25 since EVO R17 sync)\n# is loaded and the breakout current reaches the forward pool pre-spike.\n",
-      "fix_files": [
-        "fly64/fly64/model.py"
-      ],
-      "severity": "high",
-      "tags": [
-        "loop",
-        "weave",
-        "alternation",
-        "breakout",
-        "signal_only",
-        "brain_first"
-      ],
-      "rollback_strategy": "revert_value",
-      "threshold_justification": "loop_score>=0.95=window almost all revisits (weave is certain), escape_behavior=true=brain is trying to escape, stuck>45s=earlier than the detector-gated variant so the signal path can act first"
-    },
-    {
-      "id": "mbon_saturation",
-      "name": "MBON saturation — 蘑菇体输出饱和",
-      "version": "1.0.0",
-      "description": "A MBON channel is pinned near |1.0| (tanh ceiling) while circling persists: the KC-to-MBON weights for that column have run away. Homeostatic synaptic scaling should self-correct; persistent saturation means the scaling is not firing.",
-      "conditions": {
-        "mb_mbon_forward": {
-          "min": 0.95
-        },
-        "loop_score": {
-          "min": 0.8
-        },
-        "stuck_duration": {
-          "min": 60
-        }
-      },
-      "diagnosis": "forward MBON saturated at ceiling while behaviour still loops. The built-in homeostatic synaptic scaling should shrink the column; persistent saturation indicates the guard is not triggering or dopamine keeps re-inflating it.",
-      "fix_template": "# Verify homeostatic scaling in mushroom_body.py saturation guard",
-      "fix_files": [
-        "fly64/fly64/mushroom_body.py"
-      ],
-      "severity": "medium",
-      "tags": [
-        "mb",
-        "saturation",
-        "homeostasis",
-        "brain_first"
-      ],
-      "rollback_strategy": "revert_value",
-      "threshold_justification": "mb_mbon_forward>=0.95=tanh ceiling, loop_score>=0.8=still weaving, stuck>60s=sustained"
-    },
-    {
-      "id": "primitive_timeout",
-      "name": "CPG primitive timeout — 运动原语超时熔断",
-      "version": "1.0.0",
-      "description": "A CPG motor primitive (longjump/backflip/groundpound) was aborted by the 2s circuit breaker, meaning the phase script wedged without producing its move.",
-      "conditions": {
-        "cpg_aborted": {
-          "min": 1
-        },
-        "cpg_last_abort": {
-          "const": "timeout"
-        }
-      },
-      "contradiction": "primitive requested but phase script exceeded MAX_PRIMITIVE_S without completing",
-      "diagnosis": "Phase script duration or game physics state prevents completion (e.g. longjump requested while wedged against geometry); breaker fired and fell back to reflex cascade.",
-      "fix_template": "# Fix: shorten the {primitive} phase script or add a state precondition\n# File: fly64/fly64/motor_primitives.py\n# Adjust: PHASE_SCRIPTS[{primitive}] durations / STATE_PRECONDITIONS\n",
-      "fix_files": [
-        "fly64/fly64/motor_primitives.py"
-      ],
-      "severity": "medium",
-      "tags": [
-        "motor",
-        "cpg",
-        "primitive",
-        "timeout"
-      ],
-      "rollback_strategy": "revert_line",
-      "threshold_justification": "MAX_PRIMITIVE_S=2.0s breaker (v2.15.0); any timeout event means the scripted duration was exceeded, so a single occurrence is diagnosable"
-    },
-    {
-      "id": "primitive_zero_disp",
-      "name": "CPG primitive zero displacement — 原语执行后零位移",
-      "version": "1.0.0",
-      "description": "Primitive completed but 60s displacement stayed near zero (primitive_disp < 30u over consecutive completions) — the move executed physically but did not escape the trap.",
-      "conditions": {
-        "cpg_completed": {
-          "min": 3
-        },
-        "primitive_disp": {
-          "max": 30
-        }
-      },
-      "contradiction": "primitive applied valid button sequence yet displacement stayed at ramp-trap baseline (0u)",
-      "diagnosis": "Wrong primitive for the terrain (e.g. longjump on a ledge edge) or Z/A pulse timing lost by the game; needs a different primitive or tighter phase timing.",
-      "fix_template": "# Fix: retune {primitive} gating or swap primitive for this scene profile\n# File: fly64/fly64/main.py (gate conditions) / motor_primitives.py (script)\n",
-      "fix_files": [
-        "fly64/fly64/main.py",
-        "fly64/fly64/motor_primitives.py"
-      ],
-      "severity": "high",
-      "tags": [
-        "motor",
-        "cpg",
-        "primitive",
-        "displacement",
-        "ramp-trap"
-      ],
-      "rollback_strategy": "revert_line",
-      "threshold_justification": "EVO VerificationEngine effectiveness threshold score>=0.3 and reflex_ineffective uses 30u/60s (v2.x) — same 30u floor reused for primitive outcomes"
+    "ground_angle": {
+     "min": 0.3
     }
-  ]
+   },
+   "contradiction": "terrain=cliff but ground_angle>0.3 (not a cliff)",
+   "diagnosis": "Terrain classifier false-positive 'cliff'; cliff avoidance overrides straight-forward escape.",
+   "fix_template": "# Fix: Add ground_angle gate before cliff avoidance\n# File: fly64/fly64/main.py\n# Find: {cliff_trigger_line}\n# Replace: {cliff_trigger_replace}\n",
+   "fix_files": [
+    "fly64/fly64/main.py"
+   ],
+   "severity": "high",
+   "tags": [
+    "navigation",
+    "terrain",
+    "cliff"
+   ],
+   "rollback_strategy": "revert_line",
+   "threshold_justification": "wall_score<0.1=flat terrain, asymmetry<0.06=symmetrical movement (tuned from 0.05 based on real measured values), stuck>120s=abnormal duration, ground_angle>0.3=not a cliff edge"
+  },
+  {
+   "id": "ramp_trap",
+   "name": "Ramp trap — 斜坡上无法脱困",
+   "version": "1.0.0",
+   "description": "Mario stuck on a ramp, suppression blocks turning.",
+   "conditions": {
+    "ramp_score": {
+     "min": 0.5
+    },
+    "stuck_duration": {
+     "min": 180
+    },
+    "position_unchanged_60s": true
+   },
+   "diagnosis": "Ramp suppression blocks turning; Mario stays on slope.",
+   "fix_template": "# Fix: Add ramp escape override when stuck >180s on slope\n# File: fly64/fly64/main.py\n# Add after slope detection:\nif ramp_score > 0.5 and stuck_duration > 180:\n    control.x = rng.integers(60, 80) * (-1 if rng.random() < 0.5 else 1)\n    control.y = 40\n",
+   "fix_files": [
+    "fly64/fly64/main.py"
+   ],
+   "severity": "high",
+   "tags": [
+    "navigation",
+    "terrain",
+    "ramp"
+   ],
+   "rollback_strategy": "revert_added_block",
+   "threshold_justification": "ramp_score>0.5=strong slope signal, stuck>180s=3min threshold, position_unchanged=no progress despite effort"
+  },
+  {
+   "id": "reflex_cooldown_gap",
+   "name": "Reflex cooldown — 冷却期内无效 escape (adaptive cooldown)",
+   "version": "2.0.0",
+   "description": "Reflex correctly detects anomaly but fixed cooldown prevents re-trigger during prolonged stuck. Cooldown should adapt to how long the agent has been stuck.",
+   "conditions": {
+    "anomaly_state_not_idle": true,
+    "reflex_active": false,
+    "stuck_duration": {
+     "min": 60
+    }
+   },
+   "diagnosis": "Adaptive cooldown already exists (memory.py _start_reflex, EVO R6). The finding means the reflex is NOT being (re)triggered at all during prolonged stuck: the anomaly detector sees the state but ReflexController's trigger gate (hysteresis / cooldown map / aggressive factor) never fires a new reflex. Investigate the trigger path, not the cooldown value.",
+   "fix_template": "# Fix: Investigate reflex re-trigger gate, not cooldown\n# File: fly64/fly64/memory.py\n# In the ReflexController update/check path: log why a trigger candidate\n# is rejected (cooldown remaining, hysteresis, aggressive factor).\n# If cooldown is the blocker, tune _aggressive_cooldown_factor or the\n# adaptive floor (max(0.25, 1.0 - stuck/120)) — do NOT reintroduce a\n# fixed cooldown.\n",
+   "fix_files": [
+    "fly64/fly64/memory.py"
+   ],
+   "severity": "medium",
+   "tags": [
+    "reflex",
+    "cooldown",
+    "escape",
+    "adaptive"
+   ],
+   "rollback_strategy": "revert_value",
+   "threshold_justification": "anomaly_state_not_idle=anomaly active, reflex_active=False=cooldown period, stuck>60s=1min without effective escape; adaptive cooldown formula derived from stuck_duration to allow more frequent reflex firings as stuck persists"
+  },
+  {
+   "id": "low_coverage_stagnation",
+   "name": "Coverage stagnation — 覆盖率长期不增长",
+   "version": "1.0.0",
+   "description": "Mario trapped in small area; exploration strategy insufficient.",
+   "conditions": {
+    "coverage_stagnant_120s": true,
+    "visited_cells": {
+     "max": 50
+    }
+   },
+   "diagnosis": "Mario trapped in small area; exploration strategy insufficient.",
+   "fix_template": "# Fix: Trigger forced_bold_explore immediately when coverage stagnant\n# File: fly64/fly64/main.py\n# Add before normal escape:\nif coverage_stagnant_120s and visited_cells < 50:\n    forced_bold_explore = True\n",
+   "fix_files": [
+    "fly64/fly64/main.py"
+   ],
+   "severity": "medium",
+   "tags": [
+    "exploration",
+    "coverage",
+    "stagnation"
+   ],
+   "rollback_strategy": "revert_added_block",
+   "threshold_justification": "coverage_stagnant_120s=no new cells in 2min, visited_cells<50=very small explored area"
+  },
+  {
+   "id": "below_ground_stuck",
+   "name": "Below ground stuck — Y坐标异常导致无法移动",
+   "version": "1.0.0",
+   "description": "Mario is below normal ground level (Y<50) but above the -100 fallen threshold, so fallen anomaly doesn't trigger. Mario cannot move properly at this height and sits idle.",
+   "conditions": {
+    "pos_y": {
+     "min": -99,
+     "max": 49
+    },
+    "stuck_duration": {
+     "min": 30
+    },
+    "control_magnitude": {
+     "max": 10
+    }
+   },
+   "contradiction": "pos_y=-35 is clearly below ground (normal=120) but fallen threshold is Y<-100",
+   "diagnosis": "Fallen detection threshold (Y<-100) is too permissive. SM64 normal ground is Y=120. Y<50 already indicates below-ground (void/water). Fix: change fallen threshold from Y<-100 to Y<50.",
+   "fix_template": "# Fix: Lower fallen detection threshold from -100 to 50\n# File: fly64/fly64/memory.py\n# In MotionStateDetector and MemoryController:\n# CHANGE:\n#   fallen = pos_y < -100 or pos_y > 1000\n# TO:\n#   fallen = pos_y < 50 or pos_y > 1000\n# SM64 ground level is Y=120; any Y<50 means Mario is below ground surface.",
+   "fix_files": [
+    "fly64/fly64/memory.py"
+   ],
+   "severity": "high",
+   "tags": [
+    "fallen",
+    "y_coordinate",
+    "below_ground",
+    "threshold"
+   ],
+   "rollback_strategy": "revert_value",
+   "threshold_justification": "pos_y between -99 and 49=abnormal height (SM64 ground=120), stuck>30s=stuck in place, control_magnitude<10=no effective movement; the -100 fallen threshold was designed for extreme falls but misses partial falls into void/water at Y=-30 to Y=-80"
+  },
+  {
+   "id": "fallen_recovery_stuck",
+   "name": "Fallen recovery stuck — 跌落恢复循环无效",
+   "version": "1.0.0",
+   "description": "Agent is in fallen anomaly state and recovery cycles (jump+burst+turn) are not making progress. The recovery stuck means the agent repeatedly attempts jump-forward-turn cycles but remains in the fallen state without escaping the fall zone.",
+   "conditions": {
+    "anomaly_state": {
+     "eq": "fallen"
+    },
+    "stuck_duration": {
+     "min": 30
+    }
+   },
+   "diagnosis": "The escape 5-phase state machine (escape_x / escape_toggle_timer) was deleted in P1 audit A3; fallen recovery now runs as: escape_jump_drive (jump-pool burst, main.py) + spontaneous alternation via reflex.bold_direction() (TurnAdaptation counter-drive in model.py). If recovery stalls, the jump-pool drive or the alternation sign memory is failing — investigate those paths, not symbolic control writes.",
+   "fix_template": "# Fix: Fallen recovery — audit jump drive + alternation paths\n# Files: fly64/fly64/main.py, fly64/fly64/memory.py, fly64/fly64/model.py\n# 1. main.py: verify model.escape_jump_drive is set True while memory_ctrl.fallen\n#    and that model.step actually injects jump-pool current when the flag is on.\n# 2. memory.py ReflexController.bold_direction(): verify _last_direction flips\n#    each cycle (mirror alternation) and is not stuck at one sign.\n# 3. model.py TurnAdaptation: verify counter_drive/breakout currents reach the\n#    turn pools during fallen escape (no zero-current gate blocking them).\n",
+   "fix_files": [
+    "fly64/fly64/main.py"
+   ],
+   "severity": "high",
+   "tags": [
+    "fallen",
+    "recovery",
+    "stuck",
+    "escape",
+    "cycle"
+   ],
+   "rollback_strategy": "revert_block",
+   "threshold_justification": "anomaly_state='fallen'=agent detected in fall zone, stuck_duration>30s=persistent stuck despite recovery attempts; 30s allows ~15 recovery cycles before intervention"
+  },
+  {
+   "id": "suspended_animation",
+   "name": "Suspended animation — 控制信号为零停止响应",
+   "version": "1.0.0",
+   "description": "All control signals are zero (x=0, y=0, jump=False) while stuck_duration is increasing. Mario is completely idle without any escape attempt.",
+   "conditions": {
+    "control_x_zero": true,
+    "control_y_zero": true,
+    "stuck_duration": {
+     "min": 15
+    },
+    "jump_not_active": true
+   },
+   "diagnosis": "Brain model is outputting zero control signals while Mario is not in an escape state. This could indicate a visual disconnection, bridge issue, or the model has entered a dead state.",
+   "fix_template": "# Investigate: All control signals zero while game state=1 neural control active\n# Check: bridge connectivity, model.visual_connected flag, encode_retina() output\n# Check: timeout recovery in main.py for visual disconnection\n",
+   "fix_files": [
+    "fly64/fly64/main.py",
+    "fly64/fly64/model.py"
+   ],
+   "severity": "high",
+   "tags": [
+    "control",
+    "dead_state",
+    "disconnected",
+    "bridge"
+   ],
+   "rollback_strategy": "investigate",
+   "threshold_justification": "control_x/y both zero=no movement, stuck>15s=not just startup transient, jump=False=no escape attempt; combined with seq advancing indicates brain is running but outputting zero"
+  },
+  {
+   "id": "wall_corner_command_decoupled",
+   "name": "Wall corner — 视觉盲区：动作-效果失配卡角",
+   "version": "1.0.0",
+   "description": "Mario wedged in wall corner. Invisible to texture-based vision (static frame, symmetric walls, zero transients) — detected only via motor-vs-motion mismatch (corollary discharge comparator).",
+   "conditions": {
+    "command_effect_mismatch": true,
+    "mismatch_duration": {
+     "min": 15
+    }
+   },
+   "contradiction": "visual signals (temporal=0, ON/OFF=0, asymmetry=0) are identical to standing still in open field",
+   "diagnosis": "Visual causal chain has no action-effect comparator: 'stuck' is defined by commanded vs measured displacement (proprioception), which texture-based vision cannot supply. Fix: corollary-discharge comparator + reverse-out reflex.",
+   "fix_template": "# Fix: corollary discharge comparator (action-effect mismatch)\n# File: fly64/fly64/main.py\n# expected = control.y * 0.6; actual = pose displacement\n# mismatch if expected>25 && moved<3 for >15 frames\n# Reflex: reverse y=-50 + alternating turn to un-wedge",
+   "fix_files": [
+    "fly64/fly64/main.py"
+   ],
+   "severity": "high",
+   "tags": [
+    "corner",
+    "proprioception",
+    "corollary_discharge",
+    "blind_spot"
+   ],
+   "rollback_strategy": "revert_added_block",
+   "threshold_justification": "expected>25 units/tick = meaningful forward command, moved<3 = static, >15 frames = not transient; reverse+turn physically un-wedges from 90-degree corners where asymmetry guidance is zero"
+  },
+  {
+   "id": "dopamine_plateau",
+   "name": "Dopamine gain plateau — Learning saturation detected",
+   "version": "1.0.0",
+   "description": "Dopamine-gated gain has reached a maximum plateau without further improvement in error gradient. The plasticity proxy may be saturated — suggests exploring a new strategy or resetting gains.",
+   "conditions": {
+    "dopamine_gain_avg": {
+     "min": 2.0
+    },
+    "learning_progress": {
+     "max": 0.05
+    },
+    "stuck_duration": {
+     "min": 60
+    }
+   },
+   "diagnosis": "Dopamine gain saturated at ceiling (>=2.0) while learning_progress (mean abs error gradient) stagnates below 0.05. The gain modulation cannot further improve motor adaptation — consider resetting gains or switching to a new exploration strategy.",
+   "fix_template": "# Reset dopamine gains to break plateau\n# File: fly64/fly64/model.py\n# model.dopamine_gain.reset_gains() to restart adaptation",
+   "fix_files": [
+    "fly64/fly64/model.py"
+   ],
+   "severity": "medium",
+   "tags": [
+    "plasticity",
+    "dopamine",
+    "plateau",
+    "t4"
+   ],
+   "rollback_strategy": "revert_value",
+   "threshold_justification": "dopamine_gain_avg>=2.0=near ceiling (GAIN_MAX=2.5), learning_progress<0.05=minimal error gradient (converged), stuck>60s=sufficient run time"
+  },
+  {
+   "id": "cliff_standoff",
+   "name": "Cliff standoff — 悬崖边缘对峙驻留",
+   "version": "1.0.0",
+   "description": "Mario parks at a confirmed cliff edge: cliff reflex blocks forward, escape keeps re-approaching — standoff with near-zero net displacement instead of progressing along the edge.",
+   "conditions": {
+    "cliff_confirmed": true,
+    "cliff_standoff_s": {
+     "min": 20
+    },
+    "escape_behavior": true
+   },
+   "contradiction": "cliff avoidance is working (no falls) yet exploration stalls — protection has become paralysis",
+   "diagnosis": "Head-on cliff approach loop: forward drive and cliff retreat cancel out. FailureMemory knows this cliff — the tangential detour current (FailureMemory → turn-pool injection) should route Mario ALONG the edge; if standoff persists, the tangent gate or its freshness sign is mis-firing.",
+   "fix_template": "# Cliff standoff — verify tangential detour injection\n# File: fly64/fly64/main.py + fly64/fly64/model.py\n# model.cliff_tangent_bias must be non-zero when failures.nearest_failure_vector(x,z) hits\n# and model.step must inject it into turn pools before spike generation",
+   "fix_files": [
+    "fly64/fly64/main.py",
+    "fly64/fly64/model.py",
+    "fly64/fly64/memory.py"
+   ],
+   "severity": "medium",
+   "tags": [
+    "cliff",
+    "standoff",
+    "tangent",
+    "detour",
+    "brain_first"
+   ],
+   "rollback_strategy": "revert_added_block",
+   "threshold_justification": "cliff_confirmed=multi-frame edge confirmed, standoff>20s = protection plateau (retreat+re-approach cycles), escape active = brain wants to move but cannot"
+  },
+  {
+   "id": "micro_loop_weave",
+   "name": "Micro-loop weave — 原地编织（交替未产生位移）",
+   "version": "1.0.0",
+   "description": "TurnAdaptation alternation is active (heading oscillates) but the loop window is still near-fully revisits: the weave produces no net displacement.",
+   "conditions": {
+    "anomaly_state": {
+     "eq": "micro_loop"
+    },
+    "loop_score": {
+     "min": 0.8
+    },
+    "stuck_duration": {
+     "min": 60
+    }
+   },
+   "diagnosis": "Spontaneous alternation converts circling into weaving, but weave-in-place still means zero displacement. Check breakout_drive gain and forward-pool injection placement.",
+   "fix_template": "# Strengthen oscillation-to-forward breakthrough\n# File: fly64/fly64/model.py\n# TurnAdaptation.breakout_drive: raise breakout_gain (0.15 to 0.25)",
+   "fix_files": [
+    "fly64/fly64/model.py"
+   ],
+   "severity": "high",
+   "tags": [
+    "loop",
+    "weave",
+    "alternation",
+    "breakout",
+    "brain_first"
+   ],
+   "rollback_strategy": "revert_value",
+   "threshold_justification": "anomaly=micro_loop=detector-confirmed circling, loop_score>=0.8=window near-fully revisits, stuck>60s=sustained weave despite alternation"
+  },
+  {
+   "id": "micro_loop_weave_signal",
+   "name": "Micro-loop weave (signal-only) — 原地编织（行为信号判定，绕过 anomaly 分类器）",
+   "version": "1.0.0",
+   "description": "Same weave-in-place signature as micro_loop_weave but detected purely from behavioral signals, so it fires even when the brain's anomaly classifier still reports idle (classifier/behavior disagreement).",
+   "conditions": {
+    "loop_score": {
+     "min": 0.95
+    },
+    "escape_behavior": true,
+    "stuck_duration": {
+     "min": 45
+    }
+   },
+   "diagnosis": "Behavioral weave signature (loop window near-fully revisits, escape active, stuck rising) without a detector-confirmed micro_loop state: the anomaly classifier and the behavior disagree. The weave is real — check breakout_drive gain and forward-pool injection placement.",
+   "fix_template": "# Strengthen oscillation-to-forward breakthrough\n# File: fly64/fly64/model.py\n# TurnAdaptation.breakout_drive: verify breakout_gain (0.25 since EVO R17 sync)\n# is loaded and the breakout current reaches the forward pool pre-spike.\n",
+   "fix_files": [
+    "fly64/fly64/model.py"
+   ],
+   "severity": "high",
+   "tags": [
+    "loop",
+    "weave",
+    "alternation",
+    "breakout",
+    "signal_only",
+    "brain_first"
+   ],
+   "rollback_strategy": "revert_value",
+   "threshold_justification": "loop_score>=0.95=window almost all revisits (weave is certain), escape_behavior=true=brain is trying to escape, stuck>45s=earlier than the detector-gated variant so the signal path can act first"
+  },
+  {
+   "id": "mbon_saturation",
+   "name": "MBON saturation — 蘑菇体输出饱和",
+   "version": "1.0.0",
+   "description": "A MBON channel is pinned near |1.0| (tanh ceiling) while circling persists: the KC-to-MBON weights for that column have run away. Homeostatic synaptic scaling should self-correct; persistent saturation means the scaling is not firing.",
+   "conditions": {
+    "mb_mbon_forward": {
+     "min": 0.95
+    },
+    "loop_score": {
+     "min": 0.8
+    },
+    "stuck_duration": {
+     "min": 60
+    }
+   },
+   "diagnosis": "forward MBON saturated at ceiling while behaviour still loops. The built-in homeostatic synaptic scaling should shrink the column; persistent saturation indicates the guard is not triggering or dopamine keeps re-inflating it.",
+   "fix_template": "# Verify homeostatic scaling in mushroom_body.py saturation guard",
+   "fix_files": [
+    "fly64/fly64/mushroom_body.py"
+   ],
+   "severity": "medium",
+   "tags": [
+    "mb",
+    "saturation",
+    "homeostasis",
+    "brain_first"
+   ],
+   "rollback_strategy": "revert_value",
+   "threshold_justification": "mb_mbon_forward>=0.95=tanh ceiling, loop_score>=0.8=still weaving, stuck>60s=sustained"
+  },
+  {
+   "id": "primitive_timeout",
+   "name": "CPG primitive timeout — 运动原语超时熔断",
+   "version": "1.0.0",
+   "description": "A CPG motor primitive (longjump/backflip/groundpound) was aborted by the 2s circuit breaker, meaning the phase script wedged without producing its move.",
+   "conditions": {
+    "cpg_aborted": {
+     "min": 1
+    },
+    "cpg_last_abort": {
+     "const": "timeout"
+    }
+   },
+   "contradiction": "primitive requested but phase script exceeded MAX_PRIMITIVE_S without completing",
+   "diagnosis": "Phase script duration or game physics state prevents completion (e.g. longjump requested while wedged against geometry); breaker fired and fell back to reflex cascade.",
+   "fix_template": "# Fix: shorten the {primitive} phase script or add a state precondition\n# File: fly64/fly64/motor_primitives.py\n# Adjust: PHASE_SCRIPTS[{primitive}] durations / STATE_PRECONDITIONS\n",
+   "fix_files": [
+    "fly64/fly64/motor_primitives.py"
+   ],
+   "severity": "medium",
+   "tags": [
+    "motor",
+    "cpg",
+    "primitive",
+    "timeout"
+   ],
+   "rollback_strategy": "revert_line",
+   "threshold_justification": "MAX_PRIMITIVE_S=2.0s breaker (v2.15.0); any timeout event means the scripted duration was exceeded, so a single occurrence is diagnosable"
+  },
+  {
+   "id": "primitive_zero_disp",
+   "name": "CPG primitive zero displacement — 原语执行后零位移",
+   "version": "1.0.0",
+   "description": "Primitive completed but 60s displacement stayed near zero (primitive_disp < 30u over consecutive completions) — the move executed physically but did not escape the trap.",
+   "conditions": {
+    "cpg_completed": {
+     "min": 3
+    },
+    "primitive_disp": {
+     "max": 30
+    }
+   },
+   "contradiction": "primitive applied valid button sequence yet displacement stayed at ramp-trap baseline (0u)",
+   "diagnosis": "Wrong primitive for the terrain (e.g. longjump on a ledge edge) or Z/A pulse timing lost by the game; needs a different primitive or tighter phase timing.",
+   "fix_template": "# Fix: retune {primitive} gating or swap primitive for this scene profile\n# File: fly64/fly64/main.py (gate conditions) / motor_primitives.py (script)\n",
+   "fix_files": [
+    "fly64/fly64/main.py",
+    "fly64/fly64/motor_primitives.py"
+   ],
+   "severity": "high",
+   "tags": [
+    "motor",
+    "cpg",
+    "primitive",
+    "displacement",
+    "ramp-trap"
+   ],
+   "rollback_strategy": "revert_line",
+   "threshold_justification": "EVO VerificationEngine effectiveness threshold score>=0.3 and reflex_ineffective uses 30u/60s (v2.x) — same 30u floor reused for primitive outcomes"
+  },
+  {
+   "id": "mbon_wrong_direction",
+   "name": "MBON 学习方向错误 — 原语列权重持续下行",
+   "version": "1.0.0",
+   "description": "A primitive MBON column's scene-independent weight mean is falling over the collector window (>=8 samples, >=3 min span) while the primitive is being used — success dopamine is being swamped by concurrent setbacks or the sign path is inverted.",
+   "conditions": {
+    "mbon_w_min_slope": {
+     "max": -0.0005
+    },
+    "cpg_completed": {
+     "min": 10
+    }
+   },
+   "contradiction": "primitive successes keep firing (cpg_completed rises) yet the corresponding column weight mean declines",
+   "diagnosis": "Success-tick dopamine is swamped by concurrent behavioral setbacks (check completion-tick dopamine mean) or the add_primitive_outcome sign path is inverted. Fix: raise the success floor (model._success_pulse_floor) or verify dopamine sign at completion.",
+   "fix_template": "# Fix: raise the success dopamine floor / audit sign path\n# File: fly64/fly64/model.py\n# Symbol: _success_pulse_floor (currently 0.2) and add_primitive_outcome\n",
+   "fix_files": [
+    "fly64/fly64/model.py"
+   ],
+   "severity": "medium",
+   "tags": [
+    "motor",
+    "mbon",
+    "learning",
+    "plasticity",
+    "primitive"
+   ],
+   "rollback_strategy": "revert_line",
+   "threshold_justification": "columns drift ~+0.002/min under healthy success shaping (M3.1 live data); a sustained -0.0005/min over >=3 min is a 4x-sign opposite trend and cannot arise from noise (delta quantisation 1e-5)"
+  }
+ ]
 }
