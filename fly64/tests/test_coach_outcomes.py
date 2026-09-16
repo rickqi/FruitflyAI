@@ -52,6 +52,14 @@ class TestSnapshotResolve:
     def test_empty_pending_resolves_none(self):
         assert co.resolve_outcome(None, MEM) is None
 
+    def test_degraded_memory_does_not_resolve(self):
+        """A memory snapshot missing the baseline keys would produce an
+        all-zero junk record — keep the window open instead."""
+        s = co.snapshot_outcome(_strategy(), MEM, {})
+        s["ts"] -= 31
+        assert co.resolve_outcome(s, {}) is None              # empty snapshot
+        assert co.resolve_outcome(s, {"loop_score": 0.9}) is None  # partial snapshot
+
 
 class TestPersistence:
     def test_pending_roundtrip(self, tmp_path):

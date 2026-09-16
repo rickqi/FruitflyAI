@@ -55,10 +55,14 @@ def snapshot_outcome(strategy: dict, memory: dict, flow: dict,
 def resolve_outcome(pending: dict, memory: dict) -> Optional[dict]:
     """Resolve a pending outcome against current memory.
 
-    Returns None while the measurement window is still open.
+    Returns None while the measurement window is still open, or when the
+    memory snapshot is degraded (missing baseline keys — a zero-delta record
+    would be worthless for attribution, so we keep waiting for a real one).
     """
     if not pending:
         return None
+    if "stuck_duration" not in (memory or {}):
+        return None  # degraded snapshot — do not emit a junk record
     age = time.time() - float(pending.get("ts", 0))
     if age < float(pending.get("window_s", DEFAULT_WINDOW_S)):
         return None
