@@ -903,7 +903,7 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 
 <!-- EVOLUTION-HISTORY-TABLE:START
 
-下表由 `skills/evolution_skill.py --history-md` 从权威记录 `skills/evolution_history.json` 自动生成（50 条，权威版本 Brain v2.19.0 / Skill v3.1.0）。**请勿手改本表**——更新记录后重新执行该命令再粘贴。
+下表由 `skills/evolution_skill.py --history-md` 从权威记录 `skills/evolution_history.json` 自动生成（50 条，权威版本 Brain v2.19.1 / Skill v3.0.0）。**请勿手改本表**——更新记录后重新执行该命令再粘贴。
 
 | ID | 时间 | 轮次 | Brain | Skill | 触发原因 | 关键变更 | 测试 | 来源 |
 |----|------|------|-------|-------|---------|---------|------|------|
@@ -945,9 +945,8 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 | EVO-037 | 2026-09-16 17:59 | Motor-P3 | 2.16.0 | 3.0.0 | 打击/下蹲动作需要独立运动池；蘑菇体输出通道需扩展 | strike/crouch 运动池；MBON 扩至 9 列（原 5 通道） | — | commit 01364b4 |
 | EVO-038 | 2026-09-16 18:30 | Motor-P4/P5+M1 | 2.17.0 | 3.0.0 | Phase 4 仪表板可视化 + Phase 5 EVO pattern + M1 优化层（债务清理 + 新动作原语 PUNCH/DIVE） | Phase 4 电机扩展仪表板；Phase 5 EVO patterns + R21 patch backport；M1.1 既有债务清理（BRAIN_VERSION 2.17.0）（等 4 项） | — | commits e664bd5/1736cac/f1021bf |
 | EVO-039 | 2026-09-16 20:50 | P1-2 perf | 2.17.0 | 3.0.0 | P1-2 CSC 传播 8-15ms/step 制约 tick 频率与进化验证吞吐；尝试选择路径微优化（布尔掩码/fancy/gather+bincount） | 三变体在真实 25.6M 连接组上交错基准（9 次中位数）：0.95–1.38×，全部落在负载噪声内——负结果；synaptic_current() 自适应选择保留为等价基线 + 传播点注释留档负结果；test_propagation_perf.py 7 用例等价性 PIN（全分数段 allclose） | test_propagation_perf 7/7 | 本次会话（负结果留档，防重复尝试） |
-| EVO-041 | 2026-09-16 00:50 | P2-ops | 2.18.0 | 3.0.0 | P2 三项：双写竞态（AUTO 撞号风险）、DETECT 靠人工总结、进化能力本身无元指标 | 单实例锁 acquire_loop_lock（跨平台 pid 活性探测，死锁自动破解）接入常驻循环 main()；skills/pattern_drafts.py：DETECT 自动化——持续命中 pattern（presence≥1；compute_funnel 元指标漏斗：迭代→发现→修复→验证→有效 五级转化率 + top patterns，--f | test_evolution_ops 7/7（漏斗计数/草案检测/有效跳过/组合/锁三态） | commit 本次（roadmap P2 落地） |
-| EVO-042 | 2026-09-16 | t21-hardening | 2.18.1 | 3.1.0 | t21 review hardening + 3D-key crash hotfix | review hardening + 3D-key crash hotfix (Brain 2.18.1) | — | commit c002ac9 |
-| EVO-043 | 2026-09-16 | R31 | 2.19.0 | 3.1.0 | R31 version discipline — motor expansion complete (MBON-assisted longjump gating); skill bumped to 3.1.0 | BRAIN_VERSION 2.18.1→2.19.0 (R31 motor expansion complete)；SKILL_VERSION 3.0.0→3.1.0 (版本纪律轮) | — | commit d968466 |
+| EVO-044 | 2026-09-16 | P1-2 perf | 2.19.0 | 3.1.0 | SpMV 假设验证：全量稀疏矩阵向量乘（0/1 放电向量）能否快过选中列求和 | 真实 25.6M 连接组交错基准（7 次中位数）：5% 放电选择法 3.9ms vs CSC matvec 24.0 /；matvec 改变浮点累加顺序 → allclose(1e-4) 失败，破坏 replay 精确断言契约；结论：选择法已是 scipy 格式地板；下一级=GPU 反事实批处理（建议方向） | bench5 全分数段 allclose 记录 | 本次会话基准脚本（负结果留档） |
+| EVO-045 | 2026-09-16 | P0 验收 | 2.19.0 | 3.1.0 | roadmap P0 验收项：对真实案例（fallen 马拉松 chunk 00059）执行首次反事实实验 | 三通道实验：baseline / 现行(0.20/0.60) / 强化(0.50/1.00)；关键发现：fallen forward 电流 ×2.5 → 前进 +3.6% 但转向 −95%（LIF 竞争压制）——振；jump_count 恒 13：跳跃门控由输入特征驱动，对电流振幅不敏感（等 5 项） | 报告=docs/counterfactual-fallen-marathon.md | replay.counterfactual 实测（本次会话，roadmap P0 验收） |
 | AUTO-0001 | 2026-09-15 11:14 | — | 2.13.3 | 3.0.0 | Patterns skipped because their condition fields are absent from telemetry: ['mb_mbon_forward'] (patterns: ['mbon_saturat | # Expose missing condition keys in main.py flow_json/memory_json | — | resident skill loop (auto_fix) |
 | AUTO-0002 | 2026-09-15 11:39 | — | 2.13.3 | 3.0.0 | forward MBON saturated at ceiling while behaviour still loops. The built-in homeostatic synaptic scaling should shrink t | # Verify homeostatic scaling in mushroom_body.py saturation guard | — | resident skill loop (auto_fix) |
 | AUTO-0003 | 2026-09-15 13:10 | — | 2.13.3 | 3.0.0 | Fallen detection threshold (Y<-100) is too permissive. SM64 normal ground is Y=120. Y<50 already indicates below-ground  | # Fix: Lower fallen detection threshold from -100 to 50 | — | resident skill loop (auto_fix) |
@@ -957,6 +956,7 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 | AUTO-0006 | 2026-09-16 12:51 | — | 2.18.0 | 3.0.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
 | AUTO-0007 | 2026-09-16 13:03 | — | 2.18.0 | 3.0.0 | Wrong primitive for the terrain (e.g. longjump on a ledge edge) or Z/A pulse timing lost by the game; needs a different  | # Fix: retune {primitive} gating or swap primitive for this scene profile | — | resident skill loop (auto_fix) |
 | AUTO-0008 | 2026-09-16 16:44 | — | 2.19.0 | 3.0.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
+| AUTO-0009 | 2026-09-16 17:19 | — | 2.19.1 | 3.0.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
 
 <!-- EVOLUTION-HISTORY-TABLE:END -->
 
