@@ -903,7 +903,7 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 
 <!-- EVOLUTION-HISTORY-TABLE:START
 
-下表由 `skills/evolution_skill.py --history-md` 从权威记录 `skills/evolution_history.json` 自动生成（47 条，权威版本 Brain v2.18.0 / Skill v3.0.0）。**请勿手改本表**——更新记录后重新执行该命令再粘贴。
+下表由 `skills/evolution_skill.py --history-md` 从权威记录 `skills/evolution_history.json` 自动生成（50 条，权威版本 Brain v2.19.0 / Skill v3.1.0）。**请勿手改本表**——更新记录后重新执行该命令再粘贴。
 
 | ID | 时间 | 轮次 | Brain | Skill | 触发原因 | 关键变更 | 测试 | 来源 |
 |----|------|------|-------|-------|---------|---------|------|------|
@@ -945,7 +945,9 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 | EVO-037 | 2026-09-16 17:59 | Motor-P3 | 2.16.0 | 3.0.0 | 打击/下蹲动作需要独立运动池；蘑菇体输出通道需扩展 | strike/crouch 运动池；MBON 扩至 9 列（原 5 通道） | — | commit 01364b4 |
 | EVO-038 | 2026-09-16 18:30 | Motor-P4/P5+M1 | 2.17.0 | 3.0.0 | Phase 4 仪表板可视化 + Phase 5 EVO pattern + M1 优化层（债务清理 + 新动作原语 PUNCH/DIVE） | Phase 4 电机扩展仪表板；Phase 5 EVO patterns + R21 patch backport；M1.1 既有债务清理（BRAIN_VERSION 2.17.0）（等 4 项） | — | commits e664bd5/1736cac/f1021bf |
 | EVO-039 | 2026-09-16 20:50 | P1-2 perf | 2.17.0 | 3.0.0 | P1-2 CSC 传播 8-15ms/step 制约 tick 频率与进化验证吞吐；尝试选择路径微优化（布尔掩码/fancy/gather+bincount） | 三变体在真实 25.6M 连接组上交错基准（9 次中位数）：0.95–1.38×，全部落在负载噪声内——负结果；synaptic_current() 自适应选择保留为等价基线 + 传播点注释留档负结果；test_propagation_perf.py 7 用例等价性 PIN（全分数段 allclose） | test_propagation_perf 7/7 | 本次会话（负结果留档，防重复尝试） |
-| EVO-040 | 2026-09-16 22:59 | Coach-P1 | 2.18.0 | 3.0.0 | 建议→行为→效果归因链断裂：coach 策略键下发后无效果统计（P4.4/P4.6 的数据地基缺失）；课程无状态（P4.3 单次问答） | plugin/coach_outcomes.py 新模块：outcome 快照/窗口解析(30s)/jsonl 累积/课；runner.py 四挂点：cycle 开头 resolve pending、策略写后开归因窗、课程注入 consult；cpg_last_abort 遥测映射（primitive_timeout pattern 的最后缺失字段，数据源=已有（等 4 项） | test_coach_outcomes 12 + test_plugin_mhr(含修复) + history/prop | commit 本次；roadmap=docs/evolution-coach-roadmap.md §2 |
+| EVO-041 | 2026-09-16 00:50 | P2-ops | 2.18.0 | 3.0.0 | P2 三项：双写竞态（AUTO 撞号风险）、DETECT 靠人工总结、进化能力本身无元指标 | 单实例锁 acquire_loop_lock（跨平台 pid 活性探测，死锁自动破解）接入常驻循环 main()；skills/pattern_drafts.py：DETECT 自动化——持续命中 pattern（presence≥1；compute_funnel 元指标漏斗：迭代→发现→修复→验证→有效 五级转化率 + top patterns，--f | test_evolution_ops 7/7（漏斗计数/草案检测/有效跳过/组合/锁三态） | commit 本次（roadmap P2 落地） |
+| EVO-042 | 2026-09-16 | t21-hardening | 2.18.1 | 3.1.0 | t21 review hardening + 3D-key crash hotfix | review hardening + 3D-key crash hotfix (Brain 2.18.1) | — | commit c002ac9 |
+| EVO-043 | 2026-09-16 | R31 | 2.19.0 | 3.1.0 | R31 version discipline — motor expansion complete (MBON-assisted longjump gating); skill bumped to 3.1.0 | BRAIN_VERSION 2.18.1→2.19.0 (R31 motor expansion complete)；SKILL_VERSION 3.0.0→3.1.0 (版本纪律轮) | — | commit d968466 |
 | AUTO-0001 | 2026-09-15 11:14 | — | 2.13.3 | 3.0.0 | Patterns skipped because their condition fields are absent from telemetry: ['mb_mbon_forward'] (patterns: ['mbon_saturat | # Expose missing condition keys in main.py flow_json/memory_json | — | resident skill loop (auto_fix) |
 | AUTO-0002 | 2026-09-15 11:39 | — | 2.13.3 | 3.0.0 | forward MBON saturated at ceiling while behaviour still loops. The built-in homeostatic synaptic scaling should shrink t | # Verify homeostatic scaling in mushroom_body.py saturation guard | — | resident skill loop (auto_fix) |
 | AUTO-0003 | 2026-09-15 13:10 | — | 2.13.3 | 3.0.0 | Fallen detection threshold (Y<-100) is too permissive. SM64 normal ground is Y=120. Y<50 already indicates below-ground  | # Fix: Lower fallen detection threshold from -100 to 50 | — | resident skill loop (auto_fix) |
@@ -954,9 +956,7 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 | AUTO-0005 | 2026-09-15 14:48 | — | 2.13.3 | 3.0.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
 | AUTO-0006 | 2026-09-16 12:51 | — | 2.18.0 | 3.0.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
 | AUTO-0007 | 2026-09-16 13:03 | — | 2.18.0 | 3.0.0 | Wrong primitive for the terrain (e.g. longjump on a ledge edge) or Z/A pulse timing lost by the game; needs a different  | # Fix: retune {primitive} gating or swap primitive for this scene profile | — | resident skill loop (auto_fix) |
-| NAV-01 | 2026-09-07 | — | 2.19.0 | 3.0.0 | 探索方向无惯性导致局部徘徊严重 — coverage_rate 持续偏低 | model.py: 探索方向提交机制(5s保持), CX注入偏置±0.10 | 8 navigation tests | captain |
-| NAV-02 | 2026-09-07 | — | 2.19.0 | 3.0.0 | 局部探索完成后无远距引导 — CX-3仅搜索半径6格 | memory.py: frontier_direction()前沿探索, 半径15格, 指向已/未探索边界 | 8 navigation tests | captain |
-| NAV-03 | 2026-09-07 | — | 2.19.0 | 3.0.0 | 新颖性衰减过慢(60s仍有0.74), 回访惩罚太弱(8次峰值) | memory.py: fast_decay=0.995双时间尺度; revisit_penalty 0→0.7 (2→5次) | 8 navigation tests | captain |
+| AUTO-0008 | 2026-09-16 16:44 | — | 2.19.0 | 3.0.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
 
 <!-- EVOLUTION-HISTORY-TABLE:END -->
 

@@ -68,7 +68,7 @@ D:\codes\flygym\
 
 | 组件 | 位置 | 状态 |
 |------|------|------|
-| 脑模型 | WSL 常驻 | **v2.17.0**（Motor 扩展 M1：PUNCH/DIVE + strike/crouch 池 + MBON 9 列；历史全记录 43 条见 fly64/skills/evolution_history.json）|
+| 脑模型 | WSL 常驻 | **v2.19.0**（R31 motor expansion complete / skill 3.1.0；历史全记录 50 条见 fly64/skills/evolution_history.json）|
 | SM64 游戏 | WSL PID # | 运行中 |
 | 仪表板 | http://127.0.0.1:8765/ | ✅ |
 | 3D 轨迹 | http://127.0.0.1:8765/trajectory.html | ✅ |

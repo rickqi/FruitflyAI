@@ -2,8 +2,8 @@
   "$schema": "fly64/evolution-history/1.0",
   "canonical_versions": {
     "brain": "2.19.0",
-    "skill": "3.0.0",
-    "as_of": "2026-09-16T16:44:00.105065+00:00"
+    "skill": "3.1.0",
+    "as_of": "2026-09-17T00:54:44.429390+08:00"
   },
   "records": [
     {
@@ -667,6 +667,53 @@
       "tests": "test_propagation_perf 7/7",
       "source": "本次会话（负结果留档，防重复尝试）",
       "notes": "正解方向=稠密核心拆分/GPU 批处理/降边数；选择路径微调不要再试"
+    },
+    {
+      "id": "EVO-041",
+      "date": "2026-09-16",
+      "time": "00:50:50 +0800",
+      "round": "P2-ops",
+      "kind": "infra",
+      "brain_version": "2.18.0",
+      "skill_version": "3.0.0",
+      "trigger": "P2 三项：双写竞态（AUTO 撞号风险）、DETECT 靠人工总结、进化能力本身无元指标",
+      "changes": [
+        "单实例锁 acquire_loop_lock（跨平台 pid 活性探测，死锁自动破解）接入常驻循环 main()",
+        "skills/pattern_drafts.py：DETECT 自动化——持续命中 pattern（presence≥10% 且无有效 fix）+ 共现对聚类 → pattern_drafts/drafts.json 提案",
+        "compute_funnel 元指标漏斗：迭代→发现→修复→验证→有效 五级转化率 + top patterns，--funnel CLI"
+      ],
+      "tests": "test_evolution_ops 7/7（漏斗计数/草案检测/有效跳过/组合/锁三态）",
+      "source": "commit 本次（roadmap P2 落地）",
+      "notes": "实况首跑：10347 迭代 / 32025 findings / 13 fix / 0 effective；14 条草案（9 stubborn + 5 共现对）"
+    },
+    {
+      "id": "EVO-042",
+      "date": "2026-09-16",
+      "round": "t21-hardening",
+      "kind": "brain",
+      "brain_version": "2.18.1",
+      "skill_version": "3.1.0",
+      "trigger": "t21 review hardening + 3D-key crash hotfix",
+      "changes": [
+        "review hardening + 3D-key crash hotfix (Brain 2.18.1)"
+      ],
+      "tests": null,
+      "source": "commit c002ac9"
+    },
+    {
+      "id": "EVO-043",
+      "date": "2026-09-16",
+      "round": "R31",
+      "kind": "brain",
+      "brain_version": "2.19.0",
+      "skill_version": "3.1.0",
+      "trigger": "R31 version discipline — motor expansion complete (MBON-assisted longjump gating); skill bumped to 3.1.0",
+      "changes": [
+        "BRAIN_VERSION 2.18.1→2.19.0 (R31 motor expansion complete)",
+        "SKILL_VERSION 3.0.0→3.1.0 (版本纪律轮)"
+      ],
+      "tests": null,
+      "source": "commit d968466"
     },
     {
       "id": "AUTO-0001",
