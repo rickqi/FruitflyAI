@@ -35,7 +35,7 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.17.0"  # M1.1 debt cleanup: fix_catalog repair + write-KPI budget
+BRAIN_VERSION = "2.18.0"  # M2: coach primitive strategy + WALL/SLIDING states + walljump/sideflip
 SKILL_VERSION = "3.0.0"   # must mirror fly64/skills/evolution_skill.py SKILL_VERSION
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
@@ -549,6 +549,9 @@ ACTIVE_STRATEGY_DEFAULTS = {
     "primitives_enabled": ["longjump", "backflip", "groundpound", "punch", "dive"],
 }
 
+# M2.3: last applied turn sign for the side-flip reversal detector.
+_CPG_PREV_XSIGN = 0
+
 
 def load_active_strategy(path) -> dict:
     """Read skills/active_strategy.json fallen_recovery section.
@@ -583,6 +586,17 @@ def load_active_strategy(path) -> dict:
         names = [str(x) for x in prim["enabled"] if isinstance(x, str)]
         if names:
             strategy["primitives_enabled"] = names
+    # M2.1: scene-preference map {scene_tag_substring: primitive_name} —
+    # coach/operator hints which primitive fits which terrain (e.g.
+    # {"ramp": "longjump"}).  Invalid entries dropped.
+    if isinstance(prim, dict) and isinstance(prim.get("prefer"), dict):
+        prefer = {}
+        for tag, name in prim["prefer"].items():
+            if (isinstance(tag, str) and tag
+                    and isinstance(name, str) and name):
+                prefer[tag] = name
+        if prefer:
+            strategy["primitives_prefer"] = prefer
     return strategy
 
 
@@ -951,6 +965,9 @@ async def run(args) -> None:
                 # 1. High-confidence cliff: cliff_confirmed AND rapid green drop
                 if (not is_ramp or ramp_stuck_override) and model.cliff_confirmed and model.cliff_rate < -0.03:
                     turn_dir = -60 if model.rng.random() < 0.5 else 60
+                    # P4-1: Cliff reflex through LIF bridge
+                    model.reflex_turn = turn_dir
+                    model.reflex_forward = -10
                     control.x = turn_dir
                     control.y = -10  # brief reverse in SM64
                     cliff_triggered = True
@@ -1023,6 +1040,14 @@ async def run(args) -> None:
             if reflex_active:
                 action = memory_ctrl.reflex_action
                 if action["active"]:
+                    # P4-1: Reflex→LIF bridge — set flags on model instead of
+                    # writing control.x/y/jump directly. The model.step() will
+                    # convert these to LIF current injection, giving the network
+                    # a shared vote in the motor decision.
+                    model.reflex_turn = action.get("control_x", 0)
+                    model.reflex_forward = action.get("control_y", 0)
+                    model.reflex_jump = action.get("jump", False)
+                    # Still write control for the SM64 bridge (phase 1 compat)
                     control.x = action["control_x"]
                     control.y = action["control_y"]
                     control.jump = action["jump"]
@@ -1254,7 +1279,16 @@ async def run(args) -> None:
             # between escape and jump).  Gates reuse existing memory/model
             # signals; deterministic phase scripts own the Z→A button timing
             # (no symbolic FSM patterns from the P1 PIN list). ----
-            cpg.feed_pose(tick_start, pose_ev[1] if len(pose_ev) > 1 else 0.0)
+            cpg.feed_pose(tick_start, pose_ev[1] if len(pose_ev) > 1 else 0.0,
+                          wall_score=float(getattr(model, "wall_score", 0.0) or 0.0),
+                          pushing=abs(control.x) >= 40)
+            # M2.3: hard turn-reversal detector (side-flip window).  A sign
+            # flip of the applied turn at |x|>=40 marks a deliberate reversal.
+            global _CPG_PREV_XSIGN
+            _xsign = 1 if control.x > 40 else (-1 if control.x < -40 else 0)
+            model._sideflip_reversal = bool(
+                _xsign != 0 and _CPG_PREV_XSIGN != 0 and _xsign != _CPG_PREV_XSIGN)
+            _CPG_PREV_XSIGN = _xsign
             if cpg.active is None and not dlg_now and not reflex_override:
                 # is_ramp is only assigned inside the cliff block (step>10);
                 # recompute locally so early ticks never hit an unbound name.
@@ -1263,7 +1297,25 @@ async def run(args) -> None:
                 # M1.2: operator whitelist (active_strategy.json hot-reload)
                 _wl = set(_active_strategy.get("primitives_enabled")
                           or ACTIVE_STRATEGY_DEFAULTS["primitives_enabled"])
-                if ("longjump" in _wl and _cpg_ramp
+                # M2.1: coach/operator scene-preference hint wins first —
+                # subject to whitelist + CPG state preconditions (request()
+                # rejects illegal combos itself).
+                _scene_label = str(getattr(model, "scene_name", "")
+                                   or getattr(model, "scene_label", "") or "")
+                _pref = _active_strategy.get("primitives_prefer") or {}
+                _requested = False
+                for _tag, _prim_name in _pref.items():
+                    if _prim_name not in _wl or not _tag:
+                        continue
+                    if _tag.lower() in _scene_label.lower():
+                        try:
+                            _requested = cpg.request(
+                                tick_start, Primitive(_prim_name))
+                        except ValueError:
+                            _requested = False
+                        if _requested:
+                            break
+                if not _requested and ("longjump" in _wl and _cpg_ramp
                         and memory_ctrl.stuck_duration > 3.0
                         and control.y > 40):
                     cpg.request(tick_start, Primitive.LONG_JUMP)
@@ -1286,6 +1338,14 @@ async def run(args) -> None:
                 elif ("dive" in _wl and cpg.state.value == "airborne"
                       and getattr(model, "target_count", 0) > 0):
                     cpg.request(tick_start, Primitive.DIVE)
+                # M2.3: wall jump — WALL window + still wedged (stuck active)
+                elif ("walljump" in _wl and cpg.state.value == "wall"
+                      and memory_ctrl.stuck_duration > 2.0):
+                    cpg.request(tick_start, Primitive.WALL_JUMP)
+                # M2.3: side flip — hard turn reversal while grounded
+                elif ("sideflip" in _wl and cpg.state.value == "grounded"
+                      and getattr(model, "_sideflip_reversal", False)):
+                    cpg.request(tick_start, Primitive.SIDE_FLIP)
             cpg_phase = cpg.update(tick_start)
             if cpg_phase is not None:
                 control = cpg_apply_phase(control, cpg_phase)

@@ -95,14 +95,18 @@ class TestBoldTurnBiasChain:
         assert m, "turn-pool consumption of bold_turn_drive not found"
         expr = m.group(1).strip()
         assert "min(1.0" in expr                 # second clamp in model
-        # amplitude: 0.35 max turn-pool current × clamped magnitude
-        amp = eval(expr.replace("self.bold_turn_drive", "1.0"),
-                   {"min": min})
-        assert amp == pytest.approx(0.35)
-        # a coach strength of 0.2 (floor) yields 0.07 — non-zero steering
-        amp_floor = eval(expr.replace("self.bold_turn_drive", "0.2"),
-                         {"min": min})
-        assert amp_floor == pytest.approx(0.07)
+        # P2-2 named coefficients: bind self.BOLD_TURN_DRIVE so the eval
+        # tracks whatever constant model.py declares (0.35 at time of writing)
+        mm = re.search(r"BOLD_TURN_DRIVE\s*=\s*([0-9.]+)", model_src)
+        assert mm, "model must declare BOLD_TURN_DRIVE coefficient"
+        bold = float(mm.group(1))
+        ns = {"min": min, "self": type("S", (), {"BOLD_TURN_DRIVE": bold})()}
+        # amplitude: max turn-pool current × clamped magnitude
+        amp = eval(expr.replace("self.bold_turn_drive", "1.0"), ns)
+        assert amp == pytest.approx(bold)
+        # a coach strength of 0.2 (floor) yields bold*0.2 — non-zero steering
+        amp_floor = eval(expr.replace("self.bold_turn_drive", "0.2"), ns)
+        assert amp_floor == pytest.approx(bold * 0.2)
 
     def test_consumer_chain_end_to_end(self, main_src, model_src):
         # main writes the drive flag; model consumes it in step()

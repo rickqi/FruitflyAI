@@ -27,11 +27,21 @@ MAX_PRIMITIVE_S = 2.0
 POSE_WINDOW_S = 0.6
 # Vertical speed (game units / s) above which Mario is considered airborne.
 AIRBORNE_VZ = 120.0
+# Sustained downward speed while "grounded" that means sliding on a slope.
+SLIDING_VZ = 60.0
+# wall_score above which a wall contact counts (matches model wall gate).
+WALL_SCORE_MIN = 0.5
 
 
 class MarioState(Enum):
     GROUNDED = "grounded"
     AIRBORNE = "airborne"
+    # M2.2: refined states.  WALL = pressed against a vertical surface while
+    # steering into it (wall-kick window); SLIDING = on a slope, altitude
+    # steadily dropping (longjump is wasted there).  Priority:
+    # WALL > SLIDING > GROUNDED.
+    WALL = "wall"
+    SLIDING = "sliding"
     UNKNOWN = "unknown"
 
 
@@ -43,6 +53,8 @@ class Primitive(Enum):
     DIVE = "dive"                   # airborne B (small-target pursuit) [Phase 3+]
     SWIM_STROKE = "swim"            # water A rhythm CPG [Phase 3+]
     CRAWL = "crawl"                 # low-clearance slow move [Phase 3+]
+    WALL_JUMP = "walljump"          # M2.3: A in the WALL window -> kick away
+    SIDE_FLIP = "sideflip"          # M2.3: A on hard turn reversal
 
 
 # Phase scripts: list of (duration_s, outputs) applied in order.
@@ -71,6 +83,17 @@ PHASE_SCRIPTS: Dict[Primitive, List[Tuple[float, Dict]]] = {
         (0.08, dict(b=True, y=50)),
         (0.40, dict(y=50)),
     ],
+    # M2.3: wall kick — A while facing the wall pops Mario away from it
+    # (the game supplies the away-from-wall direction itself).
+    Primitive.WALL_JUMP: [
+        (0.08, dict(jump=True)),
+        (0.45, dict()),
+    ],
+    # M2.3: side flip — A right after a hard turn reversal (showy high jump)
+    Primitive.SIDE_FLIP: [
+        (0.06, dict(jump=True)),
+        (0.50, dict()),
+    ],
 }
 
 # Loop primitives re-trigger their script until the gate turns off.
@@ -95,6 +118,8 @@ STATE_PRECONDITIONS: Dict[Primitive, Tuple[MarioState, ...]] = {
     Primitive.DIVE: (MarioState.AIRBORNE,),
     Primitive.SWIM_STROKE: (MarioState.AIRBORNE, MarioState.UNKNOWN),
     Primitive.CRAWL: (MarioState.GROUNDED,),
+    Primitive.WALL_JUMP: (MarioState.WALL,),
+    Primitive.SIDE_FLIP: (MarioState.GROUNDED,),
 }
 
 
@@ -138,8 +163,14 @@ class CPGController:
         self.last_abort_reason: str = ""
 
     # ---- state machine (R-D) -------------------------------------------
-    def feed_pose(self, now: float, z: float) -> MarioState:
-        """Feed one pose sample; infer grounded vs airborne from dz/dt."""
+    def feed_pose(self, now: float, z: float, wall_score: float = 0.0,
+                  pushing: bool = False) -> MarioState:
+        """Feed one pose sample; infer the fine-grained Mario state.
+
+        Priority: WALL (grounded + wall contact + steering into it)
+        > SLIDING (grounded but altitude steadily dropping on a slope)
+        > AIRBORNE / GROUNDED from |dz/dt|.
+        """
         self._pose.append((float(now), float(z)))
         cut = float(now) - POSE_WINDOW_S
         while self._pose and self._pose[0][0] < cut:
@@ -147,8 +178,18 @@ class CPGController:
         if len(self._pose) >= 2:
             (t0, z0), (t1, z1) = self._pose[0], self._pose[-1]
             dt = max(t1 - t0, 1e-3)
-            vz = abs(z1 - z0) / dt
-            self.state = MarioState.AIRBORNE if vz > AIRBORNE_VZ else MarioState.GROUNDED
+            vz_signed = (z1 - z0) / dt
+            vz = abs(vz_signed)
+            if vz > AIRBORNE_VZ:
+                self.state = MarioState.AIRBORNE
+            elif wall_score > WALL_SCORE_MIN and pushing:
+                # M2.2: wall-kick window (only meaningful while grounded)
+                self.state = MarioState.WALL
+            elif vz_signed < -SLIDING_VZ:
+                # M2.2: sliding down a slope — altitude steadily dropping
+                self.state = MarioState.SLIDING
+            else:
+                self.state = MarioState.GROUNDED
         return self.state
 
     # ---- gating ----------------------------------------------------------

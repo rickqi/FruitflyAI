@@ -76,6 +76,9 @@ class PluginRunner:
         self.cycles = 0
         self.consultations = 0
         self.last_error: Optional[str] = None
+        # M2.1: consecutive primitive completions with ~zero displacement
+        self._prim_zero_run = 0
+        self._prim_last_completed = 0
 
     # ── data sources ─────────────────────────────────────────────────
     def fetch_snapshot(self) -> dict:
@@ -110,7 +113,35 @@ class PluginRunner:
         mem = snapshot.get("memory")
         if not isinstance(mem, dict):
             return None
+        # M2.1: primitive_ineffective — 3 consecutive completions that each
+        # moved <30u mean the wrong primitive (or wrong timing) is being used
+        # for this terrain; escalate to the coach with the primitive stats.
+        cpg = mem.get("cpg") or {}
+        completed = int(cpg.get("completed", 0) or 0)
+        disp = mem.get("disp_60s")
+        if completed > self._prim_last_completed:
+            self._prim_last_completed = completed
+            if isinstance(disp, (int, float)) and disp < 30.0:
+                self._prim_zero_run += 1
+            else:
+                self._prim_zero_run = 0
         stuck = float(mem.get("stuck_duration", 0.0))
+        if self._prim_zero_run >= 3:
+            self._prim_zero_run = 0
+            return {
+                "help_reason": "primitive_ineffective",
+                "scene_name": mem.get("scene_name", "?"),
+                "position": mem.get("position") or {},
+                "diagnosis": (f"CPG primitive completed {cpg.get('completed', 0)}x "
+                              f"but 3 consecutive runs moved <30u "
+                              f"(last disp_60s={disp}) — wrong primitive or "
+                              f"timing for this terrain"),
+                "stuck_duration": stuck,
+                "anomaly_state": mem.get("anomaly_state", "?"),
+                "health_score": float(mem.get("health_score", 1.0)),
+                "cpg": cpg,
+                "disp_60s": disp,
+            }
         no_reflex = not mem.get("reflex_active", False)
         anomaly = mem.get("anomaly_state", "idle") != "idle"
         # EVO R12: an ACTIVE reflex with ~zero 60 s displacement is by
@@ -128,6 +159,9 @@ class PluginRunner:
                 "anomaly_state": mem.get("anomaly_state", "?"),
                 "health_score": float(mem.get("health_score", 1.0)),
                 "disp_60s": mem.get("disp_60s"),
+                # M2.1: primitive stats so the coach can suggest a different
+                # primitive via strategy {"primitives": {"prefer": {...}}}
+                "cpg": mem.get("cpg") or {},
             }
         return None
 
