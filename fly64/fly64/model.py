@@ -22,6 +22,7 @@ class Control:
     turn_rate: float
     jump_rate: float
     b: bool = False   # B button (LLM dialogue decisions; emulator may ignore)
+    z: bool = False   # Z trigger (crouch / long-jump combos; bridge v2.14.0)
 
 
 class SceneMemory:
@@ -479,6 +480,8 @@ class FlyModel:
         # controller; tangential detour bias from FailureMemory).
         self.cliff_standoff_s = 0.0
         self.cliff_tangent_bias = 0.0
+        # EVO R30: pose_y for below-ground detection in rate boost
+        self.pose_y = 0.0
         # EVO R19: restlessness inputs (loop pressure + scene danger)
         self.loop_score = 0.0
         self.scene_danger = 0.0
@@ -1596,6 +1599,14 @@ class FlyModel:
         # descending-neuron interface instead of reacting to a single tick.
         recent = np.stack(tuple(self.history), axis=0).mean(axis=0)
         forward_rate, left_rate, right_rate, jump_rate = [float(pool.mean()) for pool in np.split(recent, self.motor_splits)]
+        # EVO R30 · direct forward boost when stuck below ground with
+        # suppressed MBON — bypass learned helplessness, feeds through
+        # the normal decode path (smoothing, clamping, filtering).
+        _stuck_below = (getattr(self, "stuck_duration", 0.0) > 60
+                        and getattr(self, "pose_y", 0.0) < -150)
+        if _stuck_below and forward_rate < 0.01:
+            forward_rate = 0.06
+            jump_rate = max(jump_rate, 0.3)  # also boost jump
         turn_rate = right_rate - left_rate
         # EVO R14 · integrate turn-circuit fatigue from the decoded pool rates
         self._turn_adapt.update(left_rate, right_rate, self.dt)

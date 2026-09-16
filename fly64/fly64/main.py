@@ -35,7 +35,7 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.13.3"
+BRAIN_VERSION = "2.14.0"  # Phase 1 motor expansion: bridge Z-trigger unlock
 SKILL_VERSION = "3.0.0"   # must mirror fly64/skills/evolution_skill.py SKILL_VERSION
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
@@ -1012,7 +1012,11 @@ async def run(args) -> None:
                     control.y = action["control_y"]
                     control.jump = action["jump"]
                     reflex_override = True
-                    memory_ctrl.escape_behavior = True
+                    # EVO R29: suppress escape when below ground — it sets
+                    # x=0 which kills the forward+JUMP needed to climb out.
+                    _py_ = pose_ev[1] if len(pose_ev) > 1 else 0.0
+                    if _py_ >= -200:
+                        memory_ctrl.escape_behavior = True
 
             # ---- Aggressive mode (P1, audit A5): only the neuromodulatory
             # pathway remains — reflex cooldowns halve via the reflex's own
@@ -1222,8 +1226,18 @@ async def run(args) -> None:
                     control.y = 70
                 else:
                     control._below_ground_jumping = False
+            # Escape suppression when below ground: force the escape flag
+            # off so the control cascade doesn't set x=0.  The forward+JUMP
+            # from the guardrail below then has uninterrupted effect.
+            if _below_ground and not bridge.stale:
+                memory_ctrl.escape_behavior = False
+            # Hard safety guardrail: uninterrupted forward+JUMP below ground.
+            if not bridge.stale and pose_ev[1] < -200:
+                control.y = max(control.y, 70)
+                control.jump = True
             bridge.write_control(control.x, control.y, control.jump,
-                                 b=getattr(control, "b", False))
+                                 b=getattr(control, "b", False),
+                                 z=getattr(control, "z", False))
             # ---- Decision attribution audit (read-only, telemetry only) ----
             # Priority mirrors the control cascade.  P1: bold_explore and
             # collision branches retired with their bypass code paths.
@@ -1333,6 +1347,8 @@ async def run(args) -> None:
                 # EVO R19: restlessness inputs (loop pressure) + recognition
                 model.loop_score = memory_ctrl.spatial.loop_score
                 model.scene_danger = scene_recognizer.danger_level()
+                # EVO R30: mirror pose_y for below-ground forward boost
+                model.pose_y = pose_ev[1] if len(pose_ev) > 1 else 0.0
                 # EVO R22: mirror MBON forward for spontaneous recovery
                 model.mb_mbon_forward = round(
                     float(getattr(model.mushroom, "mbon_outputs", [0])[0]), 4)

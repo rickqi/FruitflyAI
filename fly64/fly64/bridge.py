@@ -21,6 +21,13 @@ HEADER_SIZE = 128
 FILE_SIZE = HEADER_SIZE + FRAME_BYTES + SCREEN_BYTES
 A_BUTTON = 0x8000
 B_BUTTON = 0x4000  # LLM dialogue decisions: B (cancel/skip); emulator may ignore
+Z_TRIG = 0x2000    # N64 Z trigger: crouch / long-jump / backflip / ground-pound
+# Event counters live in the C header's extension[40] region (packed offset
+# 88..128).  v2.14.0: 88..96 = b_event / z_event (uint32 each), rest reserved.
+# Old sm64ex builds ignore the extension; new builds ignore the remainder —
+# bidirectionally backward compatible, mmap version stays FLY64V2 / version=2.
+B_EVENT_OFF = 88
+Z_EVENT_OFF = 92
 # Explicit hardware fences for cross-process seqlocks on Apple Silicon.
 # On Linux x86_64 the TSO memory model makes an explicit fence unnecessary —
 # the barrier is a no-op there (WSL2 Ubuntu fix).
@@ -132,8 +139,9 @@ class SharedBridge:
         return self._last_frame
 
     def write_control(self, x: int, y: int, jump: bool, enabled: bool = True,
-                      b: bool = False) -> None:
-        buttons = (A_BUTTON if jump else 0) | (B_BUTTON if b else 0)
+                      b: bool = False, z: bool = False) -> None:
+        buttons = ((A_BUTTON if jump else 0) | (B_BUTTON if b else 0)
+                   | (Z_TRIG if z else 0))
         control_seq = struct.unpack_from("<I", self.mm, 16)[0] | 1
         struct.pack_into("<I", self.mm, 16, control_seq)
         _memory_barrier()
@@ -146,6 +154,12 @@ class SharedBridge:
         if jump:
             event = struct.unpack_from("<I", self.mm, 36)[0]
             struct.pack_into("<I", self.mm, 36, (event + 1) & 0xFFFFFFFF)
+        if b:
+            event = struct.unpack_from("<I", self.mm, B_EVENT_OFF)[0]
+            struct.pack_into("<I", self.mm, B_EVENT_OFF, (event + 1) & 0xFFFFFFFF)
+        if z:
+            event = struct.unpack_from("<I", self.mm, Z_EVENT_OFF)[0]
+            struct.pack_into("<I", self.mm, Z_EVENT_OFF, (event + 1) & 0xFFFFFFFF)
         _memory_barrier()
         struct.pack_into("<I", self.mm, 16, (control_seq + 1) & 0xFFFFFFFF)
         if not enabled:
@@ -169,7 +183,10 @@ class SharedBridge:
     def game_status(self):
         seq, x, y, buttons, clock, state = struct.unpack_from("<IbbHQI", self.mm, 40)
         age = (time.clock_gettime_ns(time.CLOCK_MONOTONIC) - clock) / 1e6
-        return dict(seq=seq, x=x, y=y, jump=bool(buttons & A_BUTTON),
+        return dict(seq=seq, x=x, y=y,
+                    jump=bool(buttons & A_BUTTON),
+                    b=bool(buttons & B_BUTTON),
+                    z=bool(buttons & Z_TRIG),
                     age_ms=age, state=state if age < 250 else 4, **self.frame_metadata)
 
     def close(self) -> None:

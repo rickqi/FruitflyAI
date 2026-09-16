@@ -324,7 +324,7 @@ index 0000000..5a771b5
 +    float pose[4]; /* eye x/y/z and body yaw radians; same seqlock as RGB */
 +    uint32_t game_frame;
 +    float render_ms;
-+    uint8_t extension[40];
++    uint32_t b_event, z_event; uint8_t extension[32]; /* v2.14: b/z pulse events in ext region */
 +};
 +struct Fly64Shared {
 +    struct Fly64Header h;
@@ -335,8 +335,8 @@ index 0000000..5a771b5
 +static struct Fly64Shared *shared;
 +static int bridge_fd = -1;
 +static int body_control;
-+static unsigned jump_frames;
-+static uint32_t last_jump_event;
++static unsigned jump_frames, b_frames, z_frames;
++static uint32_t last_jump_event, last_b_event, last_z_event;
 +
 +static uint64_t monotonic_ns(void) {
 +    struct timespec ts;
@@ -385,13 +385,13 @@ index 0000000..5a771b5
 +    uint16_t buttons;
 +    uint32_t before, after;
 +    uint64_t heartbeat;
-+    uint32_t jump_event;
++    uint32_t jump_event, b_event, z_event;
 +    body_control = 0;
 +    if (!bridge_open()) return;
 +    shared->h.game_clock_ns = monotonic_ns();
 +    shared->h.applied_x = 0; shared->h.applied_y = 0; shared->h.applied_buttons = 0;
 +    shared->h.game_status = 0;
-+    if (!shared->h.enabled) { jump_frames = 0; return; }
++    if (!shared->h.enabled) { jump_frames = b_frames = z_frames = 0; return; }
 +    /* Bounded seqlock read: never hang the game on a dead writer. */
 +    {
 +        before = __atomic_load_n(&shared->h.control_seq, __ATOMIC_ACQUIRE);
@@ -400,15 +400,15 @@ index 0000000..5a771b5
 +        x = shared->h.stick_x;
 +        y = shared->h.stick_y;
 +        buttons = shared->h.buttons;
-+        jump_event = shared->h.reserved;
++        jump_event = shared->h.reserved; b_event = shared->h.b_event; z_event = shared->h.z_event;
 +        __atomic_thread_fence(__ATOMIC_ACQUIRE);
 +        after = __atomic_load_n(&shared->h.control_seq, __ATOMIC_ACQUIRE);
 +        if (before != after || (after & 1U)) { shared->h.game_status = 3; return; }
 +    }
-+    if (monotonic_ns() - heartbeat > FLY64_STALE_NS) { jump_frames = 0; shared->h.game_status = 2; return; }
-+    if (jump_event != last_jump_event) { jump_frames = 2; last_jump_event = jump_event; }
-+    buttons &= ~A_BUTTON;
-+    if (jump_frames) { buttons |= A_BUTTON; --jump_frames; }
++    if (monotonic_ns() - heartbeat > FLY64_STALE_NS) { jump_frames = b_frames = z_frames = 0; shared->h.game_status = 2; return; }
++    if (jump_event != last_jump_event) { jump_frames = 2; last_jump_event = jump_event; } if (b_event != last_b_event) { b_frames = 2; last_b_event = b_event; } if (z_event != last_z_event) { z_frames = 2; last_z_event = z_event; }
++    buttons &= ~(A_BUTTON | B_BUTTON | Z_TRIG);
++    if (jump_frames) { buttons |= A_BUTTON; --jump_frames; } if (b_frames) { buttons |= B_BUTTON; --b_frames; } if (z_frames) { buttons |= Z_TRIG; --z_frames; }
 +    /* Human stick input wins as a complete vector, retaining stock semantics. */
 +    if (abs(pad->stick_x) < 8 && abs(pad->stick_y) < 8) {
 +        pad->stick_x = x; pad->stick_y = y; body_control = 1;
