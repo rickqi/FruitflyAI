@@ -187,6 +187,14 @@ PATTERN_SCHEMA = {
                     "fix_code": {"type": "string", "description": "Alternative to fix_template for code-only fixes"},
                     "fix_files": {"type": "array", "items": {"type": "string"}},
                     "severity": {"type": "string", "enum": ["low", "medium", "high", "critical"]},
+                    "verify_metric": {
+                        "type": "object",
+                        "properties": {
+                            "key": {"type": "string"},
+                            "direction": {"type": "string", "enum": ["up", "down", "abs_down", "stable"]}
+                        },
+                        "required": ["key", "direction"]
+                    },
                     "threshold_justification": {"type": "string", "description": "Explanation of why each threshold value was chosen"},
                     "tags": {"type": "array", "items": {"type": "string"}},
                     "rollback_strategy": {"type": "string"},
@@ -388,6 +396,7 @@ class SensorSample:
     # M1.3: CPG primitive telemetry (motor expansion)
     cpg_completed: int = 0
     cpg_aborted: int = 0
+    cpg_last_abort: str = ""  # last abort reason (e.g. "timeout") from cpg_status
     primitive_disp: Optional[float] = None
 
     def to_dict(self) -> dict: return asdict(self)
@@ -422,6 +431,30 @@ class CycleResult:
         self.verifications: list[VerificationResult] = []
         self.documented: bool = False
         self.errors: list[str] = []
+
+def metric_score(direction: str, base, post) -> float:
+    """Pattern-specific verify_metric scoring (P0-2).  Returns [0, 1].
+
+    up       — higher is better (normalized by |base|)
+    down     — lower is better
+    abs_down — |value| lower is better (e.g. MBON output toward 0)
+    stable   — value must NOT increase (counters: no new aborts = success)
+    """
+    if base is None or post is None:
+        return 0.0
+    b, p = float(base), float(post)
+    if direction == "up":
+        return max(0.0, min(1.0, (p - b) / max(abs(b), 1.0)))
+    if direction == "down":
+        return max(0.0, min(1.0, (b - p) / max(abs(b), 1.0)))
+    if direction == "abs_down":
+        return max(0.0, min(1.0, (abs(b) - abs(p)) / max(abs(b), 1.0)))
+    if direction == "stable":
+        if p <= b:
+            return 1.0
+        return max(0.0, 1.0 - (p - b) / max(abs(b), 1.0))
+    return 0.0
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Phase 1: Monitor - DataCollector
@@ -517,6 +550,7 @@ class DataCollector:
             # M1.3: CPG primitive telemetry (motor expansion)
             cpg_completed=int((flow.get("cpg_status") or {}).get("completed", 0) or 0),
             cpg_aborted=int((flow.get("cpg_status") or {}).get("aborted", 0) or 0),
+            cpg_last_abort=str((flow.get("cpg_status") or {}).get("last_abort", "") or ""),
             primitive_disp=flow.get("primitive_disp", None))
         # Track consecutive motor-vs-motion mismatch frames (wall corners)
         self._decoupled_run = self._decoupled_run + 1 if s.command_decoupled else 0
@@ -595,6 +629,7 @@ class DataCollector:
                 # M1.3: CPG primitive telemetry
                 cpg_completed=s.cpg_completed,
                 cpg_aborted=s.cpg_aborted,
+                cpg_last_abort=s.cpg_last_abort,
                 primitive_disp=s.primitive_disp,
                 # ── EVO R16: loop/standoff/plasticity heads ──
                 loop_score=s.loop_score,
@@ -1503,6 +1538,13 @@ def on_cycle(result: CycleResult):
         if not e.startswith("🧬"): print(f"    Warning: {e}")
 
 def main():
+    # Windows GBK consoles cannot encode emoji/UTF-8 output (🧬 trial notes
+    # crashed the resident loop) — force UTF-8 with replace, never crash on print.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
     p = argparse.ArgumentParser(description="Fly64 EvolutionSkill v" + SKILL_VERSION)
     p.add_argument("--interval", type=int, default=5)
     p.add_argument("--auto-fix", action="store_true")

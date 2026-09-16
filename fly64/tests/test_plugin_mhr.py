@@ -157,9 +157,10 @@ class TestCycle:
         assert ctx and ctx["help_reason"] == "unsolvable_stuck"
 
     def test_frame_captured_into_request(self, tmp_path):
+        # t21: capture priority is /screen.json first, /help.json fallback
         mapping = {"/memory.json": MEM_STUCK, "/evolution.json": {},
                    "/flow.json": {}, "/help.json": {},
-                   "/frame.json": {"frame_b64": GOOD_FRAME}}
+                   "/screen.json": {"screen_b64": GOOD_FRAME}}
         r = make_runner(tmp_path, mapping)
         r.run_cycle()
         req = json.loads((tmp_path / "req.json").read_text("utf-8"))

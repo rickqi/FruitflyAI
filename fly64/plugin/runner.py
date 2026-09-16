@@ -33,10 +33,12 @@ try:  # package-relative (fly64 on sys.path)
                                     build_consult_request,
                                     raw_rgb_b64_to_png_b64)
     from plugin.strategy_writer import StrategyWriter
+    from plugin import coach_outcomes as co
 except ImportError:  # direct execution from fly64/
     from llm_consult import (ConsultError, GLMConsultant, build_consult_request,
                              raw_rgb_b64_to_png_b64)
     from strategy_writer import StrategyWriter
+    import coach_outcomes as co
 
 PLUGIN_DIR = Path(__file__).resolve().parent
 DEFAULT_DASHBOARD = "http://127.0.0.1:8765"
@@ -76,6 +78,8 @@ class PluginRunner:
         self.cycles = 0
         self.consultations = 0
         self.last_error: Optional[str] = None
+        # P1: pending coach-strategy outcome (attribution window)
+        self._pending_outcome = co.load_pending()
         # M2.1: consecutive primitive completions with ~zero displacement
         self._prim_zero_run = 0
         self._prim_last_completed = 0
@@ -223,6 +227,11 @@ class PluginRunner:
                   "consulted": False, "strategy_written": False}
         try:
             snapshot = self.fetch_snapshot()
+            # P1: resolve a pending strategy-outcome window if due
+            try:
+                self._resolve_pending_outcome(snapshot, result)
+            except Exception:
+                pass  # attribution is best-effort, never break the cycle
             context = self.check_help_needed(snapshot)
             if context is None:
                 result["status"] = "ok"
@@ -230,6 +239,13 @@ class PluginRunner:
                 self.last_error = None
                 return result
             result["context"] = context
+            # P4.3: inject the lesson plan so the coach teaches with state
+            try:
+                curriculum = co.load_curriculum()
+                if curriculum:
+                    context["curriculum"] = curriculum
+            except Exception:
+                pass
             frame_b64 = self.capture_frame()
             # t21 wrap-up: snapshot the frame the coach is about to see, so
             # "what did the coach look at" is retroactively answerable.
@@ -250,6 +266,16 @@ class PluginRunner:
             result["advice"] = parsed.get("advice", "")
             result["status"] = "ok"
             self.last_error = None
+            # P1: open the outcome-attribution window for this strategy
+            try:
+                self._pending_outcome = co.snapshot_outcome(
+                    strategy, snapshot.get("memory") or {},
+                    snapshot.get("flow") or {}, cycle=self.cycles,
+                    help_reason=str(context.get("help_reason") or ""))
+                co.save_pending(self._pending_outcome)
+                result["outcome_pending"] = True
+            except Exception:
+                pass
         except ConsultError as exc:
             result["status"] = "consult_failed"
             result["error"] = str(exc)
@@ -259,6 +285,24 @@ class PluginRunner:
             result["error"] = f"{type(exc).__name__}: {exc}"
             self.last_error = result["error"]
         return result
+
+    # ── P1: strategy outcome attribution ─────────────────────────────
+    def _resolve_pending_outcome(self, snapshot: dict, result: dict) -> None:
+        pending = self._pending_outcome or co.load_pending()
+        if not pending:
+            return
+        outcome = co.resolve_outcome(pending, snapshot.get("memory") or {})
+        if outcome is None:
+            return  # window still open
+        co.append_outcome(outcome)
+        curriculum = co.update_curriculum(co.load_curriculum(), outcome,
+                                          snapshot.get("memory") or {})
+        if curriculum:
+            co.save_curriculum(curriculum)
+        co.clear_pending()
+        self._pending_outcome = None
+        result["outcome"] = {"verdict": outcome.get("verdict"),
+                             "scene": outcome.get("scene_label")}
 
     # ── periodic loop ────────────────────────────────────────────────
     def run_forever(self, max_cycles: Optional[int] = None) -> None:

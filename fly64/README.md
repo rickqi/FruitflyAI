@@ -903,7 +903,7 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 
 <!-- EVOLUTION-HISTORY-TABLE:START
 
-下表由 `skills/evolution_skill.py --history-md` 从权威记录 `skills/evolution_history.json` 自动生成（45 条，权威版本 Brain v2.18.0 / Skill v3.0.0）。**请勿手改本表**——更新记录后重新执行该命令再粘贴。
+下表由 `skills/evolution_skill.py --history-md` 从权威记录 `skills/evolution_history.json` 自动生成（47 条，权威版本 Brain v2.18.0 / Skill v3.0.0）。**请勿手改本表**——更新记录后重新执行该命令再粘贴。
 
 | ID | 时间 | 轮次 | Brain | Skill | 触发原因 | 关键变更 | 测试 | 来源 |
 |----|------|------|-------|-------|---------|---------|------|------|
@@ -945,13 +945,15 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 | EVO-037 | 2026-09-16 17:59 | Motor-P3 | 2.16.0 | 3.0.0 | 打击/下蹲动作需要独立运动池；蘑菇体输出通道需扩展 | strike/crouch 运动池；MBON 扩至 9 列（原 5 通道） | — | commit 01364b4 |
 | EVO-038 | 2026-09-16 18:30 | Motor-P4/P5+M1 | 2.17.0 | 3.0.0 | Phase 4 仪表板可视化 + Phase 5 EVO pattern + M1 优化层（债务清理 + 新动作原语 PUNCH/DIVE） | Phase 4 电机扩展仪表板；Phase 5 EVO patterns + R21 patch backport；M1.1 既有债务清理（BRAIN_VERSION 2.17.0）（等 4 项） | — | commits e664bd5/1736cac/f1021bf |
 | EVO-039 | 2026-09-16 20:50 | P1-2 perf | 2.17.0 | 3.0.0 | P1-2 CSC 传播 8-15ms/step 制约 tick 频率与进化验证吞吐；尝试选择路径微优化（布尔掩码/fancy/gather+bincount） | 三变体在真实 25.6M 连接组上交错基准（9 次中位数）：0.95–1.38×，全部落在负载噪声内——负结果；synaptic_current() 自适应选择保留为等价基线 + 传播点注释留档负结果；test_propagation_perf.py 7 用例等价性 PIN（全分数段 allclose） | test_propagation_perf 7/7 | 本次会话（负结果留档，防重复尝试） |
+| EVO-040 | 2026-09-16 22:59 | Coach-P1 | 2.18.0 | 3.0.0 | 建议→行为→效果归因链断裂：coach 策略键下发后无效果统计（P4.4/P4.6 的数据地基缺失）；课程无状态（P4.3 单次问答） | plugin/coach_outcomes.py 新模块：outcome 快照/窗口解析(30s)/jsonl 累积/课；runner.py 四挂点：cycle 开头 resolve pending、策略写后开归因窗、课程注入 consult；cpg_last_abort 遥测映射（primitive_timeout pattern 的最后缺失字段，数据源=已有（等 4 项） | test_coach_outcomes 12 + test_plugin_mhr(含修复) + history/prop | commit 本次；roadmap=docs/evolution-coach-roadmap.md §2 |
 | AUTO-0001 | 2026-09-15 11:14 | — | 2.13.3 | 3.0.0 | Patterns skipped because their condition fields are absent from telemetry: ['mb_mbon_forward'] (patterns: ['mbon_saturat | # Expose missing condition keys in main.py flow_json/memory_json | — | resident skill loop (auto_fix) |
 | AUTO-0002 | 2026-09-15 11:39 | — | 2.13.3 | 3.0.0 | forward MBON saturated at ceiling while behaviour still loops. The built-in homeostatic synaptic scaling should shrink t | # Verify homeostatic scaling in mushroom_body.py saturation guard | — | resident skill loop (auto_fix) |
 | AUTO-0003 | 2026-09-15 13:10 | — | 2.13.3 | 3.0.0 | Fallen detection threshold (Y<-100) is too permissive. SM64 normal ground is Y=120. Y<50 already indicates below-ground  | # Fix: Lower fallen detection threshold from -100 to 50 | — | resident skill loop (auto_fix) |
 | EVO-033 | 2026-09-15 23:59 | R23 | 2.14.0 | 3.0.0 | 系统性攻破 Fly64 脑模型剩余瓶颈：7 大瓶颈（语义三缺失/视网膜配准/P2 KPI/MBON 饱和拉锯/计算纪律/遥测漂移/死值遥测）+ 2 项部分缓解（静息光流/可塑性等效） | T2: what_i_see 5层结构化场景上下文协议 + 17条场景标签自动生成规则 + semantic_level；T2: scene_context.py 10个 dataclass 聚合器 + 40项测试；T3: MBON 饱和恢复——_saturation_recovery_counter 持续\|output\|<0.8（等 13 项） | 全量回归套件 + 新测试146项（T2 40 + T3 53 + T4 集成 + T5 39 + T7 修复验证），零新 | AgentTeams fly64-bottleneck-roundup t7 集成轮 |
 | AUTO-0004 | 2026-09-15 14:44 | — | 2.13.3 | 3.0.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
 | AUTO-0005 | 2026-09-15 14:48 | — | 2.13.3 | 3.0.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
-| AUTO-0006 | 2026-09-16 12:51 | — | 2.18.0 | 3.0.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
+| AUTO-0006 | 2026-09-16 12:51 | — | 2.18.0 | 3.0.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
+| AUTO-0007 | 2026-09-16 13:03 | — | 2.18.0 | 3.0.0 | Wrong primitive for the terrain (e.g. longjump on a ledge edge) or Z/A pulse timing lost by the game; needs a different  | # Fix: retune {primitive} gating or swap primitive for this scene profile | — | resident skill loop (auto_fix) |
 
 <!-- EVOLUTION-HISTORY-TABLE:END -->
 
