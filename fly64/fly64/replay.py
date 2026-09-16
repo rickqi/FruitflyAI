@@ -77,7 +77,7 @@ def counterfactual(chunk: Path, cache: Path, overrides: dict | None = None,
         n = min(n, max_ticks)
 
     def _pass(parameter_overrides: dict | None) -> dict:
-        model = FlyModel(cache, demo=fixture, seed=seed)
+        model = FlyModel(Path(cache), demo=fixture, seed=seed)
         if fixture:
             model.load_fixture_connectome()
         for name, value in (parameter_overrides or {}).items():
