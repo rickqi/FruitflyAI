@@ -897,8 +897,11 @@ Round 4/5 正是**能力边界判定的实战示范**：钥匙门的"行为层"�
 | EVO-032 | 2026-09-15 16:44 | R21 | 2.13.3 | 3.0.0 | runner 读 scene_name 但 memory_json 只有 scene_label；面板看不到 fallen_recovery 策略细节 | memory_json 增 scene_name 键；updateCoachStrategy 渲染 fallen_recovery mode/climb_period/persist_seconds | — | commit 7559761 |
 | EVO-033 | 2026-09-15 | R22-skill | 2.13.3 | 3.0.0 | 并发会话致记录源三处矛盾；常驻循环首轮 telemetry_gap 自诊断抓到真实回归：mbon_saturation pattern 所需 mb_mbon_forward 未被 skill 采集层映射；进化过程本身无强制记录载体 | EvolutionHistory 记录器（brain_version 变化自动补录/record_fix/record_verification/损坏隔离+原子写出）；--history-check 强制校验；回填 32 条权威轮次记录；mb_mbon_forward 遥测映射补盲；agent.md 规则 15 强制契约；skills.md RECORD 步骤与版本行修正 | test_evolution_history 12/12；--history-check OK；check_version.py OK；AUTO-0002 实证 | 本次会话 |
 | AUTO-0001 | 2026-09-15 11:14 | — | 2.13.3 | 3.0.0 | telemetry_gap：mb_mbon_forward 未采集（mbon_saturation 失效） | 自动记录 skill_fix（已由 EVO-033 修复归零） | score 0.0（已修复） | resident skill loop |
-| AUTO-0002 | 2026-09-15 11:39 | — | 2.13.3 | 3.0.0 | forward MBON 饱和贴顶而行为仍绕圈——稳态缩放未触发或多巴胺持续再膨胀 | 自动记录 skill_fix（待 agent 按 fix_template 排查 mushroom_body.py 缩放守卫） | 待验证 | resident skill loop |
-| AUTO-0003 | 2026-09-15 13:10 | — | 2.13.3 | 3.0.0 | below_ground_stuck：坠落阈值 Y<−100 过宽（SM64 地面 Y=120，Y<50 即异常） | 自动记录 skill_fix（建议 memory.py 阈值 −100→50，待 agent 执行） | 待验证 | resident skill loop |
+| AUTO-0002 | 2026-09-15 11:39 | — | 2.13.3 | 3.0.0 | forward MBON 饱和贴顶而行为仍绕圈——稳态缩放未触发或多巴胺持续再膨胀 | 自动记录 skill_fix（已由 P0-2 修复：饱和帧数 50→30，缩放 0.9→0.85，探索奖励 0.30→0.20） | ✅ fixed by P0-2 | resident skill loop → P0-2 |
+| AUTO-0003 | 2026-09-15 13:10 | — | 2.13.3 | 3.0.0 | below_ground_stuck：坠落阈值 Y<−100 过宽（SM64 地面 Y=120，Y<50 即异常） | 自动记录 skill_fix（已由 P0-3 修复：memory.py y_min -100→50，y_max 1000→500） | ✅ fixed by P0-3 | resident skill loop → P0-3 |
+| P0-1 | 2026-09-07 | EVO-034 | 2.13.4 | 3.0.0 | EVO 自进化闭环断裂：VerificationEngine 状态全在内存，重启后丢失，fix_catalog 18 项修复 0 effective | 新增 VERIFY_STATE_PATH + VerificationEngine.save_state()/resume_pending()/ _complete()/ _cleanup_state()；启动时自动恢复待验证窗口；完成时清理状态文件 | test_verify_persistence 6/6 | commit 358d62c |
+| P0-2 | 2026-09-07 | EVO-035 | 2.13.4 | 3.0.0 | MBON forward 饱和：稳态缩放守卫(×0.9)被正多巴胺在~2帧内抵消，mb_mbon_forward=1.0 持续贴顶 | 饱和帧数 50→30，缩放因子 0.9→0.85；DAN_REWARD_EXPLORATION 0.30→0.20；平衡点下移 ~33% | test_mbon_saturation + test_dan_shaping 回归 | commit 358d62c |
+| P0-3 | 2026-09-07 | EVO-036 | 2.13.4 | 3.0.0 | 3 项代码缺陷：坠落阈值 Y<-100 过宽 / turn_right CX 双倍注入 / TargetTracker 匈牙利匹配索引混淆 | memory.py y_min=-100→50, y_max=1000→500；model.py 删除 turn_right 重复行；重写匈牙利匹配直用 linear_sum_assignment 结果；提取 _update_track 消除代码重复 | test_memory + test_brain_alternation 回归 | commit 358d62c |
 
 <!-- EVOLUTION-HISTORY-TABLE:END -->
 

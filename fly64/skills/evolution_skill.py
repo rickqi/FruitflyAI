@@ -39,6 +39,7 @@ EVOLUTION_LOG_PATH = SKILL_DIR / "evolution_log.jsonl"
 EVOLUTION_HISTORY_PATH = SKILL_DIR / "evolution_history.json"
 SKILL_README_PATH = SKILL_DIR / "README.md"
 FIX_LOG_PATH = SKILL_DIR / "fix_log.json"
+VERIFY_STATE_PATH = SKILL_DIR / "verify_state.json"
 
 
 class EvolutionHistory:
@@ -786,17 +787,76 @@ class VerificationEngine:
         self.collector = collector; self.catalog = catalog; self.window = window
         self._active: Optional[FixEntry] = None; self._start: Optional[float] = None
         self._baseline: Optional[dict] = None
+        self._verify_state_path = VERIFY_STATE_PATH
+        self.resume_pending()
+
+    # ── Persistence: survive brain restarts ──
+    def save_state(self):
+        """Persist current verification state to disk."""
+        state = {
+            "active_fix_id": self._active.id if self._active else None,
+            "started_at": self._start,
+            "baseline": self._baseline,
+        }
+        self._verify_state_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self._verify_state_path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(self._verify_state_path)
+
+    def resume_pending(self) -> bool:
+        """Load an incomplete verification from disk after brain restart."""
+        if not self._verify_state_path.exists():
+            return False
+        try:
+            state = json.loads(self._verify_state_path.read_text(encoding="utf-8"))
+        except Exception:
+            return False
+        if not state.get("active_fix_id"):
+            return False
+        # Reload the FixEntry from catalog by id
+        self._active = next((f for f in self.catalog.fixes
+                             if f.id == state["active_fix_id"]), None)
+        if self._active is None:
+            self._verify_state_path.unlink(missing_ok=True)
+            return False
+        self._start = state.get("started_at")
+        self._baseline = state.get("baseline")
+        # If the window already expired while we were down, complete immediately
+        if self._start and time.time() - self._start >= self.window:
+            result = self._complete()
+            if result:
+                print(f"[EVO] Verify {self._active.id} completed on resume: "
+                      f"{'PASS' if result.passed else 'FAIL'} "
+                      f"score={result.effectiveness_score}")
+            self._cleanup_state()
+            return False  # already resolved
+        print(f"[EVO] Resumed pending verification {self._active.id} "
+              f"({self.window - (time.time() - self._start):.0f}s remaining)")
+        return True
+
+    def _cleanup_state(self):
+        """Remove persisted state after verification completes."""
+        try:
+            self._verify_state_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        try:
+            tmp = self._verify_state_path.with_suffix(".json.tmp")
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
 
     def start(self, entry: FixEntry):
         self._active = entry; self._start = time.time()
         m = self.collector.get_metrics()
         self._baseline = {"stuck": m.get("stuck_duration", 0), "coverage": m.get("coverage_pct", 0)}
         self.catalog.record_baseline(entry, self._baseline["stuck"], self._baseline["coverage"])
+        self.save_state()
 
-    def tick(self) -> Optional[VerificationResult]:
-        if not self._active or not self._start: return None
-        elapsed = time.time() - self._start
-        if elapsed < self.window: return None
+    def _complete(self) -> Optional[VerificationResult]:
+        """Internal: run verification logic and return result. Does not mutate state."""
+        if not self._active or not self._start or not self._baseline:
+            return None
         m = self.collector.get_metrics()
         cs, cc = m.get("stuck_duration", 0), m.get("coverage_pct", 0)
         bs = self._baseline.get("stuck", 0) if self._baseline else 0
@@ -806,12 +866,20 @@ class VerificationEngine:
         ci = max(0, (cc - bc) / max(bc, 1))
         es = min(1.0, si * 0.7 + ci * 0.3)
         self.catalog.record_outcome(self._active, cs, cc)
-        r = VerificationResult(fix_id=self._active.id, pattern_id=self._active.pattern_id,
+        return VerificationResult(fix_id=self._active.id, pattern_id=self._active.pattern_id,
             passed=es >= 0.3, stuck_reduction_pct=round(sr, 1),
             coverage_change_pct=round((cc-bc)/max(bc,1)*100 if bc>0 else 0, 1),
-            effectiveness_score=round(es, 3), observation_seconds=round(elapsed, 1),
+            effectiveness_score=round(es, 3), observation_seconds=round(
+                time.time() - self._start, 1),
             details="Effective" if es >= 0.3 else "Not effective")
+
+    def tick(self) -> Optional[VerificationResult]:
+        if not self._active or not self._start: return None
+        elapsed = time.time() - self._start
+        if elapsed < self.window: return None
+        r = self._complete()
         self._active = None; self._start = None; self._baseline = None
+        self._cleanup_state()
         return r
 
 # ═══════════════════════════════════════════════════════════════════════

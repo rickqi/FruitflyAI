@@ -1206,7 +1206,7 @@ async def run(args) -> None:
             _py = pose_ev[1] if len(pose_ev) > 1 else 0.0
             _at_origin = (abs(pose_ev[0]) < 10 and abs(pose_ev[2]) < 10
                           and abs(_py) < 10)
-            _below_ground = _py < -500
+            _below_ground = _py < -200
             if not bridge.stale and (_below_ground or _at_origin):
                 if not getattr(control, "_below_ground_jumping", False):
                     control._below_ground_jump_start = time.monotonic()

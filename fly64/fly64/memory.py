@@ -135,8 +135,8 @@ class StuckDetector:
                  rate_threshold: float = 5.0,
                  rate_stuck_s: float = 3.0,
                  temporal_stuck_s: float = 2.0,
-                 y_min: float = -100.0,
-                 y_max: float = 1000.0):
+                 y_min: float = 50.0,       # P0-3: -100→50 (SM64 ground~120, Y<50 fallen)
+                 y_max: float = 500.0):      # P0-3: 1000→500
         self.temporal_threshold = temporal_threshold
         self.frame_stuck_s = frame_stuck_s
         self.rate_threshold = rate_threshold

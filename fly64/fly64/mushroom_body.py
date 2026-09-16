@@ -129,17 +129,17 @@ class MushroomBody:
         # away; synaptic scaling multiplicatively shrinks the column back
         # into its dynamic range (biological: postsynaptic scaling).
         self._saturation_frames = np.zeros(n_mbon, dtype=np.int32)
-        self.saturation_frames_threshold = 50
-        self.saturation_scale_factor = 0.9
+        self.saturation_frames_threshold = 30   # 50→30: 更快响应饱和
+        self.saturation_scale_factor = 0.85       # 0.9→0.85: 更强缩放抑制
         self.saturation_events = 0
         # EVO R22 · spontaneous recovery counter: tracks how long a MBON
         # column has been suppressed to near-zero.  When the network has
         # "learned helplessness" (column pinned at 0), slow noise+drift
         # spontaneously reintroduces the output so the column can re-learn.
         self._suppression_counter = np.zeros(n_mbon, dtype=np.int32)
-        self.suppression_threshold = 500   # ~10s at 50Hz
-        self.recovery_noise_scale = 0.003
-        self.recovery_drift_rate = 0.0008
+        self.suppression_threshold = 200   # ~4s at 50Hz (was 500, EVO R29)
+        self.recovery_noise_scale = 0.006  # faster recovery (was 0.003)
+        self.recovery_drift_rate = 0.001   # stronger drift (was 0.0008)
 
     def encode(self, scene_sig: np.ndarray) -> np.ndarray:
         """Encode scene signature through Kenyon Cells -> produce MBON outputs.

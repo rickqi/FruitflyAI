@@ -198,6 +198,7 @@ class TargetTracker:
                     cost[i, j] = np.hypot(pr - dr, pc - dc)
 
             # Hungarian or greedy matching
+            hungarian_used = False
             if 4 <= n_tracks <= 15 and n_det <= 15:
                 from scipy.optimize import linear_sum_assignment
                 row_idx, col_idx = linear_sum_assignment(cost)
@@ -205,6 +206,7 @@ class TargetTracker:
                     if cost[i, j] < self.MAX_ASSOC:
                         assigned_tracks.add(i)
                         assigned_dets.add(j)
+                hungarian_used = True
             else:
                 # Greedy nearest-neighbor for small/large sets
                 for j in range(n_det):
@@ -220,42 +222,24 @@ class TargetTracker:
                         assigned_dets.add(j)
 
             # Update matched tracks
-            for i in assigned_tracks:
-                det_idx = min(j for j in assigned_dets
-                              if all(cost[i, j] < self.MAX_ASSOC
-                                     for other_i in assigned_tracks
-                                     if other_i == i))
-                j = det_idx
-                # Find the detection matched to this track
-                matches = [(ii, jj) for ii in assigned_tracks
-                           for jj in assigned_dets
-                           if cost[ii, jj] < self.MAX_ASSOC]
-                track_match = next(((ii, jj) for ii, jj in matches if ii == i), None)
-                if track_match is None:
-                    continue
-                j = track_match[1]
-                t = self.tracks[i]
-                dr = detections[j][0] - t.centroid[0]
-                dc = detections[j][1] - t.centroid[1]
-                t.velocity = (
-                    t.velocity[0] * self.VELOCITY_DECAY + dr * (1 - self.VELOCITY_DECAY),
-                    t.velocity[1] * self.VELOCITY_DECAY + dc * (1 - self.VELOCITY_DECAY),
-                )
-                t.centroid = detections[j]
-                t.age += 1
-                t.hit_count += 1
-                t.missed_count = 0
-                drc = directions[j] if j < len(directions) else "stationary"
-                t.approaching = (drc == "approaching")
-                speed = np.hypot(t.velocity[0], t.velocity[1])
-                if speed > 0.5 and t.approaching:
-                    dist_to_center = np.hypot(
-                        t.centroid[0] - 24,
-                        t.centroid[1] - 32,
-                    )
-                    t.time_to_intercept = dist_to_center / speed
-                else:
-                    t.time_to_intercept = float("inf")
+            if hungarian_used:
+                # Direct Hungarian assignment: each i mapped to exactly one j
+                for match_i in range(len(row_idx)):
+                    i, j = row_idx[match_i], col_idx[match_i]
+                    if cost[i, j] >= self.MAX_ASSOC:
+                        self.tracks[i].missed_count += 1
+                        continue
+                    self._update_track(i, j, detections, directions)
+            else:
+                # Greedy assignment: update via the pairs in assigned sets
+                track_to_det = {}
+                for i in assigned_tracks:
+                    for j in assigned_dets:
+                        if cost[i, j] < self.MAX_ASSOC:
+                            track_to_det[i] = j
+                            break
+                for i, j in track_to_det.items():
+                    self._update_track(i, j, detections, directions)
 
             # Unassigned tracks → increment miss
             for i in range(n_tracks):
@@ -311,6 +295,29 @@ class TargetTracker:
         """Clear all tracks."""
         self.tracks.clear()
         self.next_id = 0
+
+    def _update_track(self, track_idx: int, det_idx: int,
+                      detections: list, directions: list):
+        """Update a single track from a matched detection."""
+        t = self.tracks[track_idx]
+        dr = detections[det_idx][0] - t.centroid[0]
+        dc = detections[det_idx][1] - t.centroid[1]
+        t.velocity = (
+            t.velocity[0] * self.VELOCITY_DECAY + dr * (1 - self.VELOCITY_DECAY),
+            t.velocity[1] * self.VELOCITY_DECAY + dc * (1 - self.VELOCITY_DECAY),
+        )
+        t.centroid = detections[det_idx]
+        t.age += 1
+        t.hit_count += 1
+        t.missed_count = 0
+        drc = directions[det_idx] if det_idx < len(directions) else "stationary"
+        t.approaching = (drc == "approaching")
+        speed = np.hypot(t.velocity[0], t.velocity[1])
+        if speed > 0.5 and t.approaching:
+            dist_to_center = np.hypot(t.centroid[0] - 24, t.centroid[1] - 32)
+            t.time_to_intercept = dist_to_center / speed
+        else:
+            t.time_to_intercept = float("inf")
 
 
 class TurnAdaptation:
@@ -1153,10 +1160,11 @@ class FlyModel:
 
     # ── DAN signal shaping (EVO R18) ─────────────────────────────────────
     # Explicit, single-place dopamine weights.  The exploration reward was
-    # lowered 0.50 → 0.30 (EVO R18): persistent +dopamine kept re-inflating
-    # the forward MBON column into tanh saturation against the homeostatic
-    # scaling — the equilibrium now sits inside the responsive range.
-    DAN_REWARD_EXPLORATION = 0.30   # scene novelty (scene_change_rate > 0.1)
+    # lowered 0.50 → 0.30 (EVO R18), then 0.30 → 0.20 (P0-2): persistent
+    # +dopamine kept re-inflating the forward MBON column into tanh saturation
+    # against the homeostatic scaling — the equilibrium now sits deeper inside
+    # the responsive range.
+    DAN_REWARD_EXPLORATION = 0.20   # scene novelty (scene_change_rate > 0.1)
     DAN_REWARD_PROGRESS = 0.30      # sustained forward movement
     DAN_PUNISH_STUCK = 0.30         # per-5s stuck (capped)
     DAN_PUNISH_FALLEN = 0.80
@@ -1451,7 +1459,6 @@ class FlyModel:
         self.cx_bias = cx_bias  # EVO R28: mirror for reflex turn mix
         self.anchor_distance = self.cx.anchor_distance
         self.v[self.turn_left] += cx_bias * self.cx_steering_gain_turn
-        self.v[self.turn_right] -= cx_bias * self.cx_steering_gain_turn
         self.v[self.turn_right] -= cx_bias * self.cx_steering_gain_turn
 
         # P1 (audit A8): the dialogue neural pulse block is deleted together
