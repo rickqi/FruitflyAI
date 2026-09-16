@@ -1166,7 +1166,7 @@ Round 4/5 正是**能力边界判定的实战示范**：钥匙门的"行为层"�
 
 ## 🔧 常见问题
 
-> 以下按"游戏与画面 / 部署与同步 / 版本与进化记录 / EVO 循环与 pattern / 教官层 / 测试"分类，全部来自实战事故与当前代码实况（Brain v2.13.3）。
+> 以下按"游戏与画面 / 部署与同步 / 版本与进化记录 / EVO 循环与 pattern / 教官层 / 测试"分类，全部来自实战事故与当前代码实况（**Brain v2.17.0**，2026-09-16）。
 
 ### 游戏与画面
 
@@ -1209,8 +1209,9 @@ python fly64/skills/evolution_skill.py --history-check
 ### 版本与进化记录
 
 #### Q: 某个 fix 被判 ineffective，但代码明明改了
-**原因**: 60s 验证窗口**横跨了脑模型重启**——基线属于旧会话，post-fix 值属于新会话，两者不可比。
-**处理**: 跨会话旧 fix 以 `reverted=true` + notes 标记（不进有效率统计）；公平验证需同会话内、修复代码已加载后再观测。注意 `record_verification` 只回写**同进程**内的 fix 记录。
+**历史原因**: 60s 验证窗口横跨脑模型重启时，验证状态会随进程丢失——基线属于旧会话，verdict 不可比。
+**已解决**（P0-1）：`VerificationEngine` 新增 `save_state`/`resume_pending` 持久化（`skills/verify_state.json`）——重启后自动恢复验证窗口；若窗口在停机期间已到期，用**原基线**立即完成判定。跨重启的 verdict 现在是公平的。
+**仍需注意**: 若 fix 的生效本身要求重启（brain 侧代码改动），应在重启后确认 `flow.json` 版本已更新再解读 verdict；确认不需要的旧 fix 以 `reverted=true` + notes 标记。
 
 #### Q: 两个 EVO 循环并发写坏 `fix_catalog.json` / `evolution_history.json`
 **原因**: 重复启动——两个进程各自持有内存态并覆盖落盘，`evolution_log.jsonl` 迭代号交错跳变；`evolution_history.json` 还有 AUTO id 撞号与记录丢失风险。
@@ -1229,12 +1230,18 @@ python fly64/skills/evolution_skill.py --history-check
 **排查顺序**:
 1. **字段缺失**：`DiagnosisEngine` 会产出 `telemetry_gap` finding（自诊断）——若它列出的字段在 `main.py` 里存在，则是 **skill 采集层漏映射**（实例：`mb_mbon_forward` 曾在 flow_json 有、采集层无），补 `SensorSample`+`get_metrics`；
 2. **阈值未达**：如 `micro_loop_weave` 要求 `anomaly_state=micro_loop` 且 `stuck≥60s`，分类器报 `idle` 时应由纯行为信号的 `micro_loop_weave_signal`（`loop_score≥0.95` + escape + stuck≥45s）命中；
-3. **死值遥测**：字段在但恒为默认占位值——当前自诊断测不出"字段在但数据是假的"（已知盲区，见"视觉处理瓶颈"新问题节）；
+3. **死值遥测**：字段在但恒为占位值——R23 T4 已补 **`FlowKeyValidator`**（启动时按 pattern 条件校验 flow_json 键）与 **`DeadValueDetector`**（滚动窗口死值检测），此类问题现在会被显式报出而非静默；
 4. 手工跑一轮：`python3 skills/evolution_skill.py --max-iterations 1` 看 findings/errors。
 
 #### Q: `mbon_saturation` 反复触发（AUTO-0002 类），正常吗？
-**含义**: forward MBON 输出贴 `tanh` 顶（≥0.95）而行为仍在绕圈——R17 稳态缩放未阻止饱和，或 R18 DAN 再膨胀压过了缩放。
-**排查**: `flow.json` 的 `mb_weight_std`/`mb_saturation_events`/`mb_dopamine` 三联看饱和是否持续；持续触发说明 R18 的 `DAN_*` 平衡点仍偏高，需再塑形（这是当前**进行中**的问题，见"视觉处理瓶颈"新问题节）。
+**含义**: forward MBON 输出贴 `tanh` 顶（≥0.95）而行为仍在绕圈——稳态缩放未阻止饱和，或 DAN 再膨胀压过了缩放。
+**现状**（P0-2 + R23 后）: 饱和守卫已收紧（50→**30 帧**触发、缩放 0.9→**0.85**、`suppression_threshold=200`、恢复噪声/漂移加强），R23 再加**恢复计数器**（`|output|<0.85` 持续 100 帧标记恢复）与 DAN 正奖励衰减（`mb_mbon_forward≥0.95` 时正面 reward ×0.5）。实测 `mb_saturation_events=116`——守卫在正常工作；若 events 持续高速增长，再查 `DAN_*` 权重。
+
+#### Q: `circle_loop` 每轮都被检出，是不是没修好？
+**已知开放问题**（P1-1，🟡 medium）：地形门控后 circle_loop 仍在每轮出现——需排查门控阈值与"绕障碍的合法绕行"是否被误判为转圈。分析文档：`docs/analysis/insurance/p1-1-loop-weave-analysis.md`。
+
+#### Q: tick 频率上不去，单步耗时 8–15ms？
+**已知开放问题**（P1-2，🟡 medium）：25.6M 突触 CSC 传播**每次 step 全量扫描**，dt=20ms 下占 8–15ms。分析文档：`docs/analysis/insurance/p1-2-csc-performance-analysis.md`。方向：活跃边集/分块调度；在此之前不要贸然提高仿真频率。
 
 #### Q: `below_ground_stuck` 反复触发
 **已修复**（P0-3）：坠落判定阈值已从 `Y < -100` 收紧为 `Y < 50`（SM64 地面 Y=120，Y<50 即虚空/水下；`memory.py` YAnomaly）。若仍触发，说明马里奥真的在虚空/水下——此时转看下一条。

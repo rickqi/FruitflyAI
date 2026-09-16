@@ -1,9 +1,9 @@
 {
   "$schema": "fly64/evolution-history/1.0",
   "canonical_versions": {
-    "brain": "2.13.3",
+    "brain": "2.17.0",
     "skill": "3.0.0",
-    "as_of": "2026-09-15T14:48:47.341435+00:00"
+    "as_of": "2026-09-16T19:51:15.052019+08:00"
   },
   "records": [
     {
@@ -570,6 +570,85 @@
       "deployed": true,
       "source": "commit 7559761",
       "notes": "当前 HEAD"
+    },
+    {
+      "id": "EVO-034",
+      "date": "2026-09-16",
+      "time": "12:58 +0800",
+      "round": "R29",
+      "kind": "brain",
+      "brain_version": null,
+      "skill_version": "3.0.0",
+      "trigger": "stride-2 采样下小目标检测被 CCL 4-连通性阻断",
+      "changes": [
+        "retina.py _connected_components：generate_binary_structure(2,1)→(2,2) + union-find 对角邻居（8 连通）"
+      ],
+      "tests": "test_ccl_connectivity 5/5",
+      "source": "commit 4c3294b"
+    },
+    {
+      "id": "EVO-035",
+      "date": "2026-09-16",
+      "time": "17:17 +0800",
+      "round": "Motor-P1",
+      "kind": "brain",
+      "brain_version": "2.14.0",
+      "skill_version": "3.0.0",
+      "trigger": "电机扩展：摇杆 x/y/jump 之外的动作原语需要 Z 触发键通道",
+      "changes": [
+        "bridge Phase 1：Z-trigger 解锁（电机扩展动作通道）"
+      ],
+      "tests": null,
+      "source": "commit 0510add"
+    },
+    {
+      "id": "EVO-036",
+      "date": "2026-09-16",
+      "time": "17:26 +0800",
+      "round": "Motor-P2",
+      "kind": "brain",
+      "brain_version": "2.15.0",
+      "skill_version": "3.0.0",
+      "trigger": "运动原语需要级联层与神经解码衔接",
+      "changes": [
+        "CPG 运动原语级联层（中央模式发生器）"
+      ],
+      "tests": null,
+      "source": "commit 6c3d222"
+    },
+    {
+      "id": "EVO-037",
+      "date": "2026-09-16",
+      "time": "17:59 +0800",
+      "round": "Motor-P3",
+      "kind": "brain",
+      "brain_version": "2.16.0",
+      "skill_version": "3.0.0",
+      "trigger": "打击/下蹲动作需要独立运动池；蘑菇体输出通道需扩展",
+      "changes": [
+        "strike/crouch 运动池",
+        "MBON 扩至 9 列（原 5 通道）"
+      ],
+      "tests": null,
+      "source": "commit 01364b4"
+    },
+    {
+      "id": "EVO-038",
+      "date": "2026-09-16",
+      "time": "18:30-19:34 +0800",
+      "round": "Motor-P4/P5+M1",
+      "kind": "brain",
+      "brain_version": "2.17.0",
+      "skill_version": "3.0.0",
+      "trigger": "Phase 4 仪表板可视化 + Phase 5 EVO pattern + M1 优化层（债务清理 + 新动作原语 PUNCH/DIVE）",
+      "changes": [
+        "Phase 4 电机扩展仪表板",
+        "Phase 5 EVO patterns + R21 patch backport",
+        "M1.1 既有债务清理（BRAIN_VERSION 2.17.0）",
+        "PUNCH/DIVE 动作原语 + EVO 接线"
+      ],
+      "tests": null,
+      "source": "commits e664bd5/1736cac/f1021bf"
     },
     {
       "id": "AUTO-0001",
