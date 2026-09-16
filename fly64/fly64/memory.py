@@ -1753,10 +1753,8 @@ class MemoryController:
         # has been continuously active (not stuck_duration, which accumulates
         # erratically when the stuck detector gates intermittently).
         _now = time.monotonic()
-        if not self.escape_behavior:
-            self._escape_activated_at = float("inf")
-        elif self._escape_activated_at == float("inf"):
-            self._escape_activated_at = _now  # just activated
+        if self.escape_behavior and self._escape_activated_at == float("inf"):
+            self._escape_activated_at = _now  # set once, never resets
 
         _escape_s = _now - self._escape_activated_at if self.escape_behavior else 0.0
 
@@ -1770,7 +1768,7 @@ class MemoryController:
         # before anomaly_override can re-activate it.
         if _release_escape:
             self._escape_released_at = _now
-        _released_recently = _now - self._escape_released_at < 60.0
+        _released_recently = _now - self._escape_released_at < 1800.0
 
         self.escape_behavior = (not _release_escape
                                 and not _released_recently) and (
