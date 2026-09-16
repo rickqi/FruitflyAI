@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import re
 import subprocess
 import tempfile
 import threading
@@ -35,8 +36,8 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.18.0"  # M2: coach primitive strategy + WALL/SLIDING states + walljump/sideflip
-SKILL_VERSION = "3.0.0"   # must mirror fly64/skills/evolution_skill.py SKILL_VERSION
+BRAIN_VERSION = "2.19.0"  # R31 motor expansion complete: MBON-assisted longjump gating
+SKILL_VERSION = "3.1.0"   # primitive scoring + history isolation (must mirror evolution_skill)
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
 _evo_iter_counter = 0
@@ -177,8 +178,11 @@ class DashboardHTTP(BaseHTTPRequestHandler):
                     body, mime = json.dumps({"frames": names}).encode(), "application/json"
                 except OSError:
                     body, mime = b'{"frames": []}', "application/json"
-            elif (".." in name or "/" in name or "\\" in name
-                    or not name.endswith(".png")):
+            elif not re.fullmatch(r"[A-Za-z0-9_\-.]+\.png", name) or ".." in name:
+                # t21 review hardening: strict filename allowlist — letters,
+                # digits, underscore, hyphen, single dots (the save format
+                # embeds a fractional timestamp); anything else (traversal,
+                # separators, other extensions) is rejected outright.
                 body, mime = b"forbidden", "text/plain"
                 self.send_response(403)
                 self.send_header("Content-Length", str(len(body)))

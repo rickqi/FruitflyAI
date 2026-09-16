@@ -85,3 +85,19 @@ class TestWiring:
         assert "bs.hidden = !d.bridge_stale" in js
         css = (PROJECT / "web" / "dashboard.css").read_text(encoding="utf-8")
         assert ".stale-pill" in css and "stalePulse" in css
+
+
+class TestCoachFramesEndpoint:
+    """t21 final review: strict filename allowlist on /coach_frames/<name>."""
+
+    def test_strict_allowlist_regex_in_main(self):
+        src = (PROJECT / "fly64" / "main.py").read_text(encoding="utf-8")
+        assert 're.fullmatch(r"[A-Za-z0-9_\\-.]+\\.png", name)' in src
+        assert '".." in name' in src          # double-dot explicitly rejected
+
+    def test_saved_filename_matches_allowlist(self):
+        # the save format must satisfy the endpoint allowlist
+        import re
+        name = "coach_1789458811.537_unsolvable_stuck.png"
+        assert re.fullmatch(r"[A-Za-z0-9_\-.]+\.png", name)
+        assert ".." not in name
