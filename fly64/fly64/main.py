@@ -35,7 +35,7 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.14.0"  # Phase 1 motor expansion: bridge Z-trigger unlock
+BRAIN_VERSION = "2.15.0"  # Phase 2 motor expansion: CPG primitive cascade layer
 SKILL_VERSION = "3.0.0"   # must mirror fly64/skills/evolution_skill.py SKILL_VERSION
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
@@ -598,6 +598,10 @@ async def run(args) -> None:
     DashboardHTTP.trajectory_points = []
     DashboardHTTP.memory_json = b"{}"
     memory_ctrl = MemoryController()
+    # Phase 2 motor expansion: VNC-style CPG motor primitives (priority 4.5)
+    from .motor_primitives import CPGController, Primitive
+    from .motor_primitives import apply_phase as cpg_apply_phase
+    cpg = CPGController()
     # Restore previously explored scene signatures (landmark persistence)
     _loaded_sigs = memory_ctrl.load_scene_db()
     if _loaded_sigs:
@@ -1235,6 +1239,23 @@ async def run(args) -> None:
             if not bridge.stale and pose_ev[1] < -200:
                 control.y = max(control.y, 70)
                 control.jump = True
+            # ---- Phase 2 · CPG motor primitives (cascade priority 4.5,
+            # between escape and jump).  Gates reuse existing memory/model
+            # signals; deterministic phase scripts own the Z→A button timing
+            # (no symbolic FSM patterns from the P1 PIN list). ----
+            cpg.feed_pose(tick_start, pose_ev[1] if len(pose_ev) > 1 else 0.0)
+            if cpg.active is None and not dlg_now and not reflex_override:
+                if (is_ramp and memory_ctrl.stuck_duration > 3.0
+                        and control.y > 40):
+                    cpg.request(tick_start, Primitive.LONG_JUMP)
+                elif memory_ctrl.fallen:
+                    cpg.request(tick_start, Primitive.BACKFLIP)
+                elif (cpg.state.value == "airborne"
+                        and getattr(model, "cliff_confirmed", False)):
+                    cpg.request(tick_start, Primitive.GROUND_POUND)
+            cpg_phase = cpg.update(tick_start)
+            if cpg_phase is not None:
+                control = cpg_apply_phase(control, cpg_phase)
             bridge.write_control(control.x, control.y, control.jump,
                                  b=getattr(control, "b", False),
                                  z=getattr(control, "z", False))
@@ -1249,6 +1270,8 @@ async def run(args) -> None:
                 decision_source = "anomaly_reflex"
             elif memory_ctrl.escape_behavior:
                 decision_source = "escape"
+            elif cpg_phase is not None:
+                decision_source = f"cpg_primitive:{cpg_phase.primitive.value}"
             elif control.jump:
                 decision_source = "jump"
             else:
@@ -1395,6 +1418,7 @@ async def run(args) -> None:
                     "cliff_standoff_s": round(memory_ctrl.cliff_standoff_s, 1),
                     "novelty": round(memory_ctrl.novelty, 3),
                     "escape_behavior": memory_ctrl.escape_behavior,
+                    "cpg": cpg.status(),
                     "loop_score": round(memory_ctrl.spatial.loop_score, 3),
                     "exploration_mode": memory_ctrl.spatial.exploration_mode,
                     "visited_cells": memory_ctrl.spatial.visited_cells,
