@@ -35,6 +35,7 @@ input[type=range]{flex:1;min-width:100px;accent-color:#6cdaed;height:4px}
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+import { heightColor, verticalSegmentCount, verticalStep, autoGroundY } from './trajectory-height.js';
 
 const $=id=>document.getElementById(id),wrap=$('canvasWrap');
 const BUILD='2026-09-15b (follow-flag + time-based playback)';
@@ -50,6 +51,11 @@ let follow=true;
 window.__liveState=()=>({n:pts.length,pos:Math.round(pos),playing,lastT:pts.length?pts[pts.length-1].t:null});
 window.__gridState=()=>({carpetVisible:carpet.visible,carpetCount:carpet.count,gridOn,
   adjVisible:adjLines.visible,adjVerts:(adjGeo.getAttribute('position')?adjGeo.getAttribute('position').count/2:0)});
+// t22 diagnostics: height gradient + vertical reference line state
+window.__heightState=()=>({minY:heightRange.min,maxY:heightRange.max,
+  colored:(pathGeo.getAttribute('color')?pathGeo.attributes.color.count:0),
+  vertSegments:(vertGeo.getAttribute('position')?vertGeo.attributes.position.count/2:0),
+  gridY:grid.position.y,groundBaseline:120});
 
 const scene=new THREE.Scene();scene.background=new THREE.Color(0x0b1015);
 const camera=new THREE.PerspectiveCamera(50,1,1,200000);
@@ -63,18 +69,34 @@ const ctrl=new OrbitControls(camera,renderer.domElement);
 ctrl.enableDamping=true;ctrl.dampingFactor=.08;
 
 const grid=new THREE.GridHelper(30000,30,0x354250,0x1a2430);scene.add(grid);
-const pathMat=new THREE.LineBasicMaterial({color:0x6cdaed});pathMat.linewidth=1;
+// t22 #3: grid plane rides the auto-detected ground height (first trajectory
+// point, falling back to the SM64 ground baseline 120) instead of hard y=0.
+grid.position.y=autoGroundY(pts);
+const pathMat=new THREE.LineBasicMaterial({vertexColors:true});pathMat.linewidth=1;
 // Preallocated position buffer (matches backend retention cap): the poller
 // writes points in place + setDrawRange — no GPU buffer reallocation per
 // poll (the flicker/stutter source). Line and point cloud share one buffer.
 const MAXP=6000;
 const pathArr=new Float32Array(MAXP*3);
+// t22 #1: per-vertex height colour attribute — blue(low Y) → red(high Y).
+const pathColArr=new Float32Array(MAXP*3);
 const pathGeo=new THREE.BufferGeometry();
 pathGeo.setAttribute('position',new THREE.BufferAttribute(pathArr,3));
+pathGeo.setAttribute('color',new THREE.BufferAttribute(pathColArr,3));
 pathGeo.setDrawRange(0,0);
 const pathLine=new THREE.Line(pathGeo,pathMat);scene.add(pathLine);
-const dotMat=new THREE.PointsMaterial({color:0x6cdaed,sizeAttenuation:true,transparent:true,opacity:.25});
+const dotMat=new THREE.PointsMaterial({vertexColors:true,sizeAttenuation:true,transparent:true,opacity:.25});
 const dots=new THREE.Points(pathGeo,dotMat);scene.add(dots);
+// t22 #2: vertical reference lines — every Nth path point drops a segment to
+// the SM64 ground baseline (y=120).  Preallocated LineSegments (GPU-cheap:
+// one draw call, in-place writes + drawRange).
+const MAXV=1500;
+const vertArr=new Float32Array(MAXV*2*3);
+const vertGeo=new THREE.BufferGeometry();
+vertGeo.setAttribute('position',new THREE.BufferAttribute(vertArr,3));
+vertGeo.setDrawRange(0,0);
+const vertLines=new THREE.LineSegments(vertGeo,new THREE.LineBasicMaterial({color:0x536170,transparent:true,opacity:.35}));
+vertLines.visible=false;scene.add(vertLines);
 // Memory footprint overlay: recent_path cell centres from /memory.json
 // (green = ordered short-term path the brain's spatial memory actually holds)
 const memMat=new THREE.PointsMaterial({color:0x7dff9d,sizeAttenuation:true,transparent:true,opacity:.9});
@@ -122,11 +144,38 @@ function extendCum(){
     cum[i]=cum[i-1]+Math.hypot(b.x-a.x,b.y-a.y,b.z-a.z);
   }
 }
+// t22 #1/#2: height-gradient colours + vertical reference lines, written
+// in place alongside the position buffer (single pass, O(n)).
+const GROUND_Y=120;                 // SM64 ground baseline
+let heightRange={min:0,max:0};
 function pushPts(){
   const n=Math.min(pts.length,MAXP);
-  for(let i=0;i<n;i++){pathArr[i*3]=pts[i].x;pathArr[i*3+1]=pts[i].y;pathArr[i*3+2]=pts[i].z;}
+  let ymin=Infinity,ymax=-Infinity;
+  for(let i=0;i<n;i++){const y=pts[i].y;if(y<ymin)ymin=y;if(y>ymax)ymax=y;}
+  if(!isFinite(ymin)){ymin=0;ymax=0;}
+  heightRange={min:ymin,max:ymax};
+  const span=Math.max(1e-6,ymax-ymin);
+  const colAttr=pathGeo.attributes.color;
+  for(let i=0;i<n;i++){
+    pathArr[i*3]=pts[i].x;pathArr[i*3+1]=pts[i].y;pathArr[i*3+2]=pts[i].z;
+    const rgb=heightColor((pts[i].y-ymin)/span);
+    pathColArr[i*3]=rgb[0];pathColArr[i*3+1]=rgb[1];pathColArr[i*3+2]=rgb[2];
+  }
   pathGeo.attributes.position.needsUpdate=true;
+  colAttr.needsUpdate=true;
   pathGeo.setDrawRange(0,n);
+  // vertical drop-lines: every Nth point → ground baseline (y=120)
+  const seg=verticalSegmentCount(n),step=verticalStep(n);
+  let v=0;
+  for(let i=0;i<n&&v<seg;i+=step){
+    const p=pts[i];
+    vertArr[v*6]=p.x;vertArr[v*6+1]=p.y;vertArr[v*6+2]=p.z;
+    vertArr[v*6+3]=p.x;vertArr[v*6+4]=GROUND_Y;vertArr[v*6+5]=p.z;
+    v++;
+  }
+  vertGeo.attributes.position.needsUpdate=true;
+  vertGeo.setDrawRange(0,v*2);
+  vertLines.visible=v>0;
   extendCum();
 }
 
@@ -138,6 +187,8 @@ function loadTrajectory(data, head){
     $('errorMsg').textContent='Empty trajectory';$('errorMsg').style.display='block';return;}
   $('errorMsg').style.display='none';
   pos = head ? pts.length-1 : 0;
+  // t22 #3: keep the ground grid on the trajectory's own base height
+  grid.position.y=autoGroundY(pts);
   $('slider').max=pts.length-1;
   if(pts.length<2){pushPts();update();return;}
   cum=[0];pushPts();
@@ -225,9 +276,10 @@ async function refreshMemoryOverlay(traj){
       adjLines.visible=gridOn;
     }
     if(Array.isArray(mem.recent_path)&&mem.recent_path.length){
-      const y0=(traj[0]||{y:0}).y;
+      // t22 #4: sample the real ground height per cell (yAt) instead of
+      // pinning the memory path to the first trajectory point's height.
       memGeo.setAttribute('position',new THREE.Float32BufferAttribute(
-        mem.recent_path.flatMap(c=>[c.x,y0+4,c.z]),3));
+        mem.recent_path.flatMap(c=>[c.x,yAt(c.x,c.z)+4,c.z]),3));
       memDots.visible=true;
       $('memInfo').textContent='🧠 memory: '+mem.recent_path.length+' path cells · '
         +(mem.adjacency_edges??'?')+' edges · '+(mem.heat_cells?mem.heat_cells.length:0)+' grid tiles'

@@ -96,6 +96,17 @@ setsid nohup env FLY64_BRIDGE=/tmp/f64b_traj \
 
 # 变更日志
 
+## 2026-09-15: t22 轨迹 3D 高度可视化（纯前端 trajectory.html，不 bump 版本）
+
+**变更**（全部在 web/ 端）：
+- 新增 `web/trajectory-height.js` 纯函数模块（three-free，Node 可单测）：heightColor(t) 蓝→红渐变、verticalSegmentCount/verticalStep（每 N 点一条垂线，全 buffer ≤~300 段 GPU 高效）、autoGroundY(首点高度，回退基线 120)
+- trajectory.html：①路径线/点改 BufferGeometry color attribute + vertexColors:true，按实际高度蓝(低Y)→红(高Y)渐变，pushPts 单趟 O(n) 写入；②新增 LineSegments 垂直参考线——每第 N 点垂到 SM64 地面基线 y=120（预分配 1500 段，drawRange 控制）；③GridHelper 从硬编码 y=0 平移到首轨迹点高度 autoGroundY(pts)（回退 120）；④recent_path 记忆路径改 yAt(x,z) 真实地面高度采样（原固定 y0+4）
+- 诊断钩子 `window.__heightState()`（minY/maxY/colored/vertSegments/gridY）
+
+**回归**：`tests/test_trajectory_height.py`——Node 实跑 helpers（mock 400 点高度 50→200：蓝/红主导端点、红蓝通道单调、垂线段数契约 400→400 段/6000→300 段/空 0）+ trajectory.html 结构断言（color attribute/vertexColors/LineSegments/GROUND_Y/autoGroundY/yAt 采样/诊断钩子）；node --check 通过；dashboard 测试无回归。后端零改动（/trajectory.json 字段不变，版本不 bump）。
+
+---
+
 ## 2026-09-15: t21 验收追加 — /coach_frames 文件名白名单硬化 + 3D 键崩溃热修（Brain v2.18.1）
 
 **变更**：
