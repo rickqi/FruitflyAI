@@ -45,6 +45,15 @@ DEFAULT_DASHBOARD = "http://127.0.0.1:8765"
 DEFAULT_INTERVAL = 10.0
 STUCK_HELP_THRESHOLD = 60.0  # t20: lowered from 120s — coach intervenes earlier
 
+# P1-2.3: multi-signal weighted trigger.  The 60s scalar stays as the hard
+# floor (never delays intervention past t20 behaviour); the weighted score
+# lets strong multi-signal evidence escalate EARLIER (e.g. stuck 50s +
+# reflex ineffective + active MBON saturation + danger scene).
+HELP_SCORE_THRESHOLD = 0.60
+HELP_SCORE_WEIGHTS = {"stuck": 0.40, "reflex_ineffective": 0.25,
+                      "saturation_rate": 0.20, "scene_danger": 0.15}
+HELP_SCORE_ENV = "FLY64_HELP_SCORE_THRESHOLD"
+
 HELP_TRIGGER_ENV = "FLY64_HELP_TRIGGER"  # optional JSON file to force consult
 
 

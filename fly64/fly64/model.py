@@ -23,7 +23,8 @@ def synaptic_current(w, spikes):
     (0.95-1.38x, inside load noise).  Kept for the low-fraction branch's
     slight edge and as the documented baseline; see the P1-2 negative
     result at the call site before attempting further micro-optimization.
-    """    n = w.shape[0]
+    """
+    n = w.shape[0]
     fired = np.flatnonzero(spikes)
     if fired.size == 0:
         return np.zeros(n, dtype=np.float32)
@@ -677,6 +678,12 @@ class FlyModel:
         self.reflex_turn = 0
         self.reflex_forward = 0
         self.reflex_jump = False
+
+        # Navigation: exploration direction commitment + frontier
+        self._explore_bias = 0.0          # current commit direction [-1,1]
+        self._explore_commit_timer = 0     # frames remaining in commit
+        self._explore_commit_ticks = 250   # 5s at 50Hz
+        self._explore_commit_strength = 0.10  # turn bias during commit
 
         # Escape displacement improvement: direction commit + adaptive gain
         self._escape_commit_timer = 0      # frames remaining in commit
@@ -1634,6 +1641,20 @@ class FlyModel:
         self.anchor_distance = self.cx.anchor_distance
         self.v[self.turn_left] += cx_bias * self.cx_steering_gain_turn
         self.v[self.turn_right] -= cx_bias * self.cx_steering_gain_turn
+
+        # Navigation: exploration direction inertia — commit a direction and
+        # hold it for ~5s to produce sustained movement instead of jittery
+        # local exploration.  Only active outside escape mode.
+        if not self.escape_mode:
+            if self._explore_commit_timer <= 0:
+                # Pick a new direction when commit expires
+                self._explore_bias = (self.rng.random() - 0.5) * 1.5
+                self._explore_commit_timer = self._explore_commit_ticks
+            else:
+                self._explore_commit_timer -= 1
+            if abs(self._explore_bias) > 0.1:
+                self.v[self.turn_right] += self._explore_bias * self._explore_commit_strength
+                self.v[self.turn_left] -= self._explore_bias * self._explore_commit_strength
 
         # P1 (audit A8): the dialogue neural pulse block is deleted together
         # with the runner's legacy pulse-A fallback — dialogue behaviour is

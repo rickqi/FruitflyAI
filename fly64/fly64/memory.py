@@ -262,11 +262,13 @@ class SpatialMemoryMap:
                  recency_decay: float = 0.9995,
                  loop_window: int = 500,
                  loop_threshold: float = 0.6,
-                 y_layers: int = 5):          # P2: 3D grid extension
+                 y_layers: int = 5,
+                 fast_decay: float = 0.995):    # P2: fast novelty decay
         self.cell_size = cell_size
         self.grid_cells = grid_cells
         self.y_layers = y_layers
         self.recency_decay = recency_decay
+        self.fast_decay = fast_decay          # dual-timescale novelty
         self.loop_window = loop_window
         self.loop_threshold = loop_threshold
 
@@ -323,6 +325,50 @@ class SpatialMemoryMap:
         if norm < 1e-6:
             return None
         return (vec[0] / norm, vec[1] / norm)
+
+    def frontier_direction(self, x: float, y: float = 0.0, z: float = 0.0,
+                           search_radius: int = 15) -> tuple[float, float] | None:
+        """Find unit vector toward the nearest FRONTIER cell — an UNVISITED
+        cell that neighbours at least one VISITED cell.  This pulls the agent
+        toward the boundary of explored territory rather than just the nearest
+        unvisited cell (which may be isolated and unreachable)."""
+        cxk = self._key(x, y, z)
+        best_dist = float('inf')
+        best_dx = best_dz = 0.0
+        half = self.grid_cells // 2
+        for dx in range(-search_radius, search_radius + 1):
+            for dz in range(-search_radius, search_radius + 1):
+                if dx == 0 and dz == 0:
+                    continue  # skip center (it is visited)
+                kx = max(-half, min(half - 1, cxk[0] + dx))
+                kz = max(-half, min(half - 1, cxk[2] + dz))
+                k = (kx, cxk[1], kz)
+                if k in self._cells:
+                    continue  # already visited
+                # Check if any neighbour is visited (frontier condition)
+                is_frontier = False
+                for ndx in (-1, 0, 1):
+                    for ndz in (-1, 0, 1):
+                        if ndx == 0 and ndz == 0:
+                            continue
+                        nk = (max(-half, min(half - 1, kx + ndx)),
+                              cxk[1],
+                              max(-half, min(half - 1, kz + ndz)))
+                        if nk in self._cells:
+                            is_frontier = True
+                            break
+                    if is_frontier:
+                        break
+                if not is_frontier:
+                    continue
+                dist = math.hypot(dx, dz)
+                if dist < best_dist:
+                    best_dist = dist
+                    best_dx = dx / dist
+                    best_dz = dz / dist
+        if best_dist == float('inf'):
+            return None
+        return (best_dx, best_dz)
 
     def _decay_recency(self) -> None:
         c = self.recency_decay
@@ -406,15 +452,13 @@ class SpatialMemoryMap:
 
     @property
     def revisit_penalty(self) -> float:
-        """Scene-revisit penalty in [0, 0.5]: 0 when revisit_count ≤ 3,
-        linearly increasing to 0.5 at revisit_count = 8 and above.
-        
-        Multiplied into novelty to suppress re-exploration of familiar scenes.
-        """
+        """Scene-revisit penalty in [0, 0.7]: 0 when revisit_count ≤ 2,
+        linearly increasing to 0.7 at revisit_count = 5 and above.
+        Enhanced from original 0→0.5 over 3→8 for better loop suppression."""
         rc = self._scene_db.revisit_count
-        if rc <= 3:
+        if rc <= 2:
             return 0.0
-        return min((rc - 3) * 0.1, 0.5)
+        return min((rc - 2) * 0.35, 0.7)
 
     def _get_repulsion(self, key: tuple[int, int]) -> float:
         """Return repulsion in [0, 0.8] for cells near high-revisit areas.

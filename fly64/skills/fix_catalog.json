@@ -3,11 +3,11 @@
   "meta": {
     "skill_name": "evolution_skill",
     "skill_version": "3.0.0",
-    "total_fixes": 18,
+    "total_fixes": 19,
     "effective_count": 0,
-    "ineffective_count": 10,
-    "pending_count": 2,
-    "last_updated": "2026-09-16T12:11:40.341874+00:00"
+    "ineffective_count": 11,
+    "pending_count": 8,
+    "last_updated": "2026-09-16T13:04:21.933677+00:00"
   },
   "fixes": [
     {
@@ -369,6 +369,26 @@
       "reverted": true,
       "reverted_at": "2026-09-16T12:11:40.341874+00:00",
       "notes": "pattern reflex_ineffective_circling removed from default_patterns.json; fix no longer applicable"
+    },
+    {
+      "id": "fix_0019",
+      "pattern_id": "primitive_zero_disp",
+      "pattern_name": "CPG primitive zero displacement — 原语执行后零位移",
+      "pattern_version": "1.0.0",
+      "diagnosis": "Wrong primitive for the terrain (e.g. longjump on a ledge edge) or Z/A pulse timing lost by the game; needs a different primitive or tighter phase timing.",
+      "fix_template": "# Fix: retune {primitive} gating or swap primitive for this scene profile\n# File: fly64/fly64/main.py (gate conditions) / motor_primitives.py (script)\n",
+      "severity": "high",
+      "applied_at": "2026-09-16T13:03:21.463864+00:00",
+      "version": 19,
+      "baseline_stuck": 95.84,
+      "baseline_coverage": 34.6,
+      "post_fix_stuck": 101.58,
+      "post_fix_coverage": 34.6,
+      "effective": false,
+      "effectiveness_score": 0.0,
+      "reverted": false,
+      "reverted_at": null,
+      "notes": ""
     }
   ]
 }
