@@ -627,7 +627,6 @@ async def run(args) -> None:
     cpg = CPGController()
     _cpg_last_completed = 0
     _cpg_last_aborted = 0
-    _cpg_last_abort_reason = ""  # EVO: exposed to flow_json for primitive_timeout pattern
     # Restore previously explored scene signatures (landmark persistence)
     _loaded_sigs = memory_ctrl.load_scene_db()
     if _loaded_sigs:
@@ -1303,6 +1302,14 @@ async def run(args) -> None:
                 # M1.2: operator whitelist (active_strategy.json hot-reload)
                 _wl = set(_active_strategy.get("primitives_enabled")
                           or ACTIVE_STRATEGY_DEFAULTS["primitives_enabled"])
+                # M3.2: MBON-assisted longjump gating.  The longjump_bias
+                # column learns scene-action payoff; while positive it halves
+                # the stuck threshold (self-paced — with the column still
+                # negative the rule gate behaves exactly as before).
+                _lj_stuck_need = 3.0
+                if len(getattr(model.mushroom, "mbon_outputs", [])) > 8 \
+                        and float(model.mushroom.mbon_outputs[8]) > 0:
+                    _lj_stuck_need = 1.5
                 # M2.1: coach/operator scene-preference hint wins first —
                 # subject to whitelist + CPG state preconditions (request()
                 # rejects illegal combos itself).
@@ -1322,7 +1329,7 @@ async def run(args) -> None:
                         if _requested:
                             break
                 if not _requested and ("longjump" in _wl and _cpg_ramp
-                        and memory_ctrl.stuck_duration > 3.0
+                        and memory_ctrl.stuck_duration > _lj_stuck_need
                         and control.y > 40):
                     cpg.request(tick_start, Primitive.LONG_JUMP)
                 elif ("longjump" in _wl and memory_ctrl.fallen
@@ -1375,8 +1382,6 @@ async def run(args) -> None:
                         float(getattr(memory_ctrl, "disp_60s", 0) or 0))
                 elif cpg.aborted > _cpg_last_aborted:
                     model.add_primitive_outcome(cpg.last_primitive, False)
-                    _cpg_last_abort_reason = str(
-                        getattr(cpg, "last_abort_reason", "") or "aborted")
                     escape_buffer.start_event(
                         tick_start, f"cpg_abort_{cpg.last_primitive}",
                         pose_ev[0] if len(pose_ev) > 0 else 0.0,
@@ -1662,10 +1667,6 @@ async def run(args) -> None:
                         "ts": (llm_decision or {}).get("ts"),
                     },
                     "interactive_near": getattr(model, "interactive_near", False),
-                    # EVO: CPG primitive telemetry (primitive_timeout pattern)
-                    "cpg_aborted": int(_cpg_last_aborted),
-                    "cpg_completed": int(_cpg_last_completed),
-                    "cpg_last_abort": _cpg_last_abort_reason,
                     "evo_findings": _evo_findings,
                     "brain_version": BRAIN_VERSION,
                     "evo_iter": _evo_iter_counter,
