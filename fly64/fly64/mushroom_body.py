@@ -16,7 +16,8 @@ import numpy as np
 
 # Default architecture
 N_KENYON_CELLS = 2000          # ~2,000 KCs in Drosophila
-N_MBONS = 5                     # forward, left, right, jump, explore
+N_MBONS = 9                     # forward, left, right, jump, explore + Phase 3:
+                                # punch, dive, groundpound, longjump
 KC_SPARSITY = 0.05              # top 5% active (100/2000)
 LEARNING_RATE = 0.001           # eta — small to prevent catastrophic forgetting
 DOPAMINE_THRESHOLD = 0.3        # |dopamine| must exceed this to trigger plasticity
@@ -67,7 +68,10 @@ class MushroomBody:
     """
 
     MBON_NAMES = ["forward_bias", "left_bias", "right_bias",
-                  "jump_bias", "explore_bias"]
+                  "jump_bias", "explore_bias",
+                  # Phase 3 motor expansion: one plastic column per new
+                  # primitive, shaped by primitive success/failure dopamine.
+                  "punch_bias", "dive_bias", "groundpound_bias", "longjump_bias"]
 
     def __init__(self, n_kc: int = N_KENYON_CELLS,
                  n_mbon: int = N_MBONS,
@@ -84,8 +88,18 @@ class MushroomBody:
         _rng = np.random.default_rng(KC_PROJECTION_SEED)
         self.W_kc = _rng.normal(0, 0.1, (n_kc, 128)).astype(np.float32)
 
-        # Plastic KC->MBON weights: initialised near-zero with small variance
-        self.weights = _rng.uniform(-0.05, 0.05, (n_kc, n_mbon)).astype(np.float32)
+        # Plastic KC->MBON weights: initialised near-zero with small variance.
+        # Phase 3 compat: the original 5 columns keep the EXACT legacy RNG
+        # draw (seeded generator, 2000x5) so replay/invariants stay stable;
+        # the 4 primitive columns (punch/dive/groundpound/longjump) draw from
+        # a separate generator so extending the column count never perturbs
+        # the legacy channels' random init.
+        self.weights = np.zeros((n_kc, n_mbon), dtype=np.float32)
+        _legacy_n = min(n_mbon, 5)
+        self.weights[:, :_legacy_n] = _rng.uniform(-0.05, 0.05, (n_kc, _legacy_n))
+        if n_mbon > 5:
+            _prim_rng = np.random.default_rng(KC_PROJECTION_SEED + 1)
+            self.weights[:, 5:] = _prim_rng.uniform(-0.05, 0.05, (n_kc, n_mbon - 5))
 
         # State
         self.kc_activity = np.zeros(n_kc, dtype=np.float32)

@@ -35,7 +35,7 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.15.0"  # Phase 2 motor expansion: CPG primitive cascade layer
+BRAIN_VERSION = "2.16.0"  # Phase 3 motor expansion: strike/crouch pools + MBON 9 columns
 SKILL_VERSION = "3.0.0"   # must mirror fly64/skills/evolution_skill.py SKILL_VERSION
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
@@ -602,6 +602,8 @@ async def run(args) -> None:
     from .motor_primitives import CPGController, Primitive
     from .motor_primitives import apply_phase as cpg_apply_phase
     cpg = CPGController()
+    _cpg_last_completed = 0
+    _cpg_last_aborted = 0
     # Restore previously explored scene signatures (landmark persistence)
     _loaded_sigs = memory_ctrl.load_scene_db()
     if _loaded_sigs:
@@ -1245,7 +1247,11 @@ async def run(args) -> None:
             # (no symbolic FSM patterns from the P1 PIN list). ----
             cpg.feed_pose(tick_start, pose_ev[1] if len(pose_ev) > 1 else 0.0)
             if cpg.active is None and not dlg_now and not reflex_override:
-                if (is_ramp and memory_ctrl.stuck_duration > 3.0
+                # is_ramp is only assigned inside the cliff block (step>10);
+                # recompute locally so early ticks never hit an unbound name.
+                _cpg_ramp = (getattr(model, "ramp_score", 0.0) > 0.5
+                             or getattr(model, "ground_angle", 0.0) > 0.3)
+                if (_cpg_ramp and memory_ctrl.stuck_duration > 3.0
                         and control.y > 40):
                     cpg.request(tick_start, Primitive.LONG_JUMP)
                 elif memory_ctrl.fallen:
@@ -1256,6 +1262,19 @@ async def run(args) -> None:
             cpg_phase = cpg.update(tick_start)
             if cpg_phase is not None:
                 control = cpg_apply_phase(control, cpg_phase)
+                # Phase 3: gate the neural strike/crouch pools (no bypass).
+                _strike_gates = ("punch", "dive")
+                _crouch_gates = ("longjump", "backflip", "groundpound", "crawl")
+                model.set_cpg_gate(
+                    strike=1.0 if cpg_phase.primitive.value in _strike_gates else 0.0,
+                    crouch=1.0 if cpg_phase.primitive.value in _crouch_gates else 0.0)
+            else:
+                model.set_cpg_gate(0.0, 0.0)
+                if cpg.completed > _cpg_last_completed:
+                    model.add_primitive_outcome(cpg.last_primitive, True)
+                elif cpg.aborted > _cpg_last_aborted:
+                    model.add_primitive_outcome(cpg.last_primitive, False)
+            _cpg_last_completed, _cpg_last_aborted = cpg.completed, cpg.aborted
             bridge.write_control(control.x, control.y, control.jump,
                                  b=getattr(control, "b", False),
                                  z=getattr(control, "z", False))
@@ -1502,6 +1521,11 @@ async def run(args) -> None:
                     "mb_dopamine": round(getattr(model.mushroom, "dopamine", 0.0), 4),
                     "mb_mbon_forward": round(float(model.mushroom.mbon_outputs[0]), 4),
                     "mb_mbon_jump": round(float(model.mushroom.mbon_outputs[3]), 4),
+                    # Phase 3 primitive columns (punch/dive/groundpound/longjump)
+                    "mb_mbon_punch": round(float(model.mushroom.mbon_outputs[5]), 4),
+                    "mb_mbon_dive": round(float(model.mushroom.mbon_outputs[6]), 4),
+                    "mb_mbon_groundpound": round(float(model.mushroom.mbon_outputs[7]), 4),
+                    "mb_mbon_longjump": round(float(model.mushroom.mbon_outputs[8]), 4),
                     "fg_fraction": round(getattr(model, "fg_fraction", 0.0), 4),
                     "mb_weight_std": round(float(getattr(model.mushroom, "weights").std()), 4),
                     "mb_saturation_events": getattr(model.mushroom, "saturation_events", 0),

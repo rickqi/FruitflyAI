@@ -421,8 +421,19 @@ class FlyModel:
         self.scene_sig = np.zeros(128, dtype=np.float32)
         self.scene_sig_valid = False
         self.history = deque(maxlen=13)
+        # Phase 3 motor expansion: strike (B) / crouch (Z) decode pools.
+        # _select_io_pools() fills these after the connectome is loaded.
+        self.strike_nodes = np.array([], dtype=np.int32)
+        self.crouch_nodes = np.array([], dtype=np.int32)
+        self._cpg_gate_strike = 0.0
+        self._cpg_gate_crouch = 0.0
+        self.last_strike = -10.0
         self.motor_nodes = np.concatenate((self.forward, self.turn_left, self.turn_right, self.jump_nodes))
         self.motor_splits = np.cumsum([len(self.forward), len(self.turn_left), len(self.turn_right)])
+        self._select_io_pools()
+        self.motor_nodes = np.concatenate((self.motor_nodes, self.strike_nodes, self.crouch_nodes))
+        self.motor_splits = np.cumsum([len(self.forward), len(self.turn_left), len(self.turn_right),
+                                       len(self.jump_nodes), len(self.strike_nodes)])
         self.filtered_x = 0.0
         self.filtered_y = 0.0
         self.last_jump = -10.0
@@ -675,6 +686,51 @@ class FlyModel:
         else:
             flat_pixels = np.linspace(0, 48 * 64 - 1, len(self.visual)).astype(np.int32)
             self.visual_pixels = np.column_stack((flat_pixels // 64, flat_pixels % 64)).astype(np.uint8)
+
+    def _select_io_pools(self) -> None:
+        """Phase 3: pick 20-neuron strike (B) and crouch (Z) decode pools.
+
+        flyGNN low-dimensional-readout principle: the connectome is frozen, so
+        new motor channels come from *choosing* readout populations, not from
+        training weights.  Selection is deterministic (fixed seed) so the
+        BRAIN_VERSION invariants and replay stay reproducible.
+        """
+        if getattr(self, "n", 0) <= 4096:      # demo fixture: reserved range
+            self.strike_nodes = np.arange(3760, 3780, dtype=np.int32)
+            self.crouch_nodes = np.arange(3780, 3800, dtype=np.int32)
+            return
+        used = np.concatenate((self.visual, self.forward, self.turn_left,
+                               self.turn_right, self.jump_nodes))
+        candidates = np.setdiff1d(np.arange(self.n, dtype=np.int32), used)
+        # Rank by out-degree (evolved wiring: well-connected neurons make
+        # informative readouts) and take the top 40 deterministically.
+        out_degree = np.diff(self.w.indptr)          # CSR: row nnz counts
+        order = np.lexsort((candidates, -out_degree[candidates]))
+        chosen = candidates[order[:40]]
+        self.strike_nodes = np.sort(chosen[:20]).astype(np.int32)
+        self.crouch_nodes = np.sort(chosen[20:]).astype(np.int32)
+
+    def set_cpg_gate(self, strike: float = 0.0, crouch: float = 0.0) -> None:
+        """CPG gate -> LIF current injection (Phase 3 interface, no bypass).
+
+        The cascade never writes control.b/z directly from Python for neural
+        intent; it raises these gates, the pools fire, and the standard
+        decode path turns rates into buttons (P1 PIN compliant).
+        """
+        self._cpg_gate_strike = float(np.clip(strike, 0.0, 1.0))
+        self._cpg_gate_crouch = float(np.clip(crouch, 0.0, 1.0))
+
+    def add_primitive_outcome(self, primitive: str, success: bool) -> None:
+        """Dopamine pulse on CPG primitive success/failure -> MBON plasticity.
+
+        MBON columns 5..8 (punch/dive/groundpound/longjump) learn which
+        contexts pay off for each primitive (Bennett-style RPE shaping).
+        """
+        if success:
+            self._pending_dopamine += 0.6    # rewarding pulse
+        else:
+            self.add_setback(0.4)            # aversive pulse
+        self._last_primitive_outcome = (primitive, bool(success))
 
     def encode_retina(self, rgb: np.ndarray, heading: float = 0.0) -> np.ndarray:
         frame = self.retina.sample(rgb)
@@ -1320,6 +1376,11 @@ class FlyModel:
             self.v[self.turn_left] += mbon[1] * self.mbon_gain_turn
             self.v[self.turn_right] += mbon[2] * self.mbon_gain_turn
             self.v[self.jump_nodes] += mbon[3] * self.mbon_gain_jump
+            # Phase 3: primitive columns shape the strike/crouch pools.
+            if len(self.strike_nodes):
+                self.v[self.strike_nodes] += 0.4 * (mbon[5] + mbon[6])
+            if len(self.crouch_nodes):
+                self.v[self.crouch_nodes] += 0.4 * (mbon[7] + mbon[8])
             if mbon[4] > 0.2:
                 self.escape_current = min(0.25, self.escape_current * 1.02)
             elif mbon[4] < -0.2:
@@ -1598,7 +1659,8 @@ class FlyModel:
         # Decode a rolling ~250 ms spike-rate window, matching the documented
         # descending-neuron interface instead of reacting to a single tick.
         recent = np.stack(tuple(self.history), axis=0).mean(axis=0)
-        forward_rate, left_rate, right_rate, jump_rate = [float(pool.mean()) for pool in np.split(recent, self.motor_splits)]
+        forward_rate, left_rate, right_rate, jump_rate, strike_rate, crouch_rate = [
+            float(pool.mean()) for pool in np.split(recent, self.motor_splits)]
         # EVO R30 · direct forward boost when stuck below ground with
         # suppressed MBON — bypass learned helplessness, feeds through
         # the normal decode path (smoothing, clamping, filtering).
@@ -1819,6 +1881,12 @@ class FlyModel:
         jump = jump_rate > 0.04 and now - self.last_jump >= 0.8
         if jump:
             self.last_jump = now
+        # Phase 3: strike (B, pulse w/ cooldown) and crouch (Z, level) decode.
+        strike = strike_rate > 0.05 and now - self.last_strike >= 1.0
+        if strike:
+            self.last_strike = now
+        crouch = crouch_rate > 0.03
         return Control(int(self.filtered_x) if abs(self.filtered_x) >= 8 else 0,
                        int(self.filtered_y) if self.filtered_y >= 8 else 0,
-                       jump, forward_rate, turn_rate, jump_rate), np.flatnonzero(fired)
+                       jump, forward_rate, turn_rate, jump_rate,
+                       b=strike, z=crouch), np.flatnonzero(fired)

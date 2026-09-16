@@ -53,7 +53,9 @@ class TestMushroomBodyInit:
     def test_mbon_names(self):
         mb = MushroomBody()
         expected = ["forward_bias", "left_bias", "right_bias",
-                    "jump_bias", "explore_bias"]
+                    "jump_bias", "explore_bias",
+                    # Phase 3 motor expansion primitive columns
+                    "punch_bias", "dive_bias", "groundpound_bias", "longjump_bias"]
         assert list(mb.MBON_NAMES) == expected
 
 
@@ -267,9 +269,12 @@ class TestPlasticity:
         w_after = mb.weights
 
         diff = w_after - w_before
-        active_entries = np.abs(w_before) > 1e-8
+        # Phase 3: restrict to the original 5 columns — the 4 primitive
+        # columns (5..8) start from small random init and are shaped only by
+        # primitive-outcome dopamine, so they must not dilute this check.
+        active_entries = np.abs(w_before[:, :5]) > 1e-8
         if active_entries.any():
-            mean_change = diff[active_entries].mean()
+            mean_change = diff[:, :5][active_entries].mean()
             assert mean_change < 0, (
                 f"Negative dopamine should decrease weights, got {mean_change:.6f}")
 
@@ -285,9 +290,10 @@ class TestPlasticity:
         w_after = mb.weights
 
         diff = w_after - w_before
-        active_entries = np.abs(w_before) > 1e-8
+        # Phase 3: original 5 columns only (see note in the negative test).
+        active_entries = np.abs(w_before[:, :5]) > 1e-8
         if active_entries.any():
-            mean_change = diff[active_entries].mean()
+            mean_change = diff[:, :5][active_entries].mean()
             assert mean_change > 0, (
                 f"Positive dopamine should increase weights, got {mean_change:.6f}")
 
