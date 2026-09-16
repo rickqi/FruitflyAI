@@ -6,8 +6,8 @@
     "total_fixes": 18,
     "effective_count": 0,
     "ineffective_count": 10,
-    "pending_count": 6,
-    "last_updated": "2026-09-15T13:11:06.182819+00:00"
+    "pending_count": 2,
+    "last_updated": "2026-09-16T12:11:40.341874+00:00"
   },
   "fixes": [
     {
@@ -336,7 +336,7 @@
       "pattern_name": "Fast circling — coverage_rate≈0 持续≥30s 触发 L2 求助快照",
       "pattern_version": "1.0.0",
       "diagnosis": "高速绕圈类卡死（loop>0.8, coverage_rate≈0）永远不会触发 L2 求助快照，因为原触发条件仅限对话习惯化；disp60 判据（<30u/60s）对此类完全失效。修复：在 dialogue L2 块后新增 L2a stuck_no_progress 触发器，stuck>=0.8∧coverage_rate<0.01∧duration>5s 持续 30s 即发出求助快照。",
-  "fix_template": "# Fix: Add stuck_no_progress help trigger (L2a) after dialogue L2 block\n# File: fly64/fly64/main.py\n# Find the L2 block ending with \"{\\\"help_reason\\\": None}\" after dialogue_help_sent\n# Insert L2a block as shown in commit df1d5e94\n",
+      "fix_template": "# Fix: Add stuck_no_progress help trigger (L2a) after dialogue L2 block\n# File: fly64/fly64/main.py\n# Find the L2 block ending with \"{\\\"help_reason\\\": None}\" after dialogue_help_sent\n# Insert L2a block as shown in commit df1d5e94\n",
       "severity": "high",
       "applied_at": "2026-09-16T02:00:00",
       "version": 17,
@@ -346,9 +346,9 @@
       "post_fix_coverage": null,
       "effective": null,
       "effectiveness_score": null,
-      "reverted": false,
-      "reverted_at": null,
-      "notes": ""
+      "reverted": true,
+      "reverted_at": "2026-09-16T12:11:40.341874+00:00",
+      "notes": "pattern fast_circle_help removed from default_patterns.json; fix no longer applicable"
     },
     {
       "id": "fix_0018",
@@ -366,9 +366,9 @@
       "post_fix_coverage": null,
       "effective": null,
       "effectiveness_score": null,
-      "reverted": false,
-      "reverted_at": null,
-      "notes": ""
+      "reverted": true,
+      "reverted_at": "2026-09-16T12:11:40.341874+00:00",
+      "notes": "pattern reflex_ineffective_circling removed from default_patterns.json; fix no longer applicable"
     }
   ]
 }

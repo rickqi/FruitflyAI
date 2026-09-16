@@ -871,8 +871,9 @@ Round 4/5 正是**能力边界判定的实战示范**：钥匙门的"行为层"�
 | **长跳 longjump** | 跑动中 Z→A（CPG 相位脚本） | `ramp_score/ground_angle` + `stuck>3s` + 前进中 | ✅ v2.15.0 |
 | **后空翻 backflip** | 蹲 Z→A | `fallen`（复用 escape_jump_drive） | ✅ v2.15.0 |
 | **落地砸 groundpound** | 空中 Z | AIRBORNE + `cliff_confirmed` | ✅ v2.15.0 |
-| 拳击 punch / 俯冲 dive / 游泳 swim / 爬行 crawl | B 脉冲 / B+前向 / A 节律 / Z+慢速 | 交互目标 / 小目标锁定 / 水面 / 低净空 | 🔜 已实现未启用 |
-| 踢墙跳 / 侧空翻 | 贴墙时机 A / 转向反转+A | WALL 态（需精化） | 📋 计划中 |
+| 拳击 punch / 俯冲 dive / 游泳 swim / 爬行 crawl | B 脉冲 / B+前向 / A 节律 / Z+慢速 | 交互目标 / 小目标锁定 / 水面 / 低净空 | ✅ v2.17.0（白名单热开关） |
+| **踢墙跳 walljump** | 贴墙窗口 A | WALL 态（wall_score+顶墙）+ 卡住 | ✅ v2.18.0 |
+| **侧空翻 sideflip** | 转向硬反转 + A | GROUNDED + 反转检测 | ✅ v2.18.0 |
 
 ### 分层架构（文献思路落地）
 

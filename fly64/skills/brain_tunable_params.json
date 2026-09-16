@@ -69,6 +69,36 @@
       "min": 0.2,
       "max": 1.0,
       "description": "Fraction of forward drive during escape behavior (vs. turning). Higher = straighter breakout runs."
+    },
+    "escape.commit_ticks": {
+      "default": 50,
+      "min": 10,
+      "max": 150,
+      "description": "Direction commit duration in ticks (50=1s at 50Hz). Higher = longer committed turns, more net displacement."
+    },
+    "escape.forward_accum_max": {
+      "default": 0.50,
+      "min": 0.20,
+      "max": 0.80,
+      "description": "Maximum adaptive forward gain during zero-displacement escape. Higher = stronger push through obstacles."
+    },
+    "escape.forward_accum_step": {
+      "default": 0.005,
+      "min": 0.001,
+      "max": 0.020,
+      "description": "Per-frame increment of adaptive forward gain when displacement is near-zero."
+    },
+    "escape.commit_reinforce": {
+      "default": 0.15,
+      "min": 0.05,
+      "max": 0.30,
+      "description": "Current injected into the committed turn direction during escape. Higher = stronger directional commitment."
+    },
+    "escape.commit_suppress": {
+      "default": 0.10,
+      "min": 0.02,
+      "max": 0.25,
+      "description": "Current injected to suppress the opposite turn direction during escape commitment."
     }
   }
 }

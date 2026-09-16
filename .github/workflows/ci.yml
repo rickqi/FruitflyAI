@@ -1,0 +1,66 @@
+# CI pipeline for Fly64 brain model tests
+# Runs in WSL2 environment on ubuntu-latest with Python 3.12
+# Note: Full MaleCNS connectome test requires ~1.3GB data download (manual cache)
+
+name: Fly64 CI
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - 'fly64/**'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    branches: [master, main]
+    paths:
+      - 'fly64/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    defaults:
+      run:
+        working-directory: fly64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: 'pip'
+          cache-dependency-path: fly64/requirements.txt
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential libsdl2-dev libglew-dev
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov
+
+      - name: Run tests (non-GUI subset, skip MaleCNS-dependent)
+        run: |
+          python -m pytest tests/ -q --tb=short \
+            --ignore=tests/test_bridge.py \
+            --ignore=tests/test_dashboard_protocol.py \
+            --ignore=tests/test_dashboard_js.py \
+            --ignore=tests/test_plugin_mhr.py \
+            --ignore=tests/test_service.py \
+            --ignore=tests/test_autonomy_regression.py \
+            -k "not male_cns and not sm64" 2>&1 | tail -20
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-report
+          path: fly64/.pytest_cache/
+          retention-days: 7

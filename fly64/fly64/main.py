@@ -954,6 +954,11 @@ async def run(args) -> None:
                     _expl.get("turn_bias", 69.0))
                 memory_ctrl.escape_stuck_threshold_s = float(
                     _esc.get("stuck_threshold_s", 2.0))
+                # P2: Escape parameter hot-loading from active_strategy
+                model._escape_commit_ticks = int(
+                    _esc.get("commit_ticks", 50))
+                model._escape_forward_accum = float(
+                    _esc.get("forward_accum_max", 0.50))
 
             # ---- Pre-emptive cliff avoidance (fires BEFORE escape, highest priority) ----
             cliff_triggered = False

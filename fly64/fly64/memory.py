@@ -261,44 +261,42 @@ class SpatialMemoryMap:
     def __init__(self, cell_size: float = 200.0, grid_cells: int = 50,
                  recency_decay: float = 0.9995,
                  loop_window: int = 500,
-                 loop_threshold: float = 0.6):
+                 loop_threshold: float = 0.6,
+                 y_layers: int = 5):          # P2: 3D grid extension
         self.cell_size = cell_size
         self.grid_cells = grid_cells
+        self.y_layers = y_layers
         self.recency_decay = recency_decay
         self.loop_window = loop_window
         self.loop_threshold = loop_threshold
 
-        self._cells: dict[tuple[int, int], np.uint16] = {}
-        self._recency: dict[tuple[int, int], float] = {}
-        self._last_tick: dict[tuple[int, int], int] = {}
+        self._cells: dict[tuple[int, int, int], np.uint16] = {}
+        self._recency: dict[tuple[int, int, int], float] = {}
+        self._last_tick: dict[tuple[int, int, int], int] = {}
         self._total_ticks = 0
-        self._current_cell: tuple[int, int] | None = None
-        self._history: deque[tuple[int, int]] = deque(maxlen=loop_window)
+        self._current_cell: tuple[int, int, int] | None = None
+        self._history: deque[tuple[int, int, int]] = deque(maxlen=loop_window)
         self._revisit_count = 0
-        # EVO R11 fix: exact rolling-window revisit counting.  The old code
-        # only incremented _revisit_count on revisit and never decremented on
-        # window eviction, so the score diverged unboundedly (observed 104.9).
-        self._window_counts: dict[tuple[int, int], int] = {}
+        self._window_counts: dict[tuple[int, int, int], int] = {}
         self._window_flags: deque[bool] = deque()
         self._coverage_history: deque[tuple[int, float]] = deque(maxlen=6000)
         self._last_coverage_tick = 0
-        # L1 topology: traversal graph — {(cell_a, cell_b): step_count} with
-        # a < b.  Every cell *transition* (not every tick) records one edge
-        # step, turning the visit-count footprint into a traversable map.
-        self._adj: dict[tuple[tuple[int, int], tuple[int, int]], int] = {}
-
-        # Scene database for landmark revisit detection
+        self._adj: dict[tuple[tuple[int, int, int], tuple[int, int, int]], int] = {}
         self._scene_db = SceneDatabase()
 
     # -- helpers ----------------------------------------------------------
 
-    def _key(self, x: float, z: float) -> tuple[int, int]:
-        """Map world coordinates to grid key, clamping to grid bounds."""
+    def _key(self, x: float, y: float = 0.0, z: float = 0.0) -> tuple[int, int, int]:
+        """Map world coords to grid key (x, y_layer, z), clamping.
+        Y parameter for 3D grid; defaults to 0 for backward compat."""
         ix = int(math.floor(x / self.cell_size))
         iz = int(math.floor(z / self.cell_size))
         half = self.grid_cells // 2
-        return (max(-half, min(half - 1, ix)),
-                max(-half, min(half - 1, iz)))
+        ix = max(-half, min(half - 1, ix))
+        iz = max(-half, min(half - 1, iz))
+        # Map Y from [-500, 1500] to [0, y_layers-1]
+        iy = max(0, min(self.y_layers - 1, int((y + 500) / 400)))
+        return (ix, iy, iz)
 
         return (max(-half, min(half - 1, ix)),
                 max(-half, min(half - 1, iz)))
@@ -308,7 +306,7 @@ class SpatialMemoryMap:
         """EVO R20 (CX-3): unit vector toward the centroid of UNVISITED
         cells within *radius* grid steps of (x, z) — the exploration goal
         direction.  None when the neighbourhood is fully covered."""
-        cxk = self._key(x, z)
+        cxk = self._key(x, 0, z)
         sx = sz = n = 0
         for dx in range(-radius, radius + 1):
             for dz in range(-radius, radius + 1):
@@ -335,10 +333,10 @@ class SpatialMemoryMap:
 
     # -- public API -------------------------------------------------------
 
-    def update(self, x: float, z: float) -> float:
-        """Record a visit; returns the novelty of the visited cell (0–1)."""
+    def update(self, x: float, y: float = 0.0, z: float = 0.0) -> float:
+        """Record a visit at (x, y, z); returns the novelty of the visited cell (0–1)."""
         self._total_ticks += 1
-        key = self._key(x, z)
+        key = self._key(x, y, z)
         prev_cell = self._current_cell
         self._current_cell = key
         # Topology: a cell *transition* (A→B, A≠B) records one traversal step.
@@ -387,7 +385,7 @@ class SpatialMemoryMap:
 
     def novelty_at(self, x: float, z: float) -> float:
         """Query novelty at a position without recording a visit."""
-        key = self._key(x, z)
+        key = self._key(x, 0, z)
         if key not in self._cells:
             return 1.0
         return self._novelty(key)
@@ -517,7 +515,7 @@ class SpatialMemoryMap:
         penalty is reduced to 0.0 so old dead-end labels do not suppress the
         forced breakout maneuver.
         """
-        base_key = self._key(x, z)
+        base_key = self._key(x, 0, z)
         cx, cz = base_key
 
         # 4 direction offsets relative to heading (sm64: heading 0 = +Z north)

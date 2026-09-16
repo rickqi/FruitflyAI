@@ -102,6 +102,13 @@ class CentralComplex:
         self._idle_wander_phase = 0.0
         self._idle_wander_rate = 0.006     # ~530 frames (10s) per full cycle
 
+        # P3-2: Visual relocalization — corrects path integration drift
+        # by matching scene signatures against remembered positions.
+        self._scene_positions: dict[int, tuple[float, float, float]] = {}
+        self._relocalize_gate = 0.8
+        self._relocalize_strength = 0.3
+        self._last_scene_id: int | None = None
+
     def _roll_fractional(self, columns: float) -> None:
         """Rotate the compass bump by a fractional number of columns.
 
@@ -148,6 +155,30 @@ class CentralComplex:
             return None
         return float(np.arctan2(-self.disp_x, -self.disp_z))
 
+    # ── P3-2: Visual relocalization ──
+    def visual_relocalize(self, scene_id: int | None,
+                          confidence: float,
+                          scene_count: int) -> None:
+        """Correct path integration drift by matching scene signatures.
+
+        When the same scene is re-encountered with high confidence,
+        pull disp_x/disp_z toward the remembered position for that scene,
+        providing a weak visual closure on the open-loop path integration.
+        """
+        if scene_id is None or confidence < self._relocalize_gate:
+            return
+        if scene_id in self._scene_positions:
+            mem_x, mem_z, mem_conf = self._scene_positions[scene_id]
+            # Weight correction by confidence and recency
+            w = self._relocalize_strength * confidence * (1.0 - mem_conf * 0.5)
+            self.disp_x += (mem_x - self.disp_x) * w
+            self.disp_z += (mem_z - self.disp_z) * w
+            # Decay memory confidence slightly (re-exposure refreshes)
+            self._scene_positions[scene_id] = (mem_x, mem_z, min(1.0, mem_conf + 0.05))
+        elif self.anchor is not None:
+            # First encounter: store current displacement for this scene
+            self._scene_positions[scene_id] = (self.disp_x, self.disp_z, confidence)
+
     def _weak_correction(self, azimuth_rad: float, weight: float) -> None:
         """Weakly pull the bump toward an azimuth (visual/sky compass)."""
         drive = self._heading_drive(azimuth_rad) * weight
@@ -192,7 +223,10 @@ class CentralComplex:
                dt: float = 0.02,
                visual_azimuth: float | None = None,
                forward_speed: float = 0.0,
-               goal_vectors: list[tuple[float, float, float]] | None = None) -> float:
+               goal_vectors: list[tuple[float, float, float]] | None = None,
+               scene_id: int | None = None,
+               scene_confidence: float = 0.0,
+               scene_total: int = 0) -> float:
         """One timestep of CX processing.
 
         EVO R20 (CX-1): the ring attractor integrates SELF-MOTION — the
@@ -274,6 +308,10 @@ class CentralComplex:
                                  * self.SPEED_TO_UNITS * dt)
             self.disp_z += float(np.cos(est_h) * forward_speed
                                  * self.SPEED_TO_UNITS * dt)
+
+        # P3-2: Visual relocalization — correct path integration drift
+        # by pulling disp_x/disp_z toward remembered scene positions.
+        self.visual_relocalize(scene_id, scene_confidence, scene_total)
 
         # ---- 2. Goal-direction update (EVO R20 CX-3) ----
         # Multi-source goal-VECTOR competition (FB vector arithmetic):

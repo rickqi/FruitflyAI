@@ -383,6 +383,18 @@ class FlyModel:
     scene_var = 0.0
     scene_change = False
     scene_change_rate = 0.0
+    # Named injection coefficients (P2-2: extracted from magic numbers)
+    ESCAPE_JUMP_DRIVE = 0.45      # jump-pool burst when fallen
+    BOLD_TURN_DRIVE = 0.35        # forced-bold escape turn current
+    PIT_FORWARD_HOP = 0.40        # pit escape forward oscillator amplitude
+    PIT_JUMP_HOP = 0.80           # pit escape jump oscillator amplitude
+    PIT_SWAY_AMP = 0.05           # pit escape lateral sway amplitude
+    TAU_JUMP_INJECTION = 0.35     # max tau collision jump drive
+    TARGET_JUMP_CLOSE = 0.50      # target jump strength when <=2 frames
+    CLIFF_TANGENT_TURN = 0.15     # cliff edge tangential detour turn
+    INTERACTIVE_FORWARD = 0.10    # interactive target approach bias
+    ESCAPE_CURRENT_SCALE = 0.30   # interactive mode escape suppression
+    TAU_JUMP_INJ_MAX = 0.35
 
     def __init__(self, cache: Path | None = None, demo: bool = False, seed: int = 64):
         self.rng = np.random.default_rng(seed)
@@ -637,6 +649,21 @@ class FlyModel:
         self._corrective_current_applied = (0.0, 0.0)
         # Pending Python turn correction for t3 error gradient bridge
         self._pending_python_turn = 0
+
+        # P4-1: Reflex→LIF bridge — reflex circuit sets flags, model
+        # converts to current injection so the LIF network shares the
+        # motor-pool decision with the reflex (instead of Python bypassing
+        # the network entirely with a direct control.x write).
+        self.reflex_turn = 0
+        self.reflex_forward = 0
+        self.reflex_jump = False
+
+        # Escape displacement improvement: direction commit + adaptive gain
+        self._escape_commit_timer = 0      # frames remaining in commit
+        self._escape_commit_dir = 0         # +1=right, -1=left
+        self._escape_commit_ticks = 50      # commit duration (1s at 50Hz)
+        self._escape_forward_accum = 0.15   # base forward gain during escape
+        self._last_escape_pos = (0.0, 0.0)  # last position for displacement check
 
     def _load_demo(self):
         self.n = 4096
@@ -1471,18 +1498,58 @@ class FlyModel:
         # → mirrored turn-pool current.  The LIF competition — not a Python
         # control write — executes the escape manoeuvre.
         if self.escape_jump_drive:
-            self.v[self.jump_nodes] += 0.45
+            self.v[self.jump_nodes] += self.ESCAPE_JUMP_DRIVE
         if self.bold_turn_drive:
             if self.bold_turn_drive > 0:
-                self.v[self.turn_right] += 0.35 * min(1.0, self.bold_turn_drive)
+                self.v[self.turn_right] += self.BOLD_TURN_DRIVE * min(1.0, self.bold_turn_drive)
             else:
-                self.v[self.turn_left] += 0.35 * min(1.0, -self.bold_turn_drive)
+                self.v[self.turn_left] += self.BOLD_TURN_DRIVE * min(1.0, -self.bold_turn_drive)
+
+        # P1 escape direction commit: choose a turn direction and hold it
+        # for ~1s instead of alternating every tick, producing net displacement.
+        if self.escape_mode:
+            if self._escape_commit_timer <= 0:
+                # Pick a direction and commit
+                self._escape_commit_dir = 1 if self.rng.random() < 0.5 else -1
+                self._escape_commit_timer = self._escape_commit_ticks
+            else:
+                self._escape_commit_timer -= 1
+                # Reinforce committed direction, suppress opposite
+                if self._escape_commit_dir > 0:
+                    self.v[self.turn_right] += 0.15
+                    self.v[self.turn_left] -= 0.10
+                else:
+                    self.v[self.turn_left] += 0.15
+                    self.v[self.turn_right] -= 0.10
+            # Adaptive forward gain: scale up when displacement is near-zero
+            # to help break out of weave/circle patterns.
+            _dx = getattr(self, "_last_disp_x", 0.0)
+            _dz = getattr(self, "_last_disp_z", 0.0)
+            _disp = (_dx ** 2 + _dz ** 2) ** 0.5
+            if _disp < 0.5:
+                self._escape_forward_accum = min(0.50, self._escape_forward_accum + 0.005)
+            else:
+                self._escape_forward_accum = max(0.15, self._escape_forward_accum - 0.01)
+            self.v[self.forward] += self._escape_forward_accum
+
+        # P4-1: Reflex→LIF bridge — convert reflex flags into current injection
+        # so the LIF network (not Python control.x write) decides motor output.
+        # Reflex turn/forward are moderate-strength biases; jump is a gate.
+        if self.reflex_turn:
+            if self.reflex_turn > 0:
+                self.v[self.turn_right] += min(0.25, abs(self.reflex_turn) * 0.004)
+            else:
+                self.v[self.turn_left] += min(0.25, abs(self.reflex_turn) * 0.004)
+        if self.reflex_forward:
+            self.v[self.forward] += min(0.20, self.reflex_forward * 0.003)
+        if self.reflex_jump:
+            self.v[self.jump_nodes] += 0.30
 
         # ---- Tau (time-to-contact) → jump motor pool current injection ----
         # Imminent collision → depolarise jump nodes directly so the neural
         # network drives the jump response instead of Python escape logic.
         if self.tau < self.TAU_NEAR and np.isfinite(self.tau):
-            _tau_inj = max(0.0, (self.TAU_NEAR - self.tau) / self.TAU_NEAR) * 0.35
+            _tau_inj = max(0.0, (self.TAU_NEAR - self.tau) / self.TAU_NEAR) * self.TAU_JUMP_INJECTION
             self.v[self.jump_nodes] += _tau_inj
 
         # ---- Small target tracking: approaching target → jump & turn injection (pre-spike) ----
@@ -1549,7 +1616,7 @@ class FlyModel:
         # Interactive target near (door/sign) → CX enters interaction mode:
         # suppress escape circuitry current so the agent approaches, not flees.
         if getattr(self, "interactive_near", False) and not getattr(self, "dialogue_active", False):
-            self.escape_current *= 0.3
+            self.escape_current *= self.ESCAPE_CURRENT_SCALE
             self.v[self.forward] += 0.10          # gentle approach bias
 
         # EVO R14 · spontaneous alternation: turn-circuit fatigue counter-drive.
