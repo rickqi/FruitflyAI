@@ -14,11 +14,12 @@
 2. [核心架构深度解析](#2-核心架构深度解析)
 3. [10大工程化能力详解](#3-10大工程化能力详解)
 4. [5级决策仲裁链](#4-5级决策仲裁链)
-5. [跨13领域应用迁移方案](#5-跨13领域应用迁移方案)
-6. [瓶颈与局限性分析](#6-瓶颈与局限性分析)
-7. [学术理论支撑](#7-学术理论支撑)
-8. [商业化路线图与优先级](#8-商业化路线图与优先级)
-9. [总结与技术展望](#9-总结与技术展望)
+5. [SM64 动作系统与运动能力全景](#5-sm64-动作系统与运动能力全景)
+6. [跨13领域应用迁移方案](#6-跨13领域应用迁移方案)
+7. [瓶颈与局限性分析](#7-瓶颈与局限性分析)
+8. [学术理论支撑](#8-学术理论支撑)
+9. [商业化路线图与优先级](#9-商业化路线图与优先级)
+10. [总结与技术展望](#10-总结与技术展望)
 
 ---
 
@@ -539,9 +540,132 @@ Fly64的5级决策仲裁链在所有领域应用中保持一致：
 
 ---
 
-## 5. 跨13领域应用迁移方案
+## 5. SM64 动作系统与运动能力全景
 
-### 5.1 通用迁移框架（6步迁移法）
+### 5.1 动作系统架构（三层解耦）
+
+Fly64 的 SM64 运动控制系统采用**三层解耦架构**，从桥接物理按键到神经元解码池再到 CPG 时序控制，每层可独立优化与扩展：
+
+```
+┌───────────────┐   ┌───────────────┐   ┌───────────────┐
+│   CPG 时序层   │   │  神经解码层    │   │  桥接物理层    │
+│  motor_       │←──│  model.py     │←──│  bridge.py    │
+│  primitives.py│   │  decode_pools │   │  mmap+seqlock │
+│               │   │               │   │               │
+│  LONG_JUMP    │   │ forward(60)   │   │ stick_x ±70   │
+│  BACKFLIP     │   │ turn_l(40)    │   │ stick_y 0~70  │
+│  GROUND_POUND │   │ turn_r(40)    │   │ A_BUTTON      │
+│  PUNCH        │   │ jump(20)      │   │ B_BUTTON 🆕   │
+│  DIVE         │   │ strike(20) 🆕 │   │ Z_TRIG 🆕     │
+│  WALL_JUMP    │   │ crouch(20) 🆕 │   │               │
+│  SIDE_FLIP    │   │               │   │               │
+│  SWIM_STROKE  │   │ MBON 9通道    │   │ 延迟: ~8μs    │
+│  CRAWL        │   │ (0-8)         │   │               │
+└───────┬───────┘   └───────┬───────┘   └───────┬───────┘
+        │                   │                   │
+        └───────────────────┼───────────────────┘
+                            │
+                    ┌───────▼───────┐
+                    │  游戏实例层     │
+                    │ sm64ex-fly64  │
+                    │ .patch        │
+                    │ 30fps读取     │
+                    └───────────────┘
+```
+
+### 5.2 当前支持的完整动作集（14+ 动作原语）
+
+当前代码（Brain v2.13.3 + Phase 3 运动扩展）已将动作原语从原始 5 个扩展到 **14+ 个**：
+
+| # | 动作 | 按键 | 解码池 | 神经/CPG | 触发条件 | 文件位置 |
+|---|------|------|--------|----------|---------|---------|
+| 1 | **直线行走** | stick_y 0~70 | forward (60 neurons) | LIF 神经 | 默认行为 | model.py L1650 |
+| 2 | **左右转向** | stick_x ±70 | turn_l/turn_r (40+40) | 多源融合(CX+MB+疲劳) | 航向偏差/光流 | model.py L1553 |
+| 3 | **单次/连跳** | A (0x8000) | jump (20 neurons) | rate=0.04, cooldown 0.8s | 场景驱动 | model.py L1893 |
+| 4 | **后退** | stick_y<0 | escape 级联 | 反射注入 | stuck/escape 相位 | model.py L1816 |
+| 5 | **对话确认** | A 脉冲 | dialogue 级联 | LLM+12帧确认 | 对话框检测 | main.py L1245 |
+| 6🆕 | **拳击** (Punch) | B (0x4000) | strike (20 neurons) | CPG 时序 0.06s B | interactive_near + grounded | motor_primitives.py L78 |
+| 7🆕 | **俯冲** (Dive) | B (0x4000) + stick | strike (20 neurons) | CPG 时序 0.08s B+y=50 | target_count>0 + airborne | motor_primitives.py L82 |
+| 8🆕 | **蹲爬** (Crawl) | Z (0x2000) + stick | crouch (20 neurons) | CPG 循环 0.50s | grounded + 低矮通道 | motor_primitives.py L107 |
+| 9🆕 | **长跳** (Long Jump) | Z→A 序列 | crouch (20) + jump (20) | CPG 时序 Z(0.06s)→A+y=70(0.65s) | ramp_score>0.5 + stuck>3s | motor_primitives.py L64 |
+| 10🆕 | **后空翻** (Backflip) | Z→A 序列 | crouch (20) + jump (20) | CPG 时序 Z(0.10s)→A(0.55s) | fallen 状态触发 | motor_primitives.py L69 |
+| 11🆕 | **落地砸** (Ground Pound) | 空中 Z | crouch (20 neurons) | CPG 时序 Z(0.08s)→wait(1.20s) | airborne + cliff_confirmed | motor_primitives.py L74 |
+| 12🆕 | **踢墙跳** (Wall Jump) | A (贴墙) | jump (20 neurons) | CPG 时序 A(0.08s)→wait(0.45s) | WALL 状态 + stuck>2s | motor_primitives.py L88 |
+| 13🆕 | **侧空翻** (Side Flip) | A (转向反转) | jump (20 neurons) | CPG 时序 A(0.06s)→wait(0.50s) | turn reversal + grounded | motor_primitives.py L93 |
+| 14🆕 | **游泳** (Swim Stroke) | A 节律 | jump (20 neurons) | CPG 循环 A(0.10s)→wait(0.30s) | airborne + 水体检测 | motor_primitives.py L103 |
+
+### 5.3 马里奥状态机（Phase 3 状态推断）
+
+CPG 系统通过 `motor_primitives.py` 的 `CPGController.feed_pose()` 实时推断马里奥的物理状态，用于决定哪些动作原语合法：
+
+```python
+# 状态推断规则 (motor_primitives.py L166-193)
+# POSE_WINDOW_S = 0.6s (pose 采样窗口)
+# AIRBORNE_VZ = 120.0 (垂直速度·游戏单位/s)
+
+if |vz| > 120 → AIRBORNE (空中)
+elif wall_score > 0.5 + pushing → WALL (贴墙)
+elif vz < -60 + grounded → SLIDING (滑坡)
+else → GROUNDED (地面)
+```
+
+**状态前置条件表** (CPG 拒绝非法状态组合):
+
+| 原语 | 允许的状态 |
+|------|-----------|
+| LONG_JUMP | GROUNDED |
+| BACKFLIP | GROUNDED, UNKNOWN |
+| GROUND_POUND | AIRBORNE |
+| PUNCH | GROUNDED |
+| DIVE | AIRBORNE |
+| WALL_JUMP | WALL |
+| SIDE_FLIP | GROUNDED |
+| SWIM_STROKE | AIRBORNE, UNKNOWN |
+| CRAWL | GROUNDED |
+
+### 5.4 Phase 3 运动扩展的代码位置
+
+| 扩展组件 | 文件 | 行号 | 核心代码 |
+|---------|------|------|---------|
+| **CPG 时序脚本** | `fly64/fly64/motor_primitives.py` | 全文件 293行 | `PHASE_SCRIPTS` & `LOOP_SCRIPTS` 定义 9 原语时序 |
+| **马里奥状态机** | `fly64/fly64/motor_primitives.py` | L151-280 | `CPGController` 类 → `feed_pose()` / `request()` / `update()` |
+| **strike/crouch 解码池** | `fly64/fly64/model.py` | L436-448, L702-733 | `_select_io_pools()` 确定性选择 20+20 神经元 |
+| **MBON→strike/crouch 注入** | `fly64/fly64/model.py` | L1392-1395 | `mbon[5]+mbon[6]` → strike / `mbon[7]+mbon[8]` → crouch |
+| **CPG→解码池门控** | `fly64/fly64/model.py` | L725-733 | `set_cpg_gate(strike, crouch)` 电流注入接口 |
+| **strike/crouch 解码路径** | `fly64/fly64/model.py` | L1896-1903 | `strike_rate>0.05` → B pulse / `crouch_rate>0.03` → Z level |
+| **桥接 B/Z 按键** | `fly64/fly64/bridge.py` | L22-24, L143-144 | `B_BUTTON=0x4000` / `Z_TRIG=0x2000` |
+| **CPG 触发逻辑** | `fly64/fly64/main.py` | L1270-1355 | 场景/白名单/状态联合触发 → `cpg.request()` |
+| **决策归因** | `fly64/fly64/main.py` | L1367-1368 | `decision_source = f"cpg_primitive:{phase.value}"` |
+| **原语结果记录** | `fly64/fly64/model.py` | L1348-1351 | `add_primitive_outcome(primitive, success)` → MBON 学习 |
+
+### 5.5 动作原语→MBON 学习闭环
+
+每个 CPG 原语的执行结果通过 `add_primitive_outcome()` 反馈到蘑菇体 MBON 学习系统：
+
+```python
+# main.py L1348-1351
+if cpg.completed > _cpg_last_completed:
+    model.add_primitive_outcome(cpg.last_primitive, True)   # 成功→多巴胺奖励
+elif cpg.aborted > _cpg_last_aborted:
+    model.add_primitive_outcome(cpg.last_primitive, False)  # 失败→多巴胺惩罚
+```
+
+这使得大脑能够**学习**在什么场景下使用什么原语更合适——长跳成功逃出斜坡通道后，该场景的 MBON 权重增强，下次更倾向触发长跳。
+
+### 5.6 动作系统关键演进历史
+
+| 版本 | 变化 | 动作原语数 | 模块影响 |
+|------|------|:---------:|---------|
+| Brain v2.0.0 (EVO R7) | 初始 4 解码池 (forward/turn_l/turn_r/jump) | 5 | model.py |
+| Brain v2.11.0 (R17) | MBON 稳态缩放 | 5 | mushroom_body.py |
+| Brain v2.12.0 (R19) | restlessness 电流 → 后退原语 | 5 | model.py |
+| Brain v2.13.3 (R22+) | **Phase 3: 运动扩展** — 新增 strike/crouch 池、CPG 层、状态机 | **14+** | model.py + motor_primitives.py + bridge.py + main.py |
+
+---
+
+## 6. 跨13领域应用迁移方案
+
+### 6.1 通用迁移框架（6步迁移法）
 
 无论目标领域如何，以下六步迁移框架保持恒定：
 
@@ -558,7 +682,7 @@ S1: 输入适配 → S2: 奖励重写 → S3: 动作映射 → S4: 环境对接 
 | **S5: 监控适配** | 仪表板指标映射 + 因果链时间轴 | telemetry.py, dashboard.js | 低(指标重命名) |
 | **S6: 闭环验证** | Hybrid模式 → 逐步增加SNN占比 | evolution_skill.py | 低(诊断指标替换) |
 
-### 5.2 原始7大领域迁移方案
+### 6.2 原始7大领域迁移方案
 
 #### 领域1: 工业质检系统 (S级·80%复用·6周MVP)
 
@@ -704,7 +828,7 @@ S1: 输入适配 → S2: 奖励重写 → S3: 动作映射 → S4: 环境对接 
 
 ---
 
-### 5.3 新增6大高潜力领域
+### 6.3 新增6大高潜力领域
 
 #### 领域8: 医疗诊断 (P0·★★★★★·3-6月)
 
@@ -742,9 +866,9 @@ S1: 输入适配 → S2: 奖励重写 → S3: 动作映射 → S4: 环境对接 
 
 ---
 
-## 6. 瓶颈与局限性分析
+## 7. 瓶颈与局限性分析
 
-### 6.1 7大核心瓶颈
+### 7.1 7大核心瓶颈
 
 | 编号 | 瓶颈 | 类型 | 严重度 | 根因 | 修复建议 |
 |------|------|------|--------|------|---------|
@@ -756,14 +880,14 @@ S1: 输入适配 → S2: 奖励重写 → S3: 动作映射 → S4: 环境对接 
 | **B6** | 遥测漂移回归 | 进化新问题 | 中 | 浮点精度±1e-6; 先读后写延迟; packet异常rows积压 | try-finally原子交换; 漂移检测600tick; numpy类型守卫 |
 | **B7** | 死值遥测 | 进化新问题 | 中 | 某些键从不更新; pattern死值检测链路不完整 | _dead_key_detector 100tick; seq/watchdog_seq心跳 |
 
-### 6.2 部分缓解项
+### 7.2 部分缓解项
 
 | 缓解项 | 缓解描述 | 到位程度 | 剩余未到位 |
 |--------|---------|---------|-----------|
 | **M1** 静息光流R19 | restlessness电流解决静息状态无动作后果 | **65%** | 无optic_flow_quality门控; 静息HRC未抑制; 静息→运动切换延迟未测试 |
 | **M2** 可塑性等效 | LIF电流注入等效框架无Python判断控制 | **50%** | MBON→motor权重层缺失; 层归一化缺失; 自适应学习率缺失 |
 
-### 6.3 技术局限性
+### 7.3 技术局限性
 
 | 层次 | 限制 | 缓释 |
 |------|------|------|
@@ -771,7 +895,7 @@ S1: 输入适配 → S2: 奖励重写 → S3: 动作映射 → S4: 环境对接 
 | **L2 输入输出域** | 视觉色彩校准针对SM64; 4自由度对6轴机械臂不足 | 颜色重校准(1-2周)+ MBON通道扩展 |
 | **L3 平台** | mmap不支持Windows | 添加Windows InterlockedExchange兼容层 |
 
-### 6.4 领域特定风险
+### 7.4 领域特定风险
 
 | 领域 | 风险 | 超度 | 缓释 |
 |------|------|------|------|
@@ -782,9 +906,9 @@ S1: 输入适配 → S2: 奖励重写 → S3: 动作映射 → S4: 环境对接 
 
 ---
 
-## 7. 学术理论支撑
+## 8. 学术理论支撑
 
-### 7.1 核心理论框架
+### 8.1 核心理论框架
 
 | 理论 | 对Fly64的支撑 |
 |------|-------------|
@@ -793,7 +917,7 @@ S1: 输入适配 → S2: 奖励重写 → S3: 动作映射 → S4: 环境对接 
 | **昆虫导航原理** | CX环形吸引子+场景签名匹配+自运动积分=完整昆虫导航系统，与机器人SLAM数学等价(eLife 2021) |
 | **混合AI/双过程理论** | LIF快速直觉(系统1)+LLM慢速分析(系统2)+反射紧急回路=三级混合决策——当前AI研究前沿 |
 
-### 7.2 学术论文支撑汇编
+### 8.2 学术论文支撑汇编
 
 | 论文 | 核心发现 | Fly64支撑 |
 |------|---------|----------|
@@ -813,9 +937,9 @@ S1: 输入适配 → S2: 奖励重写 → S3: 动作映射 → S4: 环境对接 
 
 ---
 
-## 8. 商业化路线图与优先级
+## 9. 商业化路线图与优先级
 
-### 8.1 综合优先级排序
+### 9.1 综合优先级排序
 
 | 优先级 | 领域 | 代码复用 | 投入(人月) | MVP周期 | 商业化潜力 | 技术风险 | 年营收潜力 | 评分 |
 |-------|------|---------|-----------|---------|-----------|---------|-----------|------|
@@ -827,7 +951,7 @@ S1: 输入适配 → S2: 奖励重写 → S3: 动作映射 → S4: 环境对接 
 | **B级** | 量化交易 | 50% | 28 | 16周 | ★★★★★ | ★★(中-高) | $10-50M | **73/100** |
 | **B级** | 机械臂操控 | 45% | 20 | 12周 | ★★★★☆ | ★★(中-高) | $5-15M | **68/100** |
 
-### 8.2 时间线路线图
+### 9.2 时间线路线图
 
 ```
 Month1-2      Month3-5      Month6-8      Month9-12     Month13-18
@@ -841,7 +965,7 @@ Month1-2      Month3-5      Month6-8      Month9-12     Month13-18
 ↑MVP验证       ↑产品化         ↑规模化        ↑行业深耕       ↑生态扩展
 ```
 
-### 8.3 财务预测（18个月）
+### 9.3 财务预测（18个月）
 
 | 指标 | 数值 |
 |------|------|
@@ -853,15 +977,15 @@ Month1-2      Month3-5      Month6-8      Month9-12     Month13-18
 | 盈亏平衡 | M10-M12（首年实现） |
 | M18团队规模 | 60人(3部门) |
 
-### 8.4 融资建议
+### 9.4 融资建议
 
 - **种子轮** $500K → **天使轮** $2M → **A轮** $8M → **B轮** $20M
 
 ---
 
-## 9. 总结与技术展望
+## 10. 总结与技术展望
 
-### 9.1 核心结论
+### 10.1 核心结论
 
 Fly64 果蝇脑模型（166,700 LIF神经元 / 25.6M突触 / MaleCNS v1.0连接组）已经实现了一个**完整的、可观测的、自进化的神经形态控制系统范例**。该系统在SM64游戏环境中的端到端神经控制只是其工程化能力的一个子集。
 
@@ -873,7 +997,7 @@ Fly64 果蝇脑模型（166,700 LIF神经元 / 25.6M突触 / MaleCNS v1.0连接�
 4. **自我进化是杀手特性**: 23轮已验证的Monitor→Diagnose→Fix→Verify→Document闭环是完全生产级的AutoML能力
 5. **混合决策架构是前沿范式**: LIF快速直觉+LLM慢速分析+反射紧急回路=完整三级混合决策系统
 
-### 9.2 最直接的商业化路径
+### 10.2 最直接的商业化路径
 
 | 优先级 | 路径 | 适配工作量 | 商业化潜力 | 时间预估 |
 |--------|------|-----------|-----------|---------|
@@ -883,7 +1007,7 @@ Fly64 果蝇脑模型（166,700 LIF神经元 / 25.6M突触 / MaleCNS v1.0连接�
 | 4 | 多Agent自治系统 | 低(DSH插件协议复用) | ★★★★★ | 8周 |
 | 5 | 游戏AI/NPC引擎 | 低(已验证商业) | ★★★★★ | 1-2月 |
 
-### 9.3 技术展望
+### 10.3 技术展望
 
 Fly64 果蝇脑模型最重要的价值不在于它"能玩Mario"，而在于它重新定义了**生物神经计算在工程应用中的可能性边界**。它展示了三条不同于传统深度学习的道路：
 
