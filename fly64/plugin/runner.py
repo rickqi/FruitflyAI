@@ -87,8 +87,50 @@ class PluginRunner:
         self.cycles = 0
         self.consultations = 0
         self.last_error: Optional[str] = None
+        # M2.1: consecutive primitive completions with ~zero displacement
+        self._prim_zero_run = 0
+        self._prim_last_completed = 0
         # P1: pending coach-strategy outcome (attribution window)
         self._pending_outcome = co.load_pending()
+        # P1-2.3: previous MBON saturation-event counter for rate estimation
+        self._sat_prev: Optional[tuple] = None
+        import os as _os
+        try:
+            self.help_score_threshold = float(
+                _os.environ.get(HELP_SCORE_ENV, HELP_SCORE_THRESHOLD))
+        except ValueError:
+            self.help_score_threshold = HELP_SCORE_THRESHOLD
+
+    def help_score(self, mem: dict, flow: Optional[dict]) -> tuple:
+        """Multi-signal weighted escalation score in [0, 1] + components.
+
+        stuck（归一 120s 封顶）0.4 · reflex_ineffective 0.25 ·
+        MBON 饱和事件增速（≥10/min 封顶）0.2 · 场景 danger 0.15
+        """
+        mem = mem or {}
+        flow = flow or {}
+        components = {}
+        stuck_norm = min(float(mem.get("stuck_duration", 0.0)) / 120.0, 1.0)
+        components["stuck"] = round(stuck_norm, 3)
+        score = HELP_SCORE_WEIGHTS["stuck"] * stuck_norm
+        if mem.get("reflex_ineffective", False):
+            components["reflex_ineffective"] = 1.0
+            score += HELP_SCORE_WEIGHTS["reflex_ineffective"]
+        events = float((flow.get("mb_saturation_events")) or 0.0)
+        now = time.time()
+        prev = self._sat_prev
+        if prev is not None:
+            d_events = max(0.0, events - prev[0])
+            dt_min = max((now - prev[1]) / 60.0, 1e-6)
+            sat = min(d_events / dt_min / 10.0, 1.0)
+            components["saturation_rate"] = round(sat, 3)
+            score += HELP_SCORE_WEIGHTS["saturation_rate"] * sat
+        self._sat_prev = (events, now)
+        danger = min(float(flow.get("scene_danger") or 0.0), 1.0)
+        if danger > 0:
+            components["scene_danger"] = round(danger, 3)
+            score += HELP_SCORE_WEIGHTS["scene_danger"] * danger
+        return round(min(score, 1.0), 3), components
         # M2.1: consecutive primitive completions with ~zero displacement
         self._prim_zero_run = 0
         self._prim_last_completed = 0
@@ -175,6 +217,24 @@ class PluginRunner:
                 # M2.1: primitive stats so the coach can suggest a different
                 # primitive via strategy {"primitives": {"prefer": {...}}}
                 "cpg": mem.get("cpg") or {},
+            }
+        # P1-2.3: multi-signal weighted escalation — strong combined evidence
+        # escalates EARLIER than the 60s floor (e.g. stuck 50s + reflex
+        # ineffective + active saturation + danger scene).
+        score, components = self.help_score(mem, snapshot.get("flow"))
+        if score >= self.help_score_threshold and anomaly:
+            return {
+                "help_reason": "multi_signal_stuck",
+                "scene_name": mem.get("scene_name", "?"),
+                "position": mem.get("position") or {},
+                "diagnosis": f"weighted help score {score} ≥ "
+                             f"{self.help_score_threshold}: {components}",
+                "stuck_duration": stuck,
+                "anomaly_state": mem.get("anomaly_state", "?"),
+                "health_score": float(mem.get("health_score", 1.0)),
+                "disp_60s": mem.get("disp_60s"),
+                "cpg": mem.get("cpg") or {},
+                "help_components": components,
             }
         return None
 
