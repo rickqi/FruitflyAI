@@ -1512,6 +1512,10 @@ async def run(args) -> None:
                     "cliff_standoff_s": round(getattr(model, "cliff_standoff_s", 0.0), 1),
                     # EVO R16: causal + plasticity telemetry for the skill layer
                     "decision_source": decision_source,
+                    # Phase 4/M4: displacement after a CPG primitive, for EVO
+                    # primitive_zero_disp / primitive_timeout pattern checks.
+                    "primitive_disp": getattr(memory_ctrl, "disp_60s", None),
+                    "cpg_status": cpg.status(),
                     "cliff_conf": round(memory_ctrl.cliff_confidence, 3),
                     "gate_forward": getattr(control, "forward_rate", 0.0) > 0.4,
                     "gate_jump": getattr(control, "jump_rate", 0.0) > 2.0,

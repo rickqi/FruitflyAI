@@ -1324,7 +1324,12 @@ class EvolutionPipeline:
         self.verification_engine = VerificationEngine(self.collector, self.fix_catalog, window=verification_window)
         self.documenter = SelfDocumenter(self.fix_catalog, readme_path, pattern_catalog=self.pattern_catalog)
         self.history = EvolutionHistory()
-        self._last_brain_version: Optional[str] = self.history.canonical.get("brain")
+        # Lazy seed: _last_brain_version is resolved from the *current*
+        # self.history at first check, not captured here — the pipeline may
+        # have its history object replaced after construction (tests, tmp
+        # isolation), and capturing early leaked the default file's canonical
+        # into that instance (cross-file contamination on version bumps).
+        self._last_brain_version: Optional[str] = None
         self.brain_mutator = BrainMutator()
         self._evolution_results: deque[dict] = deque(maxlen=20)
         self._evolution_recorded: bool = False  # one evolution record per cycle
@@ -1351,6 +1356,11 @@ class EvolutionPipeline:
         if not v:
             return None
         if self._last_brain_version is None:
+            # First observation in this process: seed from the canonical
+            # source of truth — whatever history object is attached now.
+            self._last_brain_version = self.history.canonical.get("brain")
+        if self._last_brain_version is None:
+            # Brand-new canonical file: prime silently, no record.
             self._last_brain_version = v
             return None
         if v == self._last_brain_version:

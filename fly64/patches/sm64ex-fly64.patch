@@ -1,3 +1,21 @@
+diff --git a/Makefile b/Makefile
+index 9012456..f1e83ea 100644
+--- a/Makefile
++++ b/Makefile
+@@ -526,11 +526,11 @@ else ifeq ($(findstring SDL,$(WINDOW_API)),SDL)
+   ifeq ($(WINDOWS_BUILD),1)
+     BACKEND_LDFLAGS += -lglew32 -lglu32 -lopengl32
+   else ifeq ($(TARGET_RPI),1)
+-    BACKEND_LDFLAGS += -lGLESv2
++    BACKEND_LDFLAGS += -lGLEW -lGLESv2
+   else ifeq ($(OSX_BUILD),1)
+     BACKEND_LDFLAGS += -framework OpenGL $(shell pkg-config --libs glew)
+   else
+-    BACKEND_LDFLAGS += -lGL
++    BACKEND_LDFLAGS += -lGLEW -lGL
+   endif
+ endif
+ 
 diff --git a/levels/entry.c b/levels/entry.c
 index 015eeb6..0d22670 100644
 --- a/levels/entry.c
@@ -273,10 +291,10 @@ index 34ca9ca..102d3e4 100644
  u32 controller_get_raw_key(void) {
 diff --git a/src/pc/fly64_bridge.c b/src/pc/fly64_bridge.c
 new file mode 100644
-index 0000000..5a771b5
+index 0000000..7182db4
 --- /dev/null
 +++ b/src/pc/fly64_bridge.c
-@@ -0,0 +1,165 @@
+@@ -0,0 +1,179 @@
 +#include "fly64_bridge.h"
 +
 +#include <errno.h>
@@ -291,7 +309,7 @@ index 0000000..5a771b5
 +#include <unistd.h>
 +
 +#ifdef OSX_BUILD
-+#define GLEW_STATIC
++
 +#include <GL/glew.h>
 +#include <SDL2/SDL_opengl.h>
 +#endif
@@ -299,8 +317,12 @@ index 0000000..5a771b5
 +#define FLY64_WIDTH 384
 +#define FLY64_HEIGHT 256
 +#define FLY64_FRAME_BYTES (FLY64_WIDTH * FLY64_HEIGHT * 3)
++#define FLY64_SCREEN_WIDTH 320
++#define FLY64_SCREEN_HEIGHT 240
++#define FLY64_SCREEN_BYTES (FLY64_SCREEN_WIDTH * FLY64_SCREEN_HEIGHT * 3)
++
 +#define FLY64_HEADER_BYTES 128
-+#define FLY64_FILE_BYTES (FLY64_HEADER_BYTES + FLY64_FRAME_BYTES)
++#define FLY64_FILE_BYTES (FLY64_HEADER_BYTES + FLY64_FRAME_BYTES + FLY64_SCREEN_BYTES)
 +#define FLY64_STALE_NS 250000000ULL
 +
 +#pragma pack(push, 1)
@@ -324,11 +346,12 @@ index 0000000..5a771b5
 +    float pose[4]; /* eye x/y/z and body yaw radians; same seqlock as RGB */
 +    uint32_t game_frame;
 +    float render_ms;
-+    uint32_t b_event, z_event; uint8_t extension[32]; /* v2.14: b/z pulse events in ext region */
++    uint32_t b_event, z_event; uint8_t extension[32]; /* v2.14: b/z pulse events */
 +};
 +struct Fly64Shared {
 +    struct Fly64Header h;
 +    uint8_t rgb[FLY64_FRAME_BYTES];
++    uint8_t screen[FLY64_SCREEN_BYTES];
 +};
 +#pragma pack(pop)
 +
@@ -406,9 +429,13 @@ index 0000000..5a771b5
 +        if (before != after || (after & 1U)) { shared->h.game_status = 3; return; }
 +    }
 +    if (monotonic_ns() - heartbeat > FLY64_STALE_NS) { jump_frames = b_frames = z_frames = 0; shared->h.game_status = 2; return; }
-+    if (jump_event != last_jump_event) { jump_frames = 2; last_jump_event = jump_event; } if (b_event != last_b_event) { b_frames = 2; last_b_event = b_event; } if (z_event != last_z_event) { z_frames = 2; last_z_event = z_event; }
++    if (jump_event != last_jump_event) { jump_frames = 2; last_jump_event = jump_event; }
++    if (b_event != last_b_event) { b_frames = 2; last_b_event = b_event; }
++    if (z_event != last_z_event) { z_frames = 2; last_z_event = z_event; }
 +    buttons &= ~(A_BUTTON | B_BUTTON | Z_TRIG);
-+    if (jump_frames) { buttons |= A_BUTTON; --jump_frames; } if (b_frames) { buttons |= B_BUTTON; --b_frames; } if (z_frames) { buttons |= Z_TRIG; --z_frames; }
++    if (jump_frames) { buttons |= A_BUTTON; --jump_frames; }
++    if (b_frames) { buttons |= B_BUTTON; --b_frames; }
++    if (z_frames) { buttons |= Z_TRIG; --z_frames; }
 +    /* Human stick input wins as a complete vector, retaining stock semantics. */
 +    if (abs(pad->stick_x) < 8 && abs(pad->stick_y) < 8) {
 +        pad->stick_x = x; pad->stick_y = y; body_control = 1;
@@ -442,12 +469,17 @@ index 0000000..5a771b5
 +        bridge_fd = -1;
 +    }
 +}
++
++void fly64_bridge_write_screen(const unsigned char *scr) {
++    if (!shared) return;
++    memcpy(shared->screen, scr, FLY64_SCREEN_BYTES);
++}
 diff --git a/src/pc/fly64_bridge.h b/src/pc/fly64_bridge.h
 new file mode 100644
-index 0000000..9d1d534
+index 0000000..19f0479
 --- /dev/null
 +++ b/src/pc/fly64_bridge.h
-@@ -0,0 +1,13 @@
+@@ -0,0 +1,16 @@
 +#ifndef FLY64_BRIDGE_H
 +#define FLY64_BRIDGE_H
 +
@@ -459,14 +491,17 @@ index 0000000..9d1d534
 +void fly64_bridge_read_controller(OSContPad *pad);
 +void fly64_bridge_toggle(void);
 +void fly64_bridge_shutdown(void);
++void fly64_bridge_write_screen(const unsigned char *scr);
 +
++#define FLY64_SCREEN_WIDTH 320
++#define FLY64_SCREEN_HEIGHT 240
 +#endif
 diff --git a/src/pc/fly64_vision.c b/src/pc/fly64_vision.c
 new file mode 100644
-index 0000000..7e39dc9
+index 0000000..acd4ca0
 --- /dev/null
 +++ b/src/pc/fly64_vision.c
-@@ -0,0 +1,226 @@
+@@ -0,0 +1,247 @@
 +/* Observational six-face renderer. Game logic runs once, before this function.
 + * Supported scene: Bob-omb Battlefield. No menus/HUD/Mario self mesh. */
 +#include <math.h>
@@ -475,7 +510,7 @@ index 0000000..7e39dc9
 +#include <stdlib.h>
 +#include <string.h>
 +#include <time.h>
-+#define GLEW_STATIC
++
 +#include <GL/glew.h>
 +#include "fly64_vision.h"
 +#include "fly64_bridge.h"
@@ -514,6 +549,15 @@ index 0000000..7e39dc9
 +}
 +
 +static int init_target(void) {
++    static int glew_ok = 0;
++    if (!glew_ok) {
++        GLenum err = glewInit();
++        if (err != GLEW_OK) {
++            fprintf(stderr, "Fly64 glewInit failed: %s\n", glewGetErrorString(err));
++            return -1;
++        }
++        glew_ok = 1;
++    }
 +    GLint old_texture, old_renderbuffer;
 +    if (framebuffer) return 1;
 +    glGetIntegerv(GL_TEXTURE_BINDING_2D, &old_texture);
@@ -692,6 +736,18 @@ index 0000000..7e39dc9
 +    }
 +    if (audit_running) return;
 +    fly64_bridge_publish_frame(atlas, pose, gGlobalTimer, (clock_seconds() - started) * 1000);
++    // EVO R21: capture game screen for LLM coach
++    glPixelStorei(GL_PACK_ALIGNMENT, 1);
++    int sw = old_viewport[2], sh = old_viewport[3];
++    unsigned char screen_buf[FLY64_SCREEN_WIDTH * FLY64_SCREEN_HEIGHT * 3];
++    memset(screen_buf, 0, sizeof(screen_buf));
++    if (sw > 0 && sh > 0) {
++        glReadPixels(0, 0, sw < FLY64_SCREEN_WIDTH ? sw : FLY64_SCREEN_WIDTH,
++                     sh < FLY64_SCREEN_HEIGHT ? sh : FLY64_SCREEN_HEIGHT,
++                     GL_RGB, GL_UNSIGNED_BYTE, screen_buf);
++    }
++    fly64_bridge_write_screen(screen_buf);
++    glPixelStorei(GL_PACK_ALIGNMENT, old_pack);
 +}
 diff --git a/src/pc/fly64_vision.h b/src/pc/fly64_vision.h
 new file mode 100644

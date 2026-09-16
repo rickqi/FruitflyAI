@@ -161,6 +161,11 @@ function render(packet) {
   chart('steeringChart',[['left',CYAN],['right',GOLD,[5,3]]],0,10,null);
   chart('jumpChart',[['jump',INK]],0,10,2,true);
   chart('stickChart',[['x',CYAN],['y',GOLD],['game_x',CYAN,[3,3]],['game_y',GOLD,[3,3]]],-70,70,null);
+  // Phase 3 motor expansion: strike (B) / crouch (Z) pool rates.  Rows only
+  // carry these keys when the backend exposes the pools; render when present.
+  if (d.rows.length && ('strike' in d.rows[0] || 'crouch' in d.rows[0])) {
+    chart('jumpChart',[['jump',INK],['strike',PURPLE],['crouch',GREEN]],0,10,2,true);
+  }
   $('gameState').textContent=`Game: ${states[r.game_state]||'unknown'}`;
   $('jumpState').textContent=`A: gold request / cyan received${r.game_state===1?` · ack ${number(r.game_age,0)} ms`:''}`;
   const key=$('population').value,ids=key==='all'?null:meta.groups[key],total=ids?ids.length:meta.n;
@@ -181,6 +186,10 @@ const PURPLE = '#9d7bff', GREEN = '#7dff9d', RED = '#ff3c3c';
 const hz = v => Number.isFinite(v) ? v.toFixed(1) : '—';
 const pct = v => Number.isFinite(v) ? `${Math.round(v * 100)}%` : '—';
 const PRIORITY = { dialogue: 5, cliff_reflex: 4, anomaly_reflex: 3, escape: 2, jump: 1, steering: 0 };
+// Phase 2 motor expansion: CPG primitives sit at cascade priority 4.5
+// (between escape and jump).  Source arrives as "cpg_primitive:<name>".
+const CPG_PRIORITY = 1.5;
+const cpgPriority = src => (typeof src === 'string' && src.startsWith('cpg_primitive:')) ? CPG_PRIORITY : PRIORITY[src];
 const CAUSAL_TARGET = { raw: null, signal: 'row-forward', neural: 'row-forward', judge: '#memory-title', action: 'row-stick' };
 
 export function judgeText(r) {
@@ -198,6 +207,10 @@ export function judgeText(r) {
     return `CLIFF REFLEX preempts steering (conf ${number(r.cliff_conf, 2)}${r.cliff_confirmed ? ' · confirmed' : ''})`;
   if (r.decision_source === 'escape')
     return `escape (stuck ${number(r.stuck_conf, 2)}) preempts forward gate ${r.gate_forward ? '✓' : '✗'}`;
+  if (typeof r.decision_source === 'string' && r.decision_source.startsWith('cpg_primitive:')) {
+    const prim = r.decision_source.slice('cpg_primitive:'.length);
+    return `CPG PRIMITIVE · ${prim} phase script active${r.ctrl_z ? ' · Z' : ''}${r.ctrl_b ? ' · B' : ''}`;
+  }
   const gate = r.gate_forward ? 'gate 0.4 Hz ✓' : 'gate 0.4 Hz ✗';
   const turn = Math.abs(r.right - r.left) > .1 ? `R-turn ${hz(r.right)} vs L ${hz(r.left)}` : 'neutral';
   return `${turn} · forward ${hz(r.forward)} ${gate}`;
@@ -207,10 +220,10 @@ export function explain(r) {
   return [
     { stage: 'raw',    cls: '',    detail: `t=${number(r.t, 2)}s · ΔL ${pct(r.contrast_left)} / ΔR ${pct(r.contrast_right)}` },
     { stage: 'signal', cls: 'sig', detail: `flow asym ${number(r.flow_asymmetry, 2)} · loom ${number(r.flow_looming, 2)} · cliff ${number(r.flow_cliff, 2)}${Number.isFinite(r.cliff_conf) ? ` (conf ${number(r.cliff_conf, 2)})` : ''}` },
-    { stage: 'neural', cls: 'neu', detail: `fwd ${hz(r.forward)}${r.gate_forward ? ' ✓gate' : r.gate_forward === undefined ? '' : ' ✗'} · L ${hz(r.left)} · R ${hz(r.right)} · jump ${hz(r.jump)}${r.gate_jump ? ' ✓' : ''}` },
+    { stage: 'neural', cls: 'neu', detail: `fwd ${hz(r.forward)}${r.gate_forward ? ' ✓gate' : r.gate_forward === undefined ? '' : ' ✗'} · L ${hz(r.left)} · R ${hz(r.right)} · jump ${hz(r.jump)}${r.gate_jump ? ' ✓' : ''}${Number.isFinite(r.strike) ? ` · strike ${hz(r.strike)} · crouch ${hz(r.crouch)}` : ''}` },
     { stage: 'judge',  cls: 'jud', detail: judgeText(r) },
-    { stage: 'action', cls: 'act', detail: `x=${r.x ?? '—'} y=${r.y ?? '—'}${r.jump_event ? ' +JUMP' : ''} → ack ${Number.isFinite(r.game_age) ? number(r.game_age, 0) : '—'}ms` },
-  ].map(seg => PRIORITY[r.decision_source] > 1 && seg.stage === 'neural'
+    { stage: 'action', cls: 'act', detail: `x=${r.x ?? '—'} y=${r.y ?? '—'}${r.jump_event ? ' +JUMP' : ''}${r.ctrl_b ? ' +B' : ''}${r.ctrl_z ? ' +Z' : ''} → ack ${Number.isFinite(r.game_age) ? number(r.game_age, 0) : '—'}ms` },
+  ].map(seg => cpgPriority(r.decision_source) > 1 && seg.stage === 'neural'
     ? { ...seg, preempted: true } : seg);
 }
 

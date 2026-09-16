@@ -27,6 +27,10 @@ class Observatory:
         self.sector_loom = None
         self.groups = dict(visual=model.visual, forward=model.forward,
                            left=model.turn_left, right=model.turn_right, jump=model.jump_nodes)
+        # Phase 3: strike/crouch pool rates for the Neurons->controls chart.
+        if len(getattr(model, "strike_nodes", [])):
+            self.groups["strike"] = model.strike_nodes
+            self.groups["crouch"] = model.crouch_nodes
 
     def observe(self, frame, seq, control, spikes, game, causal=None):
         m = self.model
@@ -89,7 +93,9 @@ class Observatory:
                    gate_forward=bool(rates["forward"] is not None and rates["forward"] > .4),
                    gate_jump=bool(rates["jump"] is not None and rates["jump"] > 2.),
                    enclosure_score=float(getattr(m, "enclosure_score", 0.0)),
-                   decision_source=causal.get("decision_source", "steering"))
+                   decision_source=causal.get("decision_source", "steering"),
+                   ctrl_b=bool(getattr(control, "b", False)),
+                   ctrl_z=bool(getattr(control, "z", False)))
         if self.sector_active is not None:
             row["sector_contrast"] = self.sector_contrast
             row["sector_active"] = self.sector_active
