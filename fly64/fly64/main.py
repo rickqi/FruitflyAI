@@ -390,6 +390,7 @@ def start_http(project: Path, model, port: int, ws_port: int) -> ThreadingHTTPSe
         "/dashboard.css": (project / "web/dashboard.css", "text/css"),
         "/memory-heatmap.js": (project / "web/memory-heatmap.js", "text/javascript"),
         "/trajectory.html": (project / "web/trajectory.html", "text/html"),
+        "/trajectory-height.js": (project / "web/trajectory-height.js", "text/javascript"),
         "/monitor-preview.html": (project / "web/monitor-preview.html", "text/html; charset=utf-8"),
         "/layout-wireframe.html": (project / "web/layout-wireframe.html", "text/html; charset=utf-8"),
         "/measured.bin": (model.position_measured.astype(np.uint8).tobytes(), "application/octet-stream"),
