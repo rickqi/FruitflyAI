@@ -1211,7 +1211,7 @@ python fly64/skills/evolution_skill.py --history-check
 **已知开放问题**（P1-1，🟡 medium）：地形门控后 circle_loop 仍在每轮出现——需排查门控阈值与"绕障碍的合法绕行"是否被误判为转圈。分析文档：`docs/analysis/insurance/p1-1-loop-weave-analysis.md`。
 
 #### Q: tick 频率上不去，单步耗时 8–15ms？
-**已知开放问题**（P1-2，🟡 medium）：25.6M 突触 CSC 传播成本是**选中边集的内存带宽**（5–15% 放电 ≈ 1.2–3.8M 边）。选择路径微优化已实测排除（布尔掩码/fancy/gather+bincount 三变体交错中位数 0.95–1.38×，负载噪声内——负结果已留档于 `model.py` 传播点注释与 EVO-039，勿重试）。剩余方向：稠密核心拆分、GPU 批处理、降边数。分析文档：`docs/analysis/insurance/p1-2-csc-performance-analysis.md`。
+**已知开放问题**（P1-2，🟡 medium）：25.6M 突触 CSC 传播成本是**选中边集的内存带宽**（5–15% 放电 ≈ 1.2–3.8M 边）。两轮优化已实测排除并留档（EVO-039/044）：① 选择路径微优化（布尔掩码/fancy/gather+bincount）0.95–1.38×，负载噪声内；② 全量 SpMV（`w @ 0/1 向量`）5% 放电时 24/20ms vs 选择法 3.9ms——**选择法已是 scipy 格式下的地板**。剩余方向：GPU（反事实批处理为主循环移植为辅，需先做确定性/容差架构决策）、稠密核心拆分。分析文档：`docs/analysis/insurance/p1-2-csc-performance-analysis.md`。
 
 ### 教官层（LLM）
 

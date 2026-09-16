@@ -3,7 +3,7 @@
   "canonical_versions": {
     "brain": "2.19.1",
     "skill": "3.0.0",
-    "as_of": "2026-09-16T17:19:28.890657+00:00"
+    "as_of": "2026-09-17T01:30:24.607492+08:00"
   },
   "records": [
     {
@@ -667,6 +667,23 @@
       "tests": "test_propagation_perf 7/7",
       "source": "本次会话（负结果留档，防重复尝试）",
       "notes": "正解方向=稠密核心拆分/GPU 批处理/降边数；选择路径微调不要再试"
+    },
+    {
+      "id": "EVO-044",
+      "date": "2026-09-16",
+      "round": "P1-2 perf",
+      "kind": "analysis",
+      "brain_version": "2.19.0",
+      "skill_version": "3.1.0",
+      "trigger": "SpMV 假设验证：全量稀疏矩阵向量乘（0/1 放电向量）能否快过选中列求和",
+      "changes": [
+        "真实 25.6M 连接组交错基准（7 次中位数）：5% 放电选择法 3.9ms vs CSC matvec 24.0 / CSRᵀ 20.2；15% 时 10.2 vs 47.5/17.4",
+        "matvec 改变浮点累加顺序 → allclose(1e-4) 失败，破坏 replay 精确断言契约",
+        "结论：选择法已是 scipy 格式地板；下一级=GPU 反事实批处理（建议方向）"
+      ],
+      "tests": "bench5 全分数段 allclose 记录",
+      "source": "本次会话基准脚本（负结果留档）",
+      "notes": "GPU 路径的确定性/容差验证模式是架构决策，实施前需评审"
     },
     {
       "id": "AUTO-0001",
