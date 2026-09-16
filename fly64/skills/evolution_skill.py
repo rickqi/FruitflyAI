@@ -385,6 +385,10 @@ class SensorSample:
     reward_trend: float = 0.0
     error_gradient_mean: float = 0.0
     gain_update_count: int = 0
+    # M1.3: CPG primitive telemetry (motor expansion)
+    cpg_completed: int = 0
+    cpg_aborted: int = 0
+    primitive_disp: Optional[float] = None
 
     def to_dict(self) -> dict: return asdict(self)
 
@@ -509,7 +513,11 @@ class DataCollector:
             mushroom_weight_changes=flow.get("mushroom_weight_changes", 0),
             reward_trend=flow.get("reward_trend", 0.0),
             error_gradient_mean=flow.get("error_gradient_mean", 0.0),
-            gain_update_count=flow.get("gain_update_count", 0))
+            gain_update_count=flow.get("gain_update_count", 0),
+            # M1.3: CPG primitive telemetry (motor expansion)
+            cpg_completed=int((flow.get("cpg_status") or {}).get("completed", 0) or 0),
+            cpg_aborted=int((flow.get("cpg_status") or {}).get("aborted", 0) or 0),
+            primitive_disp=flow.get("primitive_disp", None))
         # Track consecutive motor-vs-motion mismatch frames (wall corners)
         self._decoupled_run = self._decoupled_run + 1 if s.command_decoupled else 0
         self.samples.append(s)
@@ -584,6 +592,10 @@ class DataCollector:
                 reward_trend=s.reward_trend,
                 error_gradient_mean=s.error_gradient_mean,
                 gain_update_count=s.gain_update_count,
+                # M1.3: CPG primitive telemetry
+                cpg_completed=s.cpg_completed,
+                cpg_aborted=s.cpg_aborted,
+                primitive_disp=s.primitive_disp,
                 # ── EVO R16: loop/standoff/plasticity heads ──
                 loop_score=s.loop_score,
                 danger_red_index=s.danger_red_index,
@@ -849,7 +861,9 @@ class VerificationEngine:
     def start(self, entry: FixEntry):
         self._active = entry; self._start = time.time()
         m = self.collector.get_metrics()
-        self._baseline = {"stuck": m.get("stuck_duration", 0), "coverage": m.get("coverage_pct", 0)}
+        self._baseline = {"stuck": m.get("stuck_duration", 0), "coverage": m.get("coverage_pct", 0),
+                          "cpg_completed": m.get("cpg_completed", 0),
+                          "cpg_aborted": m.get("cpg_aborted", 0)}
         self.catalog.record_baseline(entry, self._baseline["stuck"], self._baseline["coverage"])
         self.save_state()
 
@@ -864,14 +878,26 @@ class VerificationEngine:
         sr = max(0, (bs - cs) / max(bs, 1)) * 100 if bs > 0 else 0.0
         si = max(0, (bs - cs) / max(bs, 1))
         ci = max(0, (cc - bc) / max(bc, 1))
-        es = min(1.0, si * 0.7 + ci * 0.3)
+        # M1.3: primitive outcome term.  Any completed CPG primitive in the
+        # window contributes by its 60s displacement (30u floor, same as the
+        # reflex_ineffective threshold); any timeout abort cancels the term.
+        pi = 0.0
+        completions = m.get("cpg_completed", 0) - self._baseline.get("cpg_completed", 0)
+        aborts = m.get("cpg_aborted", 0) - self._baseline.get("cpg_aborted", 0)
+        if completions > 0:
+            disp = m.get("primitive_disp") or 0.0
+            pi = min(1.0, disp / 30.0)
+        if aborts > 0:
+            pi = 0.0
+        es = min(1.0, si * 0.5 + ci * 0.2 + pi * 0.3)
         self.catalog.record_outcome(self._active, cs, cc)
         return VerificationResult(fix_id=self._active.id, pattern_id=self._active.pattern_id,
             passed=es >= 0.3, stuck_reduction_pct=round(sr, 1),
             coverage_change_pct=round((cc-bc)/max(bc,1)*100 if bc>0 else 0, 1),
             effectiveness_score=round(es, 3), observation_seconds=round(
                 time.time() - self._start, 1),
-            details="Effective" if es >= 0.3 else "Not effective")
+            details=("Effective" if es >= 0.3 else "Not effective")
+                    + (f" | cpg: +{completions}ok/{aborts}abort, pi={pi:.2f}"))
 
     def tick(self) -> Optional[VerificationResult]:
         if not self._active or not self._start: return None

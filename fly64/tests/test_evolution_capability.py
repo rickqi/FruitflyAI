@@ -357,6 +357,32 @@ class TestStrategyHotReload:
         assert s["mode"] == "mirror"
         assert s["climb_period"] > 0
 
+    # ── M1.2: CPG primitive whitelist hot-reload ─────────────────────
+
+    def test_primitives_whitelist_parsed(self, tmp_path):
+        m = _main_module()
+        p = self._write(tmp_path, json.dumps(
+            {"primitives": {"enabled": ["longjump", "punch"]}}))
+        s = m.load_active_strategy(p)
+        assert s["primitives_enabled"] == ["longjump", "punch"]
+
+    def test_primitives_default_when_absent(self, tmp_path):
+        m = _main_module()
+        p = self._write(tmp_path, json.dumps(
+            {"fallen_recovery": {"mode": "mirror"}}))
+        s = m.load_active_strategy(p)
+        assert "longjump" in s["primitives_enabled"]
+        assert "punch" in s["primitives_enabled"]
+
+    def test_primitives_malformed_falls_back_to_defaults(self, tmp_path):
+        m = _main_module()
+        for bad in ({"primitives": {"enabled": "longjump"}},
+                    {"primitives": {"enabled": []}},
+                    {"primitives": "yes"}):
+            p = self._write(tmp_path, json.dumps(bad))
+            s = m.load_active_strategy(p)
+            assert s["primitives_enabled"] == m.ACTIVE_STRATEGY_DEFAULTS["primitives_enabled"]
+
     def test_unknown_mode_and_bad_numbers_rejected(self, tmp_path):
         m = _main_module()
         p = self._write(tmp_path, json.dumps(

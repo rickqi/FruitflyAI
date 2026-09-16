@@ -545,6 +545,8 @@ ACTIVE_STRATEGY_DEFAULTS = {
     "mode": "mirror",          # mirror (alternate direction) | directional_climb
     "climb_period": 2.0,       # seconds of forward burst after jump phase
     "persist_seconds": 2.0,    # seconds of reduced-forward persistence phase
+    # M1.2: CPG primitive whitelist (hot-reload).  Names are Primitive.value.
+    "primitives_enabled": ["longjump", "backflip", "groundpound", "punch", "dive"],
 }
 
 
@@ -574,6 +576,13 @@ def load_active_strategy(path) -> dict:
             strategy[key] = max(0.1, float(section.get(key, defaults[key])))
         except (TypeError, ValueError):
             pass
+    # M1.2: primitives whitelist — operator may enable/disable individual
+    # motor primitives live (e.g. disable dive while tuning).
+    prim = data.get("primitives", None)
+    if isinstance(prim, dict) and isinstance(prim.get("enabled"), list):
+        names = [str(x) for x in prim["enabled"] if isinstance(x, str)]
+        if names:
+            strategy["primitives_enabled"] = names
     return strategy
 
 
@@ -1251,17 +1260,32 @@ async def run(args) -> None:
                 # recompute locally so early ticks never hit an unbound name.
                 _cpg_ramp = (getattr(model, "ramp_score", 0.0) > 0.5
                              or getattr(model, "ground_angle", 0.0) > 0.3)
-                if (_cpg_ramp and memory_ctrl.stuck_duration > 3.0
+                # M1.2: operator whitelist (active_strategy.json hot-reload)
+                _wl = set(_active_strategy.get("primitives_enabled")
+                          or ACTIVE_STRATEGY_DEFAULTS["primitives_enabled"])
+                if ("longjump" in _wl and _cpg_ramp
+                        and memory_ctrl.stuck_duration > 3.0
                         and control.y > 40):
                     cpg.request(tick_start, Primitive.LONG_JUMP)
-                elif (memory_ctrl.fallen and memory_ctrl.stuck_duration > 60
+                elif ("longjump" in _wl and memory_ctrl.fallen
+                      and memory_ctrl.stuck_duration > 60
                       and control.y > 40):
                     cpg.request(tick_start, Primitive.LONG_JUMP)
-                elif memory_ctrl.fallen:
+                elif "backflip" in _wl and memory_ctrl.fallen:
                     cpg.request(tick_start, Primitive.BACKFLIP)
-                elif (cpg.state.value == "airborne"
-                        and getattr(model, "cliff_confirmed", False)):
+                elif ("groundpound" in _wl
+                      and cpg.state.value == "airborne"
+                      and getattr(model, "cliff_confirmed", False)):
                     cpg.request(tick_start, Primitive.GROUND_POUND)
+                # M1.2: punch — interactive target near + grounded + stationary
+                elif ("punch" in _wl and cpg.state.value == "grounded"
+                      and getattr(model, "interactive_near", False)
+                      and control.x == 0 and control.y < 8):
+                    cpg.request(tick_start, Primitive.PUNCH)
+                # M1.2: dive — airborne with a locked small target
+                elif ("dive" in _wl and cpg.state.value == "airborne"
+                      and getattr(model, "target_count", 0) > 0):
+                    cpg.request(tick_start, Primitive.DIVE)
             cpg_phase = cpg.update(tick_start)
             if cpg_phase is not None:
                 control = cpg_apply_phase(control, cpg_phase)
