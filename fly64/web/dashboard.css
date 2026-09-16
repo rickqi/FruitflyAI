@@ -70,7 +70,7 @@ body.layout-wide .area-events{display:grid;grid-template-rows:auto 1fr;align-con
 .help-pill{padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700;white-space:nowrap;background:#8b2020;color:#fff;cursor:pointer;animation:helpPulse 1s ease-in-out infinite}
 .help-panel{margin-top:6px;padding:6px 8px;background:#0d1520;border:1px solid #8b2020;border-radius:3px;font-size:11px}
 .help-body{display:flex;gap:10px;align-items:flex-start;margin-top:4px}
-.help-body img{border:1px solid #1a2430;border-radius:3px;image-rendering:pixelated;max-width:200px;height:auto;display:block}
+.help-body img{border:1px solid #1a2430;border-radius:3px;image-rendering:pixelated;max-width:200px;width:200px;height:auto;display:block}
 /* t16 fold panels live inside <details>; let them grow naturally — the old
    max-height/overflow caps clipped the snapshot thumbnail and made the panel
    unexpandable (scrollbars + cropped image). */
@@ -103,6 +103,10 @@ body.layout-wide .area-events{display:grid;grid-template-rows:auto 1fr;align-con
 .fold-panel>summary{cursor:pointer;font-size:11px;font-weight:600;padding:4px 8px;color:var(--muted);user-select:none}
 .fold-panel[open]>summary{border-bottom:1px solid #1a2430;color:var(--ink)}
 .fold-panel .help-panel{margin-top:0;border:none}
+/* The help/coach/strategy folds are nested inside .escape-table-wrap
+   (grid 100px + 1fr); without spanning both columns they collapse into the
+   100px label column (the "108px panel" bug). */
+.escape-table-wrap > .fold-panel{grid-column:1/-1}
 #strategyPanel .help-fields{grid-template-columns:none;row-gap:3px}
 #strategyPanel .note-stat{margin-right:12px;font-size:11px;color:var(--ink)}
 #strategyPanel .note-stat b{color:var(--cyan);font-weight:500}

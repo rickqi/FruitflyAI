@@ -294,7 +294,7 @@ class SphericalRetina:
         """
         try:
             from scipy import ndimage as ndi
-            structure = ndi.generate_binary_structure(2, 1)  # 4-connectivity
+            structure = ndi.generate_binary_structure(2, 2)  # 8-connectivity (EVO R29: fixes stride-2 CCL)
             labels, n_labels = ndi.label(mask, structure=structure)
             return labels.astype(np.int32), int(n_labels)
         except ImportError:
@@ -313,8 +313,21 @@ class SphericalRetina:
                 neighbors = []
                 if c > 0 and labels[r, c - 1] > 0:
                     neighbors.append(labels[r, c - 1])
+                if c < cols - 1 and labels[r, c + 1] > 0:
+                    neighbors.append(labels[r, c + 1])
                 if r > 0 and labels[r - 1, c] > 0:
                     neighbors.append(labels[r - 1, c])
+                if r < rows - 1 and labels[r + 1, c] > 0:
+                    neighbors.append(labels[r + 1, c])
+                # 8-connectivity: diagonal neighbors (EVO R29)
+                if r > 0 and c > 0 and labels[r - 1, c - 1] > 0:
+                    neighbors.append(labels[r - 1, c - 1])
+                if r > 0 and c < cols - 1 and labels[r - 1, c + 1] > 0:
+                    neighbors.append(labels[r - 1, c + 1])
+                if r < rows - 1 and c > 0 and labels[r + 1, c - 1] > 0:
+                    neighbors.append(labels[r + 1, c - 1])
+                if r < rows - 1 and c < cols - 1 and labels[r + 1, c + 1] > 0:
+                    neighbors.append(labels[r + 1, c + 1])
                 if not neighbors:
                     current_label += 1
                     labels[r, c] = current_label

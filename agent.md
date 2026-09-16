@@ -96,6 +96,16 @@ setsid nohup env FLY64_BRIDGE=/tmp/f64b_traj \
 
 # 变更日志
 
+## 2026-09-15: EVO R29 — CCL 8-连通修复 + 小目标追踪 KPI 基线（Brain v2.14.0）
+**触发**：t5 视网膜标定发现 stride-2 采样阻塞 4-连通 CCL——`compute_small_targets()` 始终返回 `target_count=0`，P2 小目标追踪功能形同虚设。
+
+**修复（纯 retina.py 内部，零接口变更）**：
+- `_connected_components()` scipy 路径：`ndi.generate_binary_structure(2, 1)` → `structure(2, 2)`
+- union-find 回退路径：增加 4 个对角邻居检查（左上/右上/左下/右下）
+- 测试：`tests/test_ccl_connectivity.py` 5 用例全绿
+
+**版本**：Brain 2.14.0（SKILL 3.0.0 不变）
+
 ## 2026-09-15: EVO Round 27 — 全量瓶颈攻破（Brain v2.13.3→2.14.0，集成轮）
 
 **AgentTeams 团队"fly64-bottleneck-roundup"系统攻破 7 大瓶颈 + 2 项部分缓解。**
