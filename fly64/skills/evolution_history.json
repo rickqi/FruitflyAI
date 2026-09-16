@@ -1,9 +1,9 @@
 {
   "$schema": "fly64/evolution-history/1.0",
   "canonical_versions": {
-    "brain": "2.17.0",
+    "brain": "2.18.0",
     "skill": "3.0.0",
-    "as_of": "2026-09-16T19:51:15.052019+08:00"
+    "as_of": "2026-09-16T12:51:36.713732+00:00"
   },
   "records": [
     {
@@ -651,6 +651,24 @@
       "source": "commits e664bd5/1736cac/f1021bf"
     },
     {
+      "id": "EVO-039",
+      "date": "2026-09-16",
+      "time": "20:50:13 +0800",
+      "round": "P1-2 perf",
+      "kind": "analysis",
+      "brain_version": "2.17.0",
+      "skill_version": "3.0.0",
+      "trigger": "P1-2 CSC 传播 8-15ms/step 制约 tick 频率与进化验证吞吐；尝试选择路径微优化（布尔掩码/fancy/gather+bincount）",
+      "changes": [
+        "三变体在真实 25.6M 连接组上交错基准（9 次中位数）：0.95–1.38×，全部落在负载噪声内——负结果",
+        "synaptic_current() 自适应选择保留为等价基线 + 传播点注释留档负结果",
+        "test_propagation_perf.py 7 用例等价性 PIN（全分数段 allclose）"
+      ],
+      "tests": "test_propagation_perf 7/7",
+      "source": "本次会话（负结果留档，防重复尝试）",
+      "notes": "正解方向=稠密核心拆分/GPU 批处理/降边数；选择路径微调不要再试"
+    },
+    {
       "id": "AUTO-0001",
       "recorded_at": "2026-09-15T11:14:24.706289+00:00",
       "kind": "skill_fix",
@@ -801,6 +819,21 @@
       "round": null,
       "brain_version": "2.13.3",
       "previous_version": "2.14.0",
+      "skill_version": "3.0.0",
+      "trigger": "dashboard brain_version change",
+      "changes": [
+        "(auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, agent.md rule 15)"
+      ],
+      "tests": null,
+      "source": "resident skill loop"
+    },
+    {
+      "id": "AUTO-0006",
+      "recorded_at": "2026-09-16T12:51:36.713732+00:00",
+      "kind": "brain_update_auto",
+      "round": null,
+      "brain_version": "2.18.0",
+      "previous_version": "2.17.0",
       "skill_version": "3.0.0",
       "trigger": "dashboard brain_version change",
       "changes": [

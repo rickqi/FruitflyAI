@@ -13,6 +13,26 @@ from .gain_modulation import DopamineGainController
 from .central_complex import CentralComplex
 
 
+def synaptic_current(w, spikes):
+    """Synaptic current into all neurons from spiking presynaptic cells.
+
+    Adaptive selection: boolean-mask column selection below ~10% fired,
+    fancy-index above.  MEASURED (interleaved medians, real 25.6M-edge
+    connectome): no reliable speedup over plain fancy-index — both branches
+    are equivalent math and the cost is memory-bound on the selected nnz
+    (0.95-1.38x, inside load noise).  Kept for the low-fraction branch's
+    slight edge and as the documented baseline; see the P1-2 negative
+    result at the call site before attempting further micro-optimization.
+    """    n = w.shape[0]
+    fired = np.flatnonzero(spikes)
+    if fired.size == 0:
+        return np.zeros(n, dtype=np.float32)
+    if fired.size <= 0.10 * n:
+        return np.asarray(
+            w[:, spikes.astype(bool)].sum(axis=1)).ravel().astype(np.float32)
+    return np.asarray(w[:, fired].sum(axis=1)).ravel().astype(np.float32)
+
+
 @dataclass
 class Control:
     x: int
@@ -1437,7 +1457,14 @@ class FlyModel:
         except Exception:
             pass  # graceful degradation if mushroom body unavailable
 
-        current = np.asarray(self.w[:, np.flatnonzero(self.spikes)].sum(axis=1)).ravel()
+        # ---- Synaptic propagation (P1-2) ----
+        # Adaptive selection helper.  MEASURED NEGATIVE RESULT (2026-09-16,
+        # interleaved medians on the real connectome): boolean-mask vs
+        # fancy-index vs gather+bincount all land within load noise
+        # (0.95-1.38x) — the cost is inherent memory traffic over the
+        # selected nnz.  Real options: dense-core split, GPU batch, or edge
+        # reduction.  Do NOT retry selection-path tweaks.
+        current = synaptic_current(self.w, self.spikes)
         # Pathway-specific gain modulation (plasticity proxy)
         # Instead of one scalar, each pathway gets its own gain from the
         # dopamine-gated controller — this mimics plasticity without

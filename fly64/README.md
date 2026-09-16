@@ -903,91 +903,55 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 
 <!-- EVOLUTION-HISTORY-TABLE:START
 
-下表由 `skills/evolution_skill.py --history-md` 从权威记录 `skills/evolution_history.json` 自动生成（38 条，权威版本 Brain v2.13.3 / Skill v3.0.0）。**请勿手改本表**——更新记录后重新执行该命令再粘贴。
-
-
-
-| ID | 时间 | 轮次 | Brain | Skill | 触发原因 | 关键变更 | 测试 | 来源 |
-
-|----|------|------|-------|-------|---------|---------|------|------|
-
-| EVO-001 | 2026-09-12 | R1 | 1.0.0 | — | 无障碍平地上原地转圈（circle_loop） | circle_loop 地形门控：ground_angle 门控悬崖反射，平地不触发 | 能力回归（早期 test_evolution_capability） | agent.md/README 轮次表 |
-
-| EVO-002 | 2026-09-12 | R2 | 1.0.x | — | 斜坡卡死 | 斜坡脱困覆盖 | 能力回归 | agent.md/README 轮次表 |
-
-| EVO-003 | 2026-09-13 | R3 | 1.1.0 | — | 墙角视觉盲区卡死 | 伴发放电比较器（corollary discharge，视觉盲区补偿） | 能力回归 | agent.md/README 轮次表 |
-
-| EVO-004 | 2026-09-13 15:28 | R4 | 1.2.0 | — | 钥匙门提示场景；进化过程需仪表板可见 | 进化迭代展示 /evolution.json + 仪表板徽章；双区对话检测 + 场景命名 v2 + 全监控 | 13 项回归 | commit dfd0e75 |
-
-| EVO-005 | 2026-09-13 18:39 | R5 | 1.3.0 | — | 上置提示框（钥匙门第二形态）重复交互 | 交互习惯化制度化（3 次无奖励→抑制 2 分钟并远离）；上置框双区检测 | 16 项回归 | commit e1a6663 |
-
-| EVO-006 | 2026-09-13 19:19 | R6 | 1.4.0 | — | 固定 10s 反射冷却在长时间卡住下失效；fallen 恢复固定左转失败 | 自适应反射冷却 max(0.25, 1-stuck/120)，越卡越短下限 25%；坠落恢复初始方向随机化（镜像交替保留） | capability 16→19 全绿 | commit 7a2baa0 |
-
-| EVO-007 | 2026-09-13 | R7 | 2.0.0 | — | FlyWire MaleCNS 差距分析：视觉覆盖 38% 过低 | P1a 颜色/UV 视觉（danger_red/sky_blue）；P1b 4方向 EMD；P2 小目标追踪（中心-周边+卡尔曼+匈牙利匹配）（等 5 项） | 179/179 核心通过 | agent.md R7 章节 |
-
-| EVO-008 | 2026-09-13 ~22:0 | R8 | 2.1.0 | 2.5.0 | brightness-not-flow：亮度差被误当运动 | T4/T5 式 HRC 方向选择运动检测；LC4 looming 种群；自适应相关接入碰撞规避 | README 同步轮（71caeff） | agent.md R8 章节 + commit 71caeff |
-
-| EVO-009 | 2026-09-13 22:35 | R9 制度化 | — | — | R8 事故：合成模式 consolidate 静默断开游戏视觉 | scripts/consolidate.sh 智能重启制度化（检测游戏进程→全模式+brain_version 校验）；诊断工具（ws_probe/eye frame dump/bridge checker/evo cycle runner | — | commit 9a3d6fa |
-
-| EVO-010 | 2026-09-13 23:25 | R9 | 2.2.0 | 2.6.0 | 室内场景被识别为天空·山坡（天花板灯/格纹误判） | retina enclosure_score 围闭度 + upper_blue 蓝色主导度；sky_score 蓝色门控 min(1,upper_blue×4)；terrain 新增 indoor 类 + 场景名室内标签 | test_retina +3 | commit 1f12cf0 |
-
-| EVO-011 | 2026-09-14 03:20 | R10 | 2.3.0 | 2.7.0 | 497.9s micro_loop 零位移事件；bold 门控用全局 visited_cells<20 在老地图永不触发 | local_breakout：micro_loop 持续>60s 也触发 forced_bold_explore；bold 期间覆盖活跃反射；decision_source=bold_explore 归因 | capability 31→35 全绿 | commit 322208f |
-
-| EVO-012 | 2026-09-14 11:06 | MHR-1 | 2.4.0 | — | 对话场景需要 LLM 按键决策 | plugin 对话 LLM 决策（press_a/b/none，600s 上限）；main.py 对话暂停等待状态机；bridge/model B 键传输（等 4 项） | test_plugin_mhr 28 + test_dialogue_llm_decision 31 | commit 1d00cac |
-
-| EVO-013 | 2026-09-14 11:28 | R11 | 2.5.0 | 2.8.0 | escape_x 随机方向导致逃逸无效；撞墙行为需网络自行学习 | 方向性开口信号注入转向池电流（LIF 竞争决策突围方向，取代随机 escape_x）；report_movement() 位移多巴胺 API（零位移=惩罚）；退役低置信悬崖符号转向分支 | 46 green | commit fa0b1b3 |
-
-| EVO-014 | 2026-09-14 21:12 | R11 完成 | 2.6.1 | 2.9.1 | coach 策略键为死写入无消费者 | bold_explore_stuck_s→micro_loop 突破阈值；turn_bias→bold 转向幅度；escape.stuck_threshold_s→时长型逃脱条件（热重载） | R11 接线复验 | commit ebe37cc |
-
-| EVO-015 | 2026-09-14 ~13:0 | R12 | 2.6.0 | 2.9.0 | 10s 循环依赖 DSH 会话，会话结束即停——自治不能依赖外部会话 | plugin/service.py 常驻服务（健康自检/心跳/LLM 双传输降级 local_diagnosis）；plugin/watchdog.sh 存活监控；consolidate.sh 连带重启自治循环 | test_service 10 + autonomy_regression 13 | agent.md R12 章节 |
-
-| EVO-016 | 2026-09-14 15:15 | R12 follow-up | 2.6.0 | — | 反射活跃掩盖真实卡死（497.9s/0u 事件类）：help 判定被 reflex_active 短路 | reflex_ineffective 判据：反射活跃但 60s 位移<30u → 判无效；check_help_needed 升级 help_reason=reflex_ineffective_stuck | 4 PIN + 24 autonomy green | commit ce56cb2 |
-
-| EVO-017 | 2026-09-14 | R13a | 2.6.1 | 2.9.1 | stuck=1063s/micro_loop 973s/loop_score 病态 104.9——自适应冷却触底引发反射风暴死循环 | loop_score 精确滚动窗口计数（修复病态值）；micro_loop 重触发位移<30u 镜像翻转转向（自发交替） | test_spin_loop_fix 7/7 | agent.md R13 章节 |
-
-| EVO-018 | 2026-09-14 21:42 | R13b | 2.7.0 | 3.0.0 | 对话暂停场景缺乏可观测性与负反馈学习 | 对话暂停等待场景标签（对话暂停等待 #hash）；蘑菇体挫折多巴胺 add_setback（PPL1 样负 DA）；llm_consult 自加载 plugin/llm.env（等 4 项） | 5 PIN，70+ green | commit e130693 |
-
-| EVO-019 | 2026-09-14 22:03 | P1 接管 | 2.8.0 | 3.0.0 | 双轨旁路：main.py ~35 处直接改写 control，五大神经基质被旁路 | 删除 11 处 A 类 Python 旁路（A1-A9/B10/C10）；行为决策回归 LIF 网络；decision_source 移除 collision/bold_explore（剩 6 级） | 355 passed / 25 failed 与 HEAD 基线一致零新增 | commit 1c30a17 |
-
-| EVO-020 | 2026-09-14 22:35 | R14/R15 | 2.9.0 | 3.0.0 | 恒向转圈→原地编织；悬崖边缘对峙驻留（EscapeSkill findings=0） | TurnAdaptation 自发交替 + MB 异常镜像（R14）；FailureMemory 最近失败向量 + cliff_standoff 计时 + 切向绕行电流 + DAN 对峙惩罚；pattern 新增 cliff_standoff | test_cliff_standoff 9/9 | commits 6a6f798 + agent.md R15 |
-
-| EVO-021 | 2026-09-14 22:57 | t13 | 2.9.1 | 3.0.0 | Coach Advice 四环节三处不生效（死键/触发窄/prompt 语义/HTTP 400） | bold_turn_bias 接入转向池电流（钳位 0.2-1.0）；persistent_anomaly_stuck 放宽触发；prompt 策略参数语义卡（等 4 项） | TestCoachAdviceEffectiveness 6 用例 | commit 6ea8ff2 |
-
-| EVO-022 | 2026-09-14 23:56 | R16 | 2.10.0 | 3.0.0 | 交替把转圈变成原地编织（缺 forward 突破）；flow.json 缺 5 个因果键致 skill 检测永不命中；字段缺失被静默跳过 | TurnAdaptation.breakout_drive 振荡→forward 突破电流；flow_json 暴露 decision_source/cliff_conf/门控/hrc_*/mb_*；DiagnosisEngine 显式 telemetry_gap finding（等 6 项） | 384 passed 零新增失败 | commit 6e1751b |
-
-| EVO-023 | 2026-09-15 00:17 | t16 | 2.10.1 | 3.0.0 | t15 监控布局分析发现的 P0 可见性缺口 | header 状态胶囊条（brainVer/evoIter/health/anomaly/help/llmDecisio；/active_strategy.json 端点 + Coach Strategy Consumption 面板；对话暂停因果卡 + 800px 单列断点 | dashboard js/protocol 8/8 | commit 5a7a845 |
-
-| EVO-024 | 2026-09-15 00:48 | R17 | 2.11.0 | 3.0.0 | mb_mbon_forward=1.0 饱和（正 DA 再膨胀 vs 稳态缩放平衡点贴顶）；anomaly_reflex 改写 control 使 breakout 电流无法体现 | MBON 饱和稳态突触缩放（50 帧 \|tanh\|≥0.98 → 该柱 ×0.9）；breakout_hint 反射相位混合（脑编织检测调制 micro_loop 反射相位预算）；pattern 新增 mbon_saturation | test_mbon_saturation 6/6，全量 384 passed | commit 7c8802a |
-
-| EVO-025 | 2026-09-15 08:31 | R18 | 2.11.x | 3.0.0 | R17 后正多巴胺再膨胀与稳态缩放平衡点仍在天花板；探索奖励 0.5 持续 +DA 是膨胀主因 | DAN 信号塑形：多巴胺权重提升为类常量 DAN_*（探索 0.50→0.30 等 8 项），单点调参 | test_dan_shaping 5/5 | commit 70261d1 |
-
-| EVO-026 | 2026-09-15 09:01 | R19 | 2.12.0 | 3.0.0 | 熔岩地悬崖边驻留 61s：识别结果未驱动行为、静息状态 breakout 电流失效（TurnAdaptation 只响应转弯） | restlessness_level：对峙/环路压力累积为 forward 躁动电流（×0.12 spike 前注入）；scene_recognition danger_level：识别 danger/lava → forward 谨慎抑制；flow.json 增 fg_fraction/mb_weight_std/mb_saturation_events | test_restlessness 6/6 | commit f5e859a |
-
-| EVO-027 | 2026-09-15 13:09 | t19 | 2.12.1 | 3.0.0 | SM64 被连带 kill 后桥停更，视觉画布静默冻结且无监护 | bridge.py SeqlockWatchdog：同一 even seq 停滞>5s → stale；flow.json 增 bridge_stale；仪表板红色 SM64⛔ FROZEN 徽章 | test_seqlock_watchdog 9/9 | commit 50d22ae |
-
-| EVO-028 | 2026-09-15 13:05 | t18+R20 | 2.13.0 | 3.0.0 | 启动契约事故（托管 job 连带 kill）；CX 罗盘是外部航向副本、零路径积分、目标向量单源 | t18：setsid nohup 启动契约固化（consolidate.sh/agent.md/README）；R20 CX-1 罗盘自主化：自运动 bump 积分+天空方位软校正；R20 CX-3 多源目标向量竞争（novelty+覆盖空隙质心+反失败格+锚点返回） | CX PIN 用例 | commits 654b436/a09555b/2c5ae94 |
-
-| EVO-029 | 2026-09-15 15:29 | t20 | 2.13.1 | 3.0.0 | 教练介入太晚：120s 阈值下马里奥已深陷 | plugin STUCK_HELP_THRESHOLD 120→60s | 阈值边界 3 用例，472 passed | commit 0f953f1 |
-
-| EVO-030 | 2026-09-15 15:44 | t21 | 2.13.2 | 3.0.0 | 无法验证 GLM 是否真在读屏；屏幕文字语义丢失 | prompt 增读屏指令 what_i_see（逐条列出可见文字）；parse/sanitize/落盘全链路透传；Coach 面板 advice 增 👁 屏幕 行 | TestWhatISee 6 用例，478 passed | commit e61a402 |
-
-| EVO-031 | 2026-09-15 15:52 | t21 收尾 | 2.13.3 | 3.0.0 | 回溯无法知道教练当时看到了什么画面 | save_consult_frame：consult 前帧留存 runtime/coach_frames/coach_{；非 PNG 魔数拒绝 | TestConsultFrameSnapshot 4 用例，482 passed | commit c74f883 |
-
-| EVO-032 | 2026-09-15 16:44 | R21 | 2.13.3 | 3.0.0 | runner 读 scene_name 但 memory_json 只有 scene_label；面板看不到 fallen_recovery 策略细节 | memory_json 增 scene_name 键；updateCoachStrategy 渲染 fallen_recovery mode/climb_period/per | — | commit 7559761 |
-
-| AUTO-0001 | 2026-09-15 11:14 | — | 2.13.3 | 3.0.0 | Patterns skipped because their condition fields are absent from telemetry: ['mb_mbon_forward'] (patterns: ['mbon_saturat | # Expose missing condition keys in main.py flow_json/memory_json | — | resident skill loop (auto_fix) |
-
-| AUTO-0002 | 2026-09-15 11:39 | — | 2.13.3 | 3.0.0 | forward MBON saturated at ceiling while behaviour still loops. The built-in homeostatic synaptic scaling should shrink t | # Verify homeostatic scaling in mushroom_body.py saturation guard | — | resident skill loop (auto_fix) |
-
-| AUTO-0003 | 2026-09-15 13:10 | — | 2.13.3 | 3.0.0 | Fallen detection threshold (Y<-100) is too permissive. SM64 normal ground is Y=120. Y<50 already indicates below-ground  | # Fix: Lower fallen detection threshold from -100 to 50 | — | resident skill loop (auto_fix) |
-
-| EVO-033 | 2026-09-15 23:59 | R23 | 2.14.0 | 3.0.0 | 系统性攻破 Fly64 脑模型剩余瓶颈：7 大瓶颈（语义三缺失/视网膜配准/P2 KPI/MBON 饱和拉锯/计算纪律/遥测漂移/死值遥测）+ 2 项部分缓解（静息光流/可塑性等效） | T2: what_i_see 5层结构化场景上下文协议 + 17条场景标签自动生成规则 + semantic_level；T2: scene_context.py 10个 dataclass 聚合器 + 40项测试；T3: MBON 饱和恢复——_saturation_recovery_counter 持续\|output\|<0.8（等 13 项） | 全量回归套件 + 新测试146项（T2 40 + T3 53 + T4 集成 + T5 39 + T7 修复验证），零新 | AgentTeams fly64-bottleneck-roundup t7 集成轮 |
-
-| AUTO-0004 | 2026-09-15 14:44 | — | 2.13.3 | 3.0.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
-
-| AUTO-0005 | 2026-09-15 14:48 | — | 2.13.3 | 3.0.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
-
-
+下表由 `skills/evolution_skill.py --history-md` 从权威记录 `skills/evolution_history.json` 自动生成（45 条，权威版本 Brain v2.18.0 / Skill v3.0.0）。**请勿手改本表**——更新记录后重新执行该命令再粘贴。
+
+| ID | 时间 | 轮次 | Brain | Skill | 触发原因 | 关键变更 | 测试 | 来源 |
+|----|------|------|-------|-------|---------|---------|------|------|
+| EVO-001 | 2026-09-12 | R1 | 1.0.0 | — | 无障碍平地上原地转圈（circle_loop） | circle_loop 地形门控：ground_angle 门控悬崖反射，平地不触发 | 能力回归（早期 test_evolution_capability） | agent.md/README 轮次表 |
+| EVO-002 | 2026-09-12 | R2 | 1.0.x | — | 斜坡卡死 | 斜坡脱困覆盖 | 能力回归 | agent.md/README 轮次表 |
+| EVO-003 | 2026-09-13 | R3 | 1.1.0 | — | 墙角视觉盲区卡死 | 伴发放电比较器（corollary discharge，视觉盲区补偿） | 能力回归 | agent.md/README 轮次表 |
+| EVO-004 | 2026-09-13 15:28 | R4 | 1.2.0 | — | 钥匙门提示场景；进化过程需仪表板可见 | 进化迭代展示 /evolution.json + 仪表板徽章；双区对话检测 + 场景命名 v2 + 全监控 | 13 项回归 | commit dfd0e75 |
+| EVO-005 | 2026-09-13 18:39 | R5 | 1.3.0 | — | 上置提示框（钥匙门第二形态）重复交互 | 交互习惯化制度化（3 次无奖励→抑制 2 分钟并远离）；上置框双区检测 | 16 项回归 | commit e1a6663 |
+| EVO-006 | 2026-09-13 19:19 | R6 | 1.4.0 | — | 固定 10s 反射冷却在长时间卡住下失效；fallen 恢复固定左转失败 | 自适应反射冷却 max(0.25, 1-stuck/120)，越卡越短下限 25%；坠落恢复初始方向随机化（镜像交替保留） | capability 16→19 全绿 | commit 7a2baa0 |
+| EVO-007 | 2026-09-13 | R7 | 2.0.0 | — | FlyWire MaleCNS 差距分析：视觉覆盖 38% 过低 | P1a 颜色/UV 视觉（danger_red/sky_blue）；P1b 4方向 EMD；P2 小目标追踪（中心-周边+卡尔曼+匈牙利匹配）（等 5 项） | 179/179 核心通过 | agent.md R7 章节 |
+| EVO-008 | 2026-09-13 ~22:0 | R8 | 2.1.0 | 2.5.0 | brightness-not-flow：亮度差被误当运动 | T4/T5 式 HRC 方向选择运动检测；LC4 looming 种群；自适应相关接入碰撞规避 | README 同步轮（71caeff） | agent.md R8 章节 + commit 71caeff |
+| EVO-009 | 2026-09-13 22:35 | R9 制度化 | — | — | R8 事故：合成模式 consolidate 静默断开游戏视觉 | scripts/consolidate.sh 智能重启制度化（检测游戏进程→全模式+brain_version 校验）；诊断工具（ws_probe/eye frame dump/bridge checker/evo cycle runner | — | commit 9a3d6fa |
+| EVO-010 | 2026-09-13 23:25 | R9 | 2.2.0 | 2.6.0 | 室内场景被识别为天空·山坡（天花板灯/格纹误判） | retina enclosure_score 围闭度 + upper_blue 蓝色主导度；sky_score 蓝色门控 min(1,upper_blue×4)；terrain 新增 indoor 类 + 场景名室内标签 | test_retina +3 | commit 1f12cf0 |
+| EVO-011 | 2026-09-14 03:20 | R10 | 2.3.0 | 2.7.0 | 497.9s micro_loop 零位移事件；bold 门控用全局 visited_cells<20 在老地图永不触发 | local_breakout：micro_loop 持续>60s 也触发 forced_bold_explore；bold 期间覆盖活跃反射；decision_source=bold_explore 归因 | capability 31→35 全绿 | commit 322208f |
+| EVO-012 | 2026-09-14 11:06 | MHR-1 | 2.4.0 | — | 对话场景需要 LLM 按键决策 | plugin 对话 LLM 决策（press_a/b/none，600s 上限）；main.py 对话暂停等待状态机；bridge/model B 键传输（等 4 项） | test_plugin_mhr 28 + test_dialogue_llm_decision 31 | commit 1d00cac |
+| EVO-013 | 2026-09-14 11:28 | R11 | 2.5.0 | 2.8.0 | escape_x 随机方向导致逃逸无效；撞墙行为需网络自行学习 | 方向性开口信号注入转向池电流（LIF 竞争决策突围方向，取代随机 escape_x）；report_movement() 位移多巴胺 API（零位移=惩罚）；退役低置信悬崖符号转向分支 | 46 green | commit fa0b1b3 |
+| EVO-014 | 2026-09-14 21:12 | R11 完成 | 2.6.1 | 2.9.1 | coach 策略键为死写入无消费者 | bold_explore_stuck_s→micro_loop 突破阈值；turn_bias→bold 转向幅度；escape.stuck_threshold_s→时长型逃脱条件（热重载） | R11 接线复验 | commit ebe37cc |
+| EVO-015 | 2026-09-14 ~13:0 | R12 | 2.6.0 | 2.9.0 | 10s 循环依赖 DSH 会话，会话结束即停——自治不能依赖外部会话 | plugin/service.py 常驻服务（健康自检/心跳/LLM 双传输降级 local_diagnosis）；plugin/watchdog.sh 存活监控；consolidate.sh 连带重启自治循环 | test_service 10 + autonomy_regression 13 | agent.md R12 章节 |
+| EVO-016 | 2026-09-14 15:15 | R12 follow-up | 2.6.0 | — | 反射活跃掩盖真实卡死（497.9s/0u 事件类）：help 判定被 reflex_active 短路 | reflex_ineffective 判据：反射活跃但 60s 位移<30u → 判无效；check_help_needed 升级 help_reason=reflex_ineffective_stuck | 4 PIN + 24 autonomy green | commit ce56cb2 |
+| EVO-017 | 2026-09-14 | R13a | 2.6.1 | 2.9.1 | stuck=1063s/micro_loop 973s/loop_score 病态 104.9——自适应冷却触底引发反射风暴死循环 | loop_score 精确滚动窗口计数（修复病态值）；micro_loop 重触发位移<30u 镜像翻转转向（自发交替） | test_spin_loop_fix 7/7 | agent.md R13 章节 |
+| EVO-018 | 2026-09-14 21:42 | R13b | 2.7.0 | 3.0.0 | 对话暂停场景缺乏可观测性与负反馈学习 | 对话暂停等待场景标签（对话暂停等待 #hash）；蘑菇体挫折多巴胺 add_setback（PPL1 样负 DA）；llm_consult 自加载 plugin/llm.env（等 4 项） | 5 PIN，70+ green | commit e130693 |
+| EVO-019 | 2026-09-14 22:03 | P1 接管 | 2.8.0 | 3.0.0 | 双轨旁路：main.py ~35 处直接改写 control，五大神经基质被旁路 | 删除 11 处 A 类 Python 旁路（A1-A9/B10/C10）；行为决策回归 LIF 网络；decision_source 移除 collision/bold_explore（剩 6 级） | 355 passed / 25 failed 与 HEAD 基线一致零新增 | commit 1c30a17 |
+| EVO-020 | 2026-09-14 22:35 | R14/R15 | 2.9.0 | 3.0.0 | 恒向转圈→原地编织；悬崖边缘对峙驻留（EscapeSkill findings=0） | TurnAdaptation 自发交替 + MB 异常镜像（R14）；FailureMemory 最近失败向量 + cliff_standoff 计时 + 切向绕行电流 + DAN 对峙惩罚；pattern 新增 cliff_standoff | test_cliff_standoff 9/9 | commits 6a6f798 + agent.md R15 |
+| EVO-021 | 2026-09-14 22:57 | t13 | 2.9.1 | 3.0.0 | Coach Advice 四环节三处不生效（死键/触发窄/prompt 语义/HTTP 400） | bold_turn_bias 接入转向池电流（钳位 0.2-1.0）；persistent_anomaly_stuck 放宽触发；prompt 策略参数语义卡（等 4 项） | TestCoachAdviceEffectiveness 6 用例 | commit 6ea8ff2 |
+| EVO-022 | 2026-09-14 23:56 | R16 | 2.10.0 | 3.0.0 | 交替把转圈变成原地编织（缺 forward 突破）；flow.json 缺 5 个因果键致 skill 检测永不命中；字段缺失被静默跳过 | TurnAdaptation.breakout_drive 振荡→forward 突破电流；flow_json 暴露 decision_source/cliff_conf/门控/hrc_*/mb_*；DiagnosisEngine 显式 telemetry_gap finding（等 6 项） | 384 passed 零新增失败 | commit 6e1751b |
+| EVO-023 | 2026-09-15 00:17 | t16 | 2.10.1 | 3.0.0 | t15 监控布局分析发现的 P0 可见性缺口 | header 状态胶囊条（brainVer/evoIter/health/anomaly/help/llmDecisio；/active_strategy.json 端点 + Coach Strategy Consumption 面板；对话暂停因果卡 + 800px 单列断点 | dashboard js/protocol 8/8 | commit 5a7a845 |
+| EVO-024 | 2026-09-15 00:48 | R17 | 2.11.0 | 3.0.0 | mb_mbon_forward=1.0 饱和（正 DA 再膨胀 vs 稳态缩放平衡点贴顶）；anomaly_reflex 改写 control 使 breakout 电流无法体现 | MBON 饱和稳态突触缩放（50 帧 \|tanh\|≥0.98 → 该柱 ×0.9）；breakout_hint 反射相位混合（脑编织检测调制 micro_loop 反射相位预算）；pattern 新增 mbon_saturation | test_mbon_saturation 6/6，全量 384 passed | commit 7c8802a |
+| EVO-025 | 2026-09-15 08:31 | R18 | 2.11.x | 3.0.0 | R17 后正多巴胺再膨胀与稳态缩放平衡点仍在天花板；探索奖励 0.5 持续 +DA 是膨胀主因 | DAN 信号塑形：多巴胺权重提升为类常量 DAN_*（探索 0.50→0.30 等 8 项），单点调参 | test_dan_shaping 5/5 | commit 70261d1 |
+| EVO-026 | 2026-09-15 09:01 | R19 | 2.12.0 | 3.0.0 | 熔岩地悬崖边驻留 61s：识别结果未驱动行为、静息状态 breakout 电流失效（TurnAdaptation 只响应转弯） | restlessness_level：对峙/环路压力累积为 forward 躁动电流（×0.12 spike 前注入）；scene_recognition danger_level：识别 danger/lava → forward 谨慎抑制；flow.json 增 fg_fraction/mb_weight_std/mb_saturation_events | test_restlessness 6/6 | commit f5e859a |
+| EVO-027 | 2026-09-15 13:09 | t19 | 2.12.1 | 3.0.0 | SM64 被连带 kill 后桥停更，视觉画布静默冻结且无监护 | bridge.py SeqlockWatchdog：同一 even seq 停滞>5s → stale；flow.json 增 bridge_stale；仪表板红色 SM64⛔ FROZEN 徽章 | test_seqlock_watchdog 9/9 | commit 50d22ae |
+| EVO-028 | 2026-09-15 13:05 | t18+R20 | 2.13.0 | 3.0.0 | 启动契约事故（托管 job 连带 kill）；CX 罗盘是外部航向副本、零路径积分、目标向量单源 | t18：setsid nohup 启动契约固化（consolidate.sh/agent.md/README）；R20 CX-1 罗盘自主化：自运动 bump 积分+天空方位软校正；R20 CX-3 多源目标向量竞争（novelty+覆盖空隙质心+反失败格+锚点返回） | CX PIN 用例 | commits 654b436/a09555b/2c5ae94 |
+| EVO-029 | 2026-09-15 15:29 | t20 | 2.13.1 | 3.0.0 | 教练介入太晚：120s 阈值下马里奥已深陷 | plugin STUCK_HELP_THRESHOLD 120→60s | 阈值边界 3 用例，472 passed | commit 0f953f1 |
+| EVO-030 | 2026-09-15 15:44 | t21 | 2.13.2 | 3.0.0 | 无法验证 GLM 是否真在读屏；屏幕文字语义丢失 | prompt 增读屏指令 what_i_see（逐条列出可见文字）；parse/sanitize/落盘全链路透传；Coach 面板 advice 增 👁 屏幕 行 | TestWhatISee 6 用例，478 passed | commit e61a402 |
+| EVO-031 | 2026-09-15 15:52 | t21 收尾 | 2.13.3 | 3.0.0 | 回溯无法知道教练当时看到了什么画面 | save_consult_frame：consult 前帧留存 runtime/coach_frames/coach_{；非 PNG 魔数拒绝 | TestConsultFrameSnapshot 4 用例，482 passed | commit c74f883 |
+| EVO-032 | 2026-09-15 16:44 | R21 | 2.13.3 | 3.0.0 | runner 读 scene_name 但 memory_json 只有 scene_label；面板看不到 fallen_recovery 策略细节 | memory_json 增 scene_name 键；updateCoachStrategy 渲染 fallen_recovery mode/climb_period/per | — | commit 7559761 |
+| EVO-034 | 2026-09-16 12:58 | R29 | — | 3.0.0 | stride-2 采样下小目标检测被 CCL 4-连通性阻断 | retina.py _connected_components：generate_binary_structure(2,1)→(2,2) + union-find 对角邻居（8 连通） | test_ccl_connectivity 5/5 | commit 4c3294b |
+| EVO-035 | 2026-09-16 17:17 | Motor-P1 | 2.14.0 | 3.0.0 | 电机扩展：摇杆 x/y/jump 之外的动作原语需要 Z 触发键通道 | bridge Phase 1：Z-trigger 解锁（电机扩展动作通道） | — | commit 0510add |
+| EVO-036 | 2026-09-16 17:26 | Motor-P2 | 2.15.0 | 3.0.0 | 运动原语需要级联层与神经解码衔接 | CPG 运动原语级联层（中央模式发生器） | — | commit 6c3d222 |
+| EVO-037 | 2026-09-16 17:59 | Motor-P3 | 2.16.0 | 3.0.0 | 打击/下蹲动作需要独立运动池；蘑菇体输出通道需扩展 | strike/crouch 运动池；MBON 扩至 9 列（原 5 通道） | — | commit 01364b4 |
+| EVO-038 | 2026-09-16 18:30 | Motor-P4/P5+M1 | 2.17.0 | 3.0.0 | Phase 4 仪表板可视化 + Phase 5 EVO pattern + M1 优化层（债务清理 + 新动作原语 PUNCH/DIVE） | Phase 4 电机扩展仪表板；Phase 5 EVO patterns + R21 patch backport；M1.1 既有债务清理（BRAIN_VERSION 2.17.0）（等 4 项） | — | commits e664bd5/1736cac/f1021bf |
+| EVO-039 | 2026-09-16 20:50 | P1-2 perf | 2.17.0 | 3.0.0 | P1-2 CSC 传播 8-15ms/step 制约 tick 频率与进化验证吞吐；尝试选择路径微优化（布尔掩码/fancy/gather+bincount） | 三变体在真实 25.6M 连接组上交错基准（9 次中位数）：0.95–1.38×，全部落在负载噪声内——负结果；synaptic_current() 自适应选择保留为等价基线 + 传播点注释留档负结果；test_propagation_perf.py 7 用例等价性 PIN（全分数段 allclose） | test_propagation_perf 7/7 | 本次会话（负结果留档，防重复尝试） |
+| AUTO-0001 | 2026-09-15 11:14 | — | 2.13.3 | 3.0.0 | Patterns skipped because their condition fields are absent from telemetry: ['mb_mbon_forward'] (patterns: ['mbon_saturat | # Expose missing condition keys in main.py flow_json/memory_json | — | resident skill loop (auto_fix) |
+| AUTO-0002 | 2026-09-15 11:39 | — | 2.13.3 | 3.0.0 | forward MBON saturated at ceiling while behaviour still loops. The built-in homeostatic synaptic scaling should shrink t | # Verify homeostatic scaling in mushroom_body.py saturation guard | — | resident skill loop (auto_fix) |
+| AUTO-0003 | 2026-09-15 13:10 | — | 2.13.3 | 3.0.0 | Fallen detection threshold (Y<-100) is too permissive. SM64 normal ground is Y=120. Y<50 already indicates below-ground  | # Fix: Lower fallen detection threshold from -100 to 50 | — | resident skill loop (auto_fix) |
+| EVO-033 | 2026-09-15 23:59 | R23 | 2.14.0 | 3.0.0 | 系统性攻破 Fly64 脑模型剩余瓶颈：7 大瓶颈（语义三缺失/视网膜配准/P2 KPI/MBON 饱和拉锯/计算纪律/遥测漂移/死值遥测）+ 2 项部分缓解（静息光流/可塑性等效） | T2: what_i_see 5层结构化场景上下文协议 + 17条场景标签自动生成规则 + semantic_level；T2: scene_context.py 10个 dataclass 聚合器 + 40项测试；T3: MBON 饱和恢复——_saturation_recovery_counter 持续\|output\|<0.8（等 13 项） | 全量回归套件 + 新测试146项（T2 40 + T3 53 + T4 集成 + T5 39 + T7 修复验证），零新 | AgentTeams fly64-bottleneck-roundup t7 集成轮 |
+| AUTO-0004 | 2026-09-15 14:44 | — | 2.13.3 | 3.0.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
+| AUTO-0005 | 2026-09-15 14:48 | — | 2.13.3 | 3.0.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
+| AUTO-0006 | 2026-09-16 12:51 | — | 2.18.0 | 3.0.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
 
 <!-- EVOLUTION-HISTORY-TABLE:END -->
 
@@ -1242,17 +1206,7 @@ python fly64/skills/evolution_skill.py --history-check
 **已知开放问题**（P1-1，🟡 medium）：地形门控后 circle_loop 仍在每轮出现——需排查门控阈值与"绕障碍的合法绕行"是否被误判为转圈。分析文档：`docs/analysis/insurance/p1-1-loop-weave-analysis.md`。
 
 #### Q: tick 频率上不去，单步耗时 8–15ms？
-**已知开放问题**（P1-2，🟡 medium）：25.6M 突触 CSC 传播**每次 step 全量扫描**，dt=20ms 下占 8–15ms。分析文档：`docs/analysis/insurance/p1-2-csc-performance-analysis.md`。方向：活跃边集/分块调度；在此之前不要贸然提高仿真频率。
-
-#### Q: `below_ground_stuck` 反复触发
-**已修复**（P0-3）：坠落判定阈值已从 `Y < -100` 收紧为 `Y < 50`（SM64 地面 Y=120，Y<50 即虚空/水下；`memory.py` YAnomaly）。若仍触发，说明马里奥真的在虚空/水下——此时转看下一条。
-
-#### Q: `fallen` 状态持续很久（stuck 数百秒起、loop_score≈1.0）？
-**这是当前最难缠的场景**（实况：幽暗洞穴 fallen conf=1.0 / stuck 1371s / health 0.5，`mb_dopamine=-0.62` 强挫折惩罚中）。排查链：
-1. 挫折 DA 是否在生效（`mb_dopamine` 强负值 = R13b 挫折惩罚运行中）——负 DA 已拉满仍不脱离，说明惩罚通道到顶；
-2. 反射是否在跑（`reflex_active`/`reflex_type`）——fallen 走 `escape_jump_drive`（跳跃池爆发）+ `bold_direction()` 交替；
-3. 教官是否已介入（`STUCK_HELP_THRESHOLD=60s`，t20）——`/coach_advice.json` 有无建议、`runtime/coach_frames/` 看教练视角；
-4. 若 coach 建议仍无效，按规则 15 走 SEEK-HELP：这是"fallen 恢复原语不够"的边界信号（候选：起坡抖动、B 键交互退出、fallen 恢复相位再混合）。
+**已知开放问题**（P1-2，🟡 medium）：25.6M 突触 CSC 传播成本是**选中边集的内存带宽**（5–15% 放电 ≈ 1.2–3.8M 边）。选择路径微优化已实测排除（布尔掩码/fancy/gather+bincount 三变体交错中位数 0.95–1.38×，负载噪声内——负结果已留档于 `model.py` 传播点注释与 EVO-039，勿重试）。剩余方向：稠密核心拆分、GPU 批处理、降边数。分析文档：`docs/analysis/insurance/p1-2-csc-performance-analysis.md`。
 
 ### 教官层（LLM）
 
