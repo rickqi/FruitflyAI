@@ -36,7 +36,7 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.19.0"  # R31 motor expansion complete: MBON-assisted longjump gating
+BRAIN_VERSION = "2.19.1"  # R31-fix: success-tick dopamine floor (primitive learning)
 SKILL_VERSION = "3.1.0"   # primitive scoring + history isolation (must mirror evolution_skill)
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
@@ -229,7 +229,7 @@ class DashboardHTTP(BaseHTTPRequestHandler):
         elif path == "/trajectory-list.json":
             import glob as _glob
             arts = Path(__file__).resolve().parent.parent / "artifacts"
-            files = sorted(_glob.glob(str(arts / "*.trajectory.npz")) + _glob.glob(str(arts / "latest-replay.trajectory.npz")))
+            files = sorted(_glob.glob(str(arts / "*.trajectory.npz")))
             listing = []
             for f in files:
                 p = Path(f)
@@ -1550,6 +1550,33 @@ async def run(args) -> None:
                     scene_save_counter = 0
                     memory_ctrl.save_scene_db()
                     scene_recognizer.save(_labels_path)
+                    # L2: periodic trajectory snapshot for the replay page.
+                    # The old code only saved .trajectory.npz on graceful exit,
+                    # which never happens under consolidate restarts — so the
+                    # replay page's File list stayed empty forever.
+                    try:
+                        _tp = DashboardHTTP.trajectory_points
+                        if len(_tp) >= 2:
+                            _arr = dict(
+                                t=np.array([p["t"] for p in _tp]),
+                                x=np.array([p["x"] for p in _tp]),
+                                y=np.array([p["y"] for p in _tp]),
+                                z=np.array([p["z"] for p in _tp]),
+                                heading=np.array([p["heading"] for p in _tp]),
+                                ctrl_x=np.array([p["ctrl_x"] for p in _tp], dtype=int),
+                                ctrl_y=np.array([p["ctrl_y"] for p in _tp], dtype=int),
+                                game_frame=np.array([p.get("game_frame", 0) for p in _tp], dtype=int))
+                            _arts = project / "artifacts"
+                            _arts.mkdir(parents=True, exist_ok=True)
+                            np.savez_compressed(_arts / "latest-session.trajectory.npz", **_arr)
+                            if scene_save_counter % 10 == 1:   # ≈ every 10 min, timestamped
+                                np.savez_compressed(
+                                    _arts / f"session-{time.strftime('%Y%m%d-%H%M')}.trajectory.npz", **_arr)
+                                _snaps = sorted(_arts.glob("session-*.trajectory.npz"))
+                                for _old in _snaps[:-20]:
+                                    _old.unlink(missing_ok=True)
+                    except Exception:
+                        pass
                 xs, zs, heats = memory_ctrl.spatial.get_heatmap()
                 DashboardHTTP.memory_json = json.dumps({
                     # visited-cell heat grid (same source as the 2D heatmap) +
