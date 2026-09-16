@@ -663,6 +663,11 @@ async def run(args) -> None:
 
     # L2 coach-help: one snapshot per habituation blocking episode
     dialogue_help_sent = False
+    # L2a: stuck/circling help trigger — catches the fast-looping case
+    # (loop>0.8, coverage≈0, stuck>5s) that the displacement-based
+    # reflex_ineffective (R12) cannot detect.
+    _stuck_no_coverage_start = None
+    _stuck_no_coverage_help_sent = False
     # L3 operator strategy, hot-reloaded every 600 ticks
     _active_strategy = dict(ACTIVE_STRATEGY_DEFAULTS)
     _last_strategy_tick = 0
@@ -772,8 +777,16 @@ async def run(args) -> None:
             if _disp_trace and _disp_trace[-1][0] - _disp_trace[0][0] >= 55.0:
                 _t0, _x0, _z0 = _disp_trace[0]
                 _disp60 = ((pose_ev[0] - _x0) ** 2 + (pose_ev[2] - _z0) ** 2) ** 0.5
+                # reflex_ineffective also fires when the agent is circling
+                # fast (loop>0.8, coverage≈0) — the displacement-based check
+                # alone misses this class (fast loop → large disp60 → never
+                # flagged, yet no progress = no new cells).
+                _circling = (memory_ctrl.spatial.loop_score > 0.8
+                            and memory_ctrl.spatial.coverage_rate < 0.01
+                            and memory_ctrl.stuck_duration > 30.0)
                 memory_ctrl.reflex_ineffective = bool(
-                    memory_ctrl.reflex_active and _disp60 < 30.0)
+                    (memory_ctrl.reflex_active and _disp60 < 30.0)
+                    or _circling)
                 memory_ctrl.disp_60s = round(_disp60, 1)
             else:
                 memory_ctrl.reflex_ineffective = False
@@ -851,6 +864,36 @@ async def run(args) -> None:
                 dialogue_help_sent = False
                 DashboardHTTP.help_json = json.dumps(
                     {"help_reason": None}).encode()
+
+            # ---- L2a: stuck/circling help trigger — fast-looping case ----
+            _now = time.monotonic()
+            _stuck_no_progress = (memory_ctrl.stuck_score >= 0.8
+                                  and memory_ctrl.spatial.coverage_rate < 0.01
+                                  and memory_ctrl.stuck_duration > 5.0)
+            if _stuck_no_progress:
+                if _stuck_no_coverage_start is None:
+                    _stuck_no_coverage_start = _now
+                elif (_now - _stuck_no_coverage_start >= 30.0
+                      and not _stuck_no_coverage_help_sent):
+                    _stuck_no_coverage_help_sent = True
+                    event_counters["total_help_requests"] += 1
+                    DashboardHTTP.help_json = json.dumps(build_help_snapshot(
+                        _scene_name(model, memory_ctrl, scene_recognizer),
+                        {"x": round(pose_ev[0], 1), "y": round(pose_ev[1], 1),
+                         "z": round(pose_ev[2], 1)},
+                        (f"stuck_no_progress: stuck={memory_ctrl.stuck_score:.2f} "
+                         f"dur={memory_ctrl.stuck_duration:.0f}s "
+                         f"loop={memory_ctrl.spatial.loop_score:.2f} "
+                         f"cov={memory_ctrl.coverage_pct:.1f}%"),
+                        frame,
+                        screen_bytes=bridge.read_screen())).encode()
+            elif _stuck_no_coverage_help_sent:
+                _stuck_no_coverage_help_sent = False
+                _stuck_no_coverage_start = None
+                DashboardHTTP.help_json = json.dumps(
+                    {"help_reason": None}).encode()
+            elif _stuck_no_coverage_start is not None and not _stuck_no_progress:
+                _stuck_no_coverage_start = None  # brief recovery reset
 
             # ---- L3 strategy hot-reload (every 600 ticks) ----
             if model.step_count - _last_strategy_tick >= 600:
@@ -1140,6 +1183,24 @@ async def run(args) -> None:
             else:
                 llm_press_hold = 0
                 control.b = False
+            # EVO R28 · below-ground auto-reset: when Mario is trapped
+            # below the terrain (Y < -500) or at the origin (0,0,0) with
+            # a live bridge, send a sustained jump burst to reset physics.
+            _py = pose_ev[1] if len(pose_ev) > 1 else 0.0
+            _at_origin = (abs(pose_ev[0]) < 10 and abs(pose_ev[2]) < 10
+                          and abs(_py) < 10)
+            _below_ground = _py < -500
+            if not bridge.stale and (_below_ground or _at_origin):
+                if not getattr(control, "_below_ground_jumping", False):
+                    control._below_ground_jump_start = time.monotonic()
+                    control._below_ground_jumping = True
+                _jump_elapsed = time.monotonic() - control._below_ground_jump_start
+                if _jump_elapsed < 1.5:
+                    control.jump = True
+                    control.x = 0
+                    control.y = 70
+                else:
+                    control._below_ground_jumping = False
             bridge.write_control(control.x, control.y, control.jump,
                                  b=getattr(control, "b", False))
             # ---- Decision attribution audit (read-only, telemetry only) ----
