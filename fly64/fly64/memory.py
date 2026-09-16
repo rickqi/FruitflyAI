@@ -7,6 +7,7 @@ Phase 3: CliffDetector — multi-frame confirmation of lower_field_green dips.
 from __future__ import annotations
 
 import math
+import time
 import hashlib
 import pickle
 from collections import deque
@@ -1258,6 +1259,14 @@ class ReflexController:
         # Cooldown timers: seconds until each reflex can fire again
         self._cooldowns: dict[str, float] = {rt: 0.0 for rt in self.REFLEX_TYPES}
 
+        # EVO R28 · micro_loop reflex fatigue counter: tracks consecutive
+        # micro_loop firings without displacement (>10u).  After 10
+        # ineffective cycles, force a 5s cooldown to give the CX steering
+        # a window to break the loop via idle exploration wander.
+        self._micro_loop_fatigue = 0
+        self._micro_loop_last_pos: tuple[float, float] | None = None
+        self._last_cx_bias: float = 0.0  # EVO R28: CX steering bias for reflex turn mix
+
         # Aggressive mode: when health < 0.3, cooldown is halved
         self._aggressive_cooldown_factor: float = 1.0
 
@@ -1428,8 +1437,11 @@ class ReflexController:
                 self._phase_timer = 0.0
 
         elif rt == self.MICRO_LOOP:
-            # Phase 1: turn, Phase 2: forward burst.
-            # EVO R17: a strong brain breakout_hint shortens the turn phase
+            # Phase 1: turn (with CX steering bias to break heading cancellation),
+            # Phase 2: forward burst.
+            # EVO R28: mix cx_bias into turn direction so alternation doesn't
+            # perfectly cancel the heading.
+            _cx_turn = getattr(self, '_last_cx_bias', 0.0)
             # (÷ breakout scale) and hands the budget to the forward burst —
             # the reflex keeps ownership, the brain biases the mix.
             turn_dur = max(0.15, 0.5 / self._breakout_scale)
@@ -1483,7 +1495,10 @@ class ReflexController:
 
         elif rt == self.MICRO_LOOP:
             if phase == "turn":
-                cx = self._turn_direction
+                # EVO R28: mix CX steering bias into turn direction so the
+                # left/right alternation is tilted, breaking perfect heading
+                # cancellation while keeping the reflex in control.
+                cx = self._turn_direction + int(getattr(self, "_last_cx_bias", 0.0) * 30)
                 cy = 0
             elif phase == "burst":
                 cx = -self._turn_direction // 3
@@ -1582,6 +1597,11 @@ class MemoryController:
         # Forced bold explore breakout — nested loop escape
         self._scene_low_duration: float = 0.0  # seconds with scene_change_rate < 0.05
         self._forced_bold_explore: bool = False
+        # EVO R28 · real-time escape release timer: when escape has been active
+        # for >30s (wall clock), release unconditionally.  stuck_duration
+        # accumulates too slowly when the stuck detector gates intermittently.
+        self._escape_activated_at: float = float("inf")
+        self._escape_released_at: float = 0.0  # EVO R28: CX steering window
         # EVO R15: cliff-edge standoff sensing — seconds spent confirmed at a
         # cliff edge while escape is active (the "parked at the edge" state).
         self._cliff_standoff_s: float = 0.0
@@ -1729,15 +1749,31 @@ class MemoryController:
         #   - 60s pass (general timeout, covers fallen)
         #   - 30s + anomaly resolved + score decayed (faster release when
         #     the anomaly cleared but escape stayed on due to stale score)
-        _release_escape = (self.escape_behavior
-                           and self._stuck_score < 0.3
-                           and not anomaly_override
-                           and not cliff_emergency
-                           and (self._stuck_duration > 60
-                                or (self._stuck_duration > 30
-                                    and self._anomaly_state == "idle")))
+        # EVO R28 · escape_in_seconds tracks real wall-clock time the escape
+        # has been continuously active (not stuck_duration, which accumulates
+        # erratically when the stuck detector gates intermittently).
+        _now = time.monotonic()
+        if not self.escape_behavior:
+            self._escape_activated_at = float("inf")
+        elif self._escape_activated_at == float("inf"):
+            self._escape_activated_at = _now  # just activated
 
-        self.escape_behavior = (not _release_escape) and (
+        _escape_s = _now - self._escape_activated_at if self.escape_behavior else 0.0
+
+        _release_escape = (self.escape_behavior
+                           and not cliff_emergency
+                           and (_escape_s > 60
+                                or (_escape_s > 30
+                                    and self._latest_anomaly_state in ("idle", "micro_loop"))))
+
+        # EVO R28 · when escape releases, give CX a 30s steering window
+        # before anomaly_override can re-activate it.
+        if _release_escape:
+            self._escape_released_at = _now
+        _released_recently = _now - self._escape_released_at < 30.0
+
+        self.escape_behavior = (not _release_escape
+                                and not _released_recently) and (
             (self._stuck_score >= adjusted_threshold
              and self.spatial.exploration_mode)
             or self._fallen

@@ -1177,6 +1177,10 @@ export function renderHelpSnapshot(d) {
   const active = !!d && d.help_reason != null;
   pill.hidden = !active;
   panel.hidden = !active;
+  // Auto-expand the <details> fold when a help request becomes active so the
+  // snapshot thumbnail is immediately visible without a manual click.
+  const fold = $('helpFold');
+  if (fold) fold.open = active;
   if (!active) return false;
   const pos = d.position || {};
   const posTxt = (pos.x !== undefined ? `x=${pos.x} ` : '') +

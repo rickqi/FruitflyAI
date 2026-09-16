@@ -70,12 +70,18 @@ body.layout-wide .area-events{display:grid;grid-template-rows:auto 1fr;align-con
 .help-pill{padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700;white-space:nowrap;background:#8b2020;color:#fff;cursor:pointer;animation:helpPulse 1s ease-in-out infinite}
 .help-panel{margin-top:6px;padding:6px 8px;background:#0d1520;border:1px solid #8b2020;border-radius:3px;font-size:11px}
 .help-body{display:flex;gap:10px;align-items:flex-start;margin-top:4px}
-.help-body img{border:1px solid #1a2430;border-radius:3px;image-rendering:pixelated;max-width:160px;height:auto}
-/* L2 coach panels: span the full row width, cap height with internal scroll —
-   prevents the narrow tall column and the footer-overlap overflow. */
-#helpPanel,#coachPanel{grid-column:1/-1;max-height:200px;overflow:hidden}
-#coachPanel .help-body{max-height:92px;overflow-y:auto}
-#helpPanel .help-body{max-height:150px;overflow-y:auto}
+.help-body img{border:1px solid #1a2430;border-radius:3px;image-rendering:pixelated;max-width:200px;height:auto;display:block}
+/* t16 fold panels live inside <details>; let them grow naturally — the old
+   max-height/overflow caps clipped the snapshot thumbnail and made the panel
+   unexpandable (scrollbars + cropped image). */
+#helpPanel,#coachPanel{grid-column:1/-1}
+#coachPanel .help-body{max-height:120px;overflow-y:auto}
+#helpPanel .help-body{max-height:none;overflow:visible}
+/* L2 coach panels: span the full row width.  Height caps removed — the old
+   200px/92px/150px caps clipped the snapshot thumbnail (scrollbars + crop);
+   the <details> fold now grows naturally and the help-body shows the full
+   200×150 thumbnail without scrollbars. */
+#helpPanel,#coachPanel{grid-column:1/-1}
 #coachAdviceText{white-space:pre-wrap;word-break:break-word}
 .help-fields{flex:1;min-width:0;display:grid;grid-template-columns:auto 1fr;gap:1px 8px;font-variant-numeric:tabular-nums}
 .help-fields dt{color:var(--muted)}
@@ -102,10 +108,8 @@ body.layout-wide .area-events{display:grid;grid-template-rows:auto 1fr;align-con
 #strategyPanel .note-stat b{color:var(--cyan);font-weight:500}
 
 /* ── t21 wrap-up: consult frame thumbnails in the Coach Help panel ────
-   Panel geometry is unchanged: this strip lives in the lower slack of
-   #helpPanel (max-height 200px; help-body capped to 118px here so the
-   strip fits without pushing existing content). */
-#helpPanel .help-body{max-height:118px}
+   Strip sits below the snapshot; the help-body itself is uncapped
+   (thumbnail fully visible, no scrollbars). */
 .help-frames{display:flex;gap:6px;align-items:flex-end;padding:3px 6px 4px;border-top:1px dashed #1a2430;overflow-x:auto}
 .help-frames a{display:flex;flex-direction:column;align-items:center;gap:1px;text-decoration:none;flex:0 0 auto}
 .help-frames img{height:34px;max-width:70px;object-fit:contain;border:1px solid #2a6a78;border-radius:2px;image-rendering:pixelated;background:#000}

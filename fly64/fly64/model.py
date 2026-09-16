@@ -1448,8 +1448,10 @@ class FlyModel:
             forward_speed=getattr(self, "forward_units_per_tick", 0.0),
             goal_vectors=getattr(self, "cx_goal_vectors", None),
         )
+        self.cx_bias = cx_bias  # EVO R28: mirror for reflex turn mix
         self.anchor_distance = self.cx.anchor_distance
         self.v[self.turn_left] += cx_bias * self.cx_steering_gain_turn
+        self.v[self.turn_right] -= cx_bias * self.cx_steering_gain_turn
         self.v[self.turn_right] -= cx_bias * self.cx_steering_gain_turn
 
         # P1 (audit A8): the dialogue neural pulse block is deleted together

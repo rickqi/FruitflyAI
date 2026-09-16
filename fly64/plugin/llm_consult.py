@@ -72,7 +72,7 @@ def _load_llm_env() -> None:
             if not line or line.startswith("#") or "=" not in line:
                 continue
             key, _, val = line.partition("=")
-            os.environ.setdefault(key.strip(), val.strip().strip('"').strip("'"))
+            os.environ[key.strip()] = val.strip().strip('"').strip("'")
     except OSError:
         pass
 

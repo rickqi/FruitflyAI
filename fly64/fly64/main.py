@@ -131,7 +131,20 @@ class DashboardHTTP(BaseHTTPRequestHandler):
         elif path == "/metadata.json":
             body, mime = self.metadata, "application/json"
         elif path == "/evolution.json":
-            body, mime = self.evolution_json, "application/json"
+            # EVO skill findings live in evolution_history.json (written by
+            # the external evolution_skill process).  Fall back to file when
+            # the in-memory evolution_json is empty.
+            _evo_body = self.evolution_json
+            if _evo_body == b"{}" or b'"iterations"' not in _evo_body:
+                _evo_path = (Path(__file__).resolve().parent.parent
+                             / "runtime" / "evolution_history.json")
+                try:
+                    _evo_file = _evo_path.read_bytes()
+                    if _evo_file.strip():
+                        _evo_body = _evo_file
+                except OSError:
+                    pass
+            body, mime = _evo_body, "application/json"
         elif path == "/help.json":
             body, mime = self.help_json, "application/json"
         elif path == "/coach_advice.json":
@@ -976,6 +989,9 @@ async def run(args) -> None:
             _hint = 0.0
             if _ta is not None:
                 _hint = min(1.0, _ta.breakout_drive() / max(_ta.breakout_gain, 1e-6))
+            # EVO R28: pass CX steering bias to reflex so micro_loop turn
+            # phase mixes it in, breaking the heading cancellation.
+            memory_ctrl.reflex._last_cx_bias = getattr(model, "cx_bias", 0.0)
             reflex_active = memory_ctrl.reflex.update(
                 model.dt,
                 memory_ctrl.anomaly_state,

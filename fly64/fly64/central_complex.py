@@ -100,7 +100,7 @@ class CentralComplex:
         # biases the heading — natural search pattern when no target
         # is present (avoids CX steering collapsing to zero).
         self._idle_wander_phase = 0.0
-        self._idle_wander_rate = 0.002     # ~1600 frames per full cycle
+        self._idle_wander_rate = 0.006     # ~530 frames (10s) per full cycle
 
     def _roll_fractional(self, columns: float) -> None:
         """Rotate the compass bump by a fractional number of columns.
