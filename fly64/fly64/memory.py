@@ -460,14 +460,15 @@ class SpatialMemoryMap:
             return 0.0
         return min((rc - 2) * 0.35, 0.7)
 
-    def _get_repulsion(self, key: tuple[int, int]) -> float:
+    def _get_repulsion(self, key: tuple[int, ...]) -> float:
         """Return repulsion in [0, 0.8] for cells near high-revisit areas.
-        
+
         When ``revisit_count > 10``, cells whose ``visit_count > 10`` are
         considered *high-revisit*.  This method returns a repulsion value for
         *key* proportional to the nearby high-revisit cells within a 2-cell
         radius, decaying with distance.  Repulsion is 0 when ``revisit_count
-        <= 10``.
+        <= 10``.  Keys may be 2-tuples (legacy x,z) or 3-tuples (x,y,z from
+        the 3D grid upgrade) — repulsion operates on the x/z footprint.
         """
         max_repulsion = 0.8
         revisit_threshold = 10
@@ -476,11 +477,13 @@ class SpatialMemoryMap:
         if self._scene_db.revisit_count <= revisit_threshold:
             return 0.0
 
-        cx, cz = key
+        cx = key[0]
+        cz = key[-1]
+        iy = key[1] if len(key) == 3 else 0
         total_rep = 0.0
         for dx in range(-decay_radius, decay_radius + 1):
             for dz in range(-decay_radius, decay_radius + 1):
-                nk = (cx + dx, cz + dz)
+                nk = (cx + dx, iy, cz + dz) if len(key) == 3 else (cx + dx, cz + dz)
                 if nk in self._cells and int(self._cells[nk]) > revisit_threshold:
                     dist = math.sqrt(dx * dx + dz * dz)
                     weight = 1.0 if dist == 0 else 1.0 / (dist * 1.5)

@@ -555,6 +555,8 @@ ACTIVE_STRATEGY_DEFAULTS = {
 
 # M2.3: last applied turn sign for the side-flip reversal detector.
 _CPG_PREV_XSIGN = 0
+_CPG_FALLEN_TOGGLE = 0    # alternates between LONG_JUMP and BACKFLIP
+_CPG_FALLEN_SWITCH_S = 3.0  # switch primitive every 3 seconds when fallen
 
 
 def load_active_strategy(path) -> dict:
@@ -1218,6 +1220,8 @@ async def run(args) -> None:
             if dlg_now:
                 if time.monotonic() < dialogue_blocked_until:
                     # Unrewarded stimulus — withdraw and turn away
+                    model.reflex_turn = int(60 * (1 if (model.step_count // 20) % 2 else -1))
+                    model.reflex_forward = -60
                     control.x = int(60 * (1 if (model.step_count // 20) % 2 else -1))
                     control.y = -60
                     control.jump = False
@@ -1336,12 +1340,14 @@ async def run(args) -> None:
                         and memory_ctrl.stuck_duration > _lj_stuck_need
                         and control.y > 40):
                     cpg.request(tick_start, Primitive.LONG_JUMP)
-                elif ("longjump" in _wl and memory_ctrl.fallen
-                      and memory_ctrl.stuck_duration > 60
-                      and control.y > 40):
-                    cpg.request(tick_start, Primitive.LONG_JUMP)
-                elif "backflip" in _wl and memory_ctrl.fallen:
-                    cpg.request(tick_start, Primitive.BACKFLIP)
+                elif memory_ctrl.fallen:
+                    # Fallen recovery with alternating primitives
+                    global _CPG_FALLEN_TOGGLE
+                    _CPG_FALLEN_TOGGLE += model.dt
+                    if "longjump" in _wl and (_CPG_FALLEN_TOGGLE % (_CPG_FALLEN_SWITCH_S * 2) < _CPG_FALLEN_SWITCH_S):
+                        cpg.request(tick_start, Primitive.LONG_JUMP)
+                    elif "backflip" in _wl:
+                        cpg.request(tick_start, Primitive.BACKFLIP)
                 elif ("groundpound" in _wl
                       and cpg.state.value == "airborne"
                       and getattr(model, "cliff_confirmed", False)):

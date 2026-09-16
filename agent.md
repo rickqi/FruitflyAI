@@ -96,6 +96,15 @@ setsid nohup env FLY64_BRIDGE=/tmp/f64b_traj \
 
 # 变更日志
 
+## 2026-09-15: t21 验收追加 — /coach_frames 文件名白名单硬化 + 3D 键崩溃热修（Brain v2.18.1）
+
+**变更**：
+- `/coach_frames/<name>` 文件名校验升级为严格白名单 `re.fullmatch(r"[A-Za-z0-9_\-.]+\.png", name)` 且显式拒绝 `..`（此前为黑名单式过滤）；+2 PIN 用例（白名单正则在场、保存格式文件名满足白名单）
+- **WSL 崩溃热修**：同步最新在途 3D 网格升级（`SpatialMap._key` 返回 (x,y,z) 三元组）后大脑启动即崩——`_get_repulsion` 仍按 2 元组解包。修复为 x/z 足迹匹配（兼容 2/3 元组，3D 键按同 y 层找邻居）。该 8 个 test_memory 失败为在途轮既有（HEAD worktree 对照一致），非本次引入
+- 版本 2.18.0→**2.18.1**；部署后大脑恢复在线、`/coach_frames` 系列端点核验通过（见 t21 验收清单）
+
+---
+
 ## 2026-09-15: EVO R29 — CCL 8-连通修复 + 小目标追踪 KPI 基线（Brain v2.14.0）
 **触发**：t5 视网膜标定发现 stride-2 采样阻塞 4-连通 CCL——`compute_small_targets()` 始终返回 `target_count=0`，P2 小目标追踪功能形同虚设。
 
