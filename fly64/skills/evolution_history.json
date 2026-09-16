@@ -668,7 +668,9 @@
         "stuck_reduction_pct": 0,
         "observed_seconds": 60.4,
         "verified_at": "2026-09-15T13:11:06.185862+00:00"
-      }
+      },
+      "resolved": true,
+      "resolution": "已修复：memory.py YAnomaly y_min -100→50.0（P0-3，并发会话落地）；AUTO-0003 的建议已生效，below_ground_stuck 不应再因该阈值触发"
     },
     {
       "id": "EVO-033",
