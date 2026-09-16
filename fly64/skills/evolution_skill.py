@@ -14,7 +14,7 @@ Key features:
 
 from __future__ import annotations
 
-import json, math, os, re, sys, time, argparse, textwrap, urllib.request, urllib.error
+import json, math, os, random, re, sys, time, argparse, textwrap, urllib.request, urllib.error
 from collections import deque
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
@@ -1079,8 +1079,170 @@ class CoachConsult:
         p.write_text(json.dumps(strategy, indent=2, ensure_ascii=False), "utf-8")
 
 # ═══════════════════════════════════════════════════════════════════════
-# EvolutionPipeline - 5-phase orchestrator
+# Phase 6: Evolve — closed-loop brain parameter evolution
 # ═══════════════════════════════════════════════════════════════════════
+
+class BrainMutator:
+    """Evolve brain model numeric parameters through Gaussian mutation.
+
+    The tuning parameter schema (brain_tunable_params.json) defines every
+    parameter the brain model can hot-reload from active_strategy.json.
+    A mutation trial generates a candidate set, runs for a verification
+    window, and commits (or rolls back) based on a fitness function that
+    combines coverage, stuck duration, novelty, and health.
+
+    This closes the loop: the EVO skill does not just apply static fix
+    patterns — it discovers better parameter values organically.
+    """
+
+    PARAM_SCHEMA_PATH = SKILL_DIR / "brain_tunable_params.json"
+
+    def __init__(self):
+        self._schema = self._load()
+        self._trial: Optional[dict] = None          # current candidate params
+        self._trial_start: Optional[float] = None    # when trial began
+        self._baseline_fitness: Optional[float] = None
+        self._mutation_rate = 0.12                   # stddev as fraction of range
+
+    def _load(self) -> dict:
+        try:
+            return json.loads(self.PARAM_SCHEMA_PATH.read_text("utf-8"))
+        except Exception:
+            return {"params": {}}
+
+    @property
+    def param_paths(self) -> dict[str, str]:
+        """Flatten param id -> dotted key map for active_strategy access."""
+        return {pid: p.get("aliases", [pid])[0] for pid, p in self._schema.get("params", {}).items()}
+
+    def fitness(self, sample: SensorSample) -> float:
+        """Single scalar fitness ∈ [0, 1]: higher = better.
+
+        Factors (weight):
+          - coverage_pct / 50              (×0.35) explored fraction
+          - 1 - min(stuck_duration/120, 1) (×0.25) not-stuck
+          - novelty                         (×0.15) exploring new ground
+          - health_score                    (×0.15) overall well-being
+          - min(coverage_rate×100, 0.5)     (×0.10) exploration speed
+        """
+        if sample is None:
+            return 0.0
+        cov = min(getattr(sample, "coverage_pct", 0) / 50.0, 1.0) * 0.35
+        unstuck = (1.0 - min(getattr(sample, "stuck_duration", 0) / 120.0, 1.0)) * 0.25
+        nov = min(getattr(sample, "novelty", 0), 1.0) * 0.15
+        health = max(0.0, min(getattr(sample, "health_score", 0.5), 1.0)) * 0.15
+        speed = min(getattr(sample, "coverage_rate", 0) * 100, 0.5) * 0.10
+        return round(cov + unstuck + nov + health + speed, 4)
+
+    @staticmethod
+    def _load_active_strategy() -> dict:
+        try:
+            return json.loads((SKILL_DIR / "active_strategy.json").read_text("utf-8"))
+        except Exception:
+            return {"exploration": {}}
+
+    @staticmethod
+    def _write_active_strategy(cfg: dict):
+        (SKILL_DIR / "active_strategy.json").write_text(
+            json.dumps(cfg, indent=2, ensure_ascii=False), "utf-8")
+
+    def _inject(self, params: dict[str, float]) -> dict:
+        """Write a candidate parameter set into active_strategy.json for the
+        brain model's active_strategy hot-reload (main.py reads it every 600
+        ticks ≈ 12 s).  Returns the full strategy dict."""
+        strat = self._load_active_strategy()
+        current = strat.setdefault("exploration", {})
+        for pid, aliases in self._schema.get("params", {}).items():
+            target = (aliases.get("aliases", [pid])[0]
+                      if isinstance(aliases, dict) and "aliases" in aliases
+                      else pid)
+            if pid in params:
+                current[target] = params[pid]
+            elif pid not in current:
+                current[target] = aliases.get("default", 0.0) if isinstance(aliases, dict) else 0.0
+        strat["__generation"] = strat.get("__generation", 0) + 1
+        self._write_active_strategy(strat)
+        return strat
+
+    def generate_candidate(self) -> dict[str, float]:
+        """Produce a parameter set by adding Gaussian noise to the active
+        strategy's current values, clamped to each param's [min, max].
+
+        Parameters whose current value is None / unknown start at default.
+        The mutation rate adapts: wider ranges get proportional noise.
+        """
+        schema = self._schema.get("params", {})
+        current = self._load_active_strategy().get("exploration", {})
+        candidate: dict[str, float] = {}
+        for pid, meta in schema.items():
+            default = meta.get("default", 0.0)
+            mn, mx = meta.get("min", 0.0), meta.get("max", 1.0)
+            rang = mx - mn
+            old = current.get(pid) or current.get(
+                meta.get("aliases", [pid])[0] if isinstance(meta, dict) and "aliases" in meta else pid,
+                default)
+            # Gaussian mutation with decreasing rate over generations
+            g = random.gauss(0, rang * self._mutation_rate)
+            candidate[pid] = max(mn, min(mx, float(old) + g))
+        return candidate
+
+    def start_trial(self, metrics: SensorSample | None = None):
+        """Begin a new mutation trial: generate candidate, write to strategy
+        file, record baseline fitness."""
+        candidate = self.generate_candidate()
+        self._inject(candidate)
+        self._trial = candidate
+        self._trial_start = time.time()
+        self._baseline_fitness = self.fitness(metrics) if metrics else 0.0
+
+    def evaluate(self, metrics: SensorSample | None) -> Optional[dict]:
+        """After the verification window, compare current fitness vs baseline.
+
+        Returns a result dict on trial completion (or None if still running):
+        - passed: fitness improved above threshold
+        - delta: fitness change
+        - params: the candidate set (committed if passed, rolled back if not)
+        """
+        if self._trial is None or self._trial_start is None:
+            return None
+        run_time = 120.0  # trial window: 120 s from start
+        if time.time() - self._trial_start < run_time:
+            return None
+        current_fitness = self.fitness(metrics) if metrics else 0.0
+        delta = current_fitness - self._baseline_fitness
+        passed = delta > 0.03  # 3% improvement threshold
+        result = {"passed": passed, "delta": round(delta, 4),
+                  "baseline": round(self._baseline_fitness, 4),
+                  "current": round(current_fitness, 4),
+                  "params": dict(self._trial)}
+        if passed:
+            self._trial = None
+            self._trial_start = None
+            self._baseline_fitness = None
+            result["committed"] = True
+        else:
+            # rollback: restore the original strategy without these changes
+            self._inject({})  # resets to defaults only
+            self._trial = None
+            self._trial_start = None
+            self._baseline_fitness = None
+            result["committed"] = False
+        return result
+
+    def maybe_start_trial(self, metrics: SensorSample | None,
+                          stuck_duration: float, stuck_score: float,
+                          loop_score: float) -> bool:
+        """Auto-trigger a mutation trial when the agent is stuck looping but
+        no fix pattern fired (i.e., the symptom is known but no source fix
+        matches).  Returns True if a trial was started."""
+        if self._trial is not None:
+            return False
+        condition = (stuck_duration > 60.0 and stuck_score > 0.8
+                     and loop_score > 0.6 and random.random() < 0.02)
+        if not condition:
+            return False
+        self.start_trial(metrics)
+        return True
 
 class EvolutionPipeline:
     def __init__(self, auto_fix: bool = False, window_seconds: int = 120,
@@ -1095,6 +1257,18 @@ class EvolutionPipeline:
         self.documenter = SelfDocumenter(self.fix_catalog, readme_path, pattern_catalog=self.pattern_catalog)
         self.history = EvolutionHistory()
         self._last_brain_version: Optional[str] = self.history.canonical.get("brain")
+        self.brain_mutator = BrainMutator()
+        self._evolution_results: deque[dict] = deque(maxlen=20)
+        self._evolution_recorded: bool = False  # one evolution record per cycle
+
+    @property
+    def evolution_stats(self) -> dict:
+        """Summary of recent evolution trials."""
+        passed = sum(1 for r in self._evolution_results if r.get("passed"))
+        total = len(self._evolution_results)
+        return {"total_trials": total, "passed": passed,
+                "pass_rate": passed / max(total, 1),
+                "top_delta": max((r.get("delta", 0) for r in self._evolution_results), default=0.0)}
 
     def check_brain_version(self, flow: Optional[dict]) -> Optional[dict]:
         """Detect a dashboard brain_version change and auto-record it.
@@ -1156,6 +1330,31 @@ class EvolutionPipeline:
                 except Exception as e:
                     result.errors.append(f"History: {e}")
         except Exception as e: result.errors.append(f"Verify: {e}")
+        # Phase 6: Evolve — brain parameter mutation when fix patterns alone
+        # cannot resolve a stuck/looping situation.
+        try:
+            sample = self.collector.samples[-1] if self.collector.samples else None
+            if sample:
+                self._evolution_recorded = False
+            # Evaluate an active trial
+            ev = self.brain_mutator.evaluate(sample)
+            if ev:
+                self._evolution_results.append(ev)
+                self._evolution_recorded = True
+                if ev.get("passed"):
+                    result.errors.append(
+                        f"🧬 Evolution trial PASSED delta={ev['delta']:+}, params committed")
+                else:
+                    result.errors.append(
+                        f"🧬 Evolution trial FAILED delta={ev['delta']:+.2f}, params rolled back")
+            # Auto-start a new trial when the agent is stuck looping without a fix
+            m = memory or {}
+            started = self.brain_mutator.maybe_start_trial(
+                sample, m.get("stuck_duration", 0), m.get("stuck_score", 0),
+                m.get("loop_score", 0))
+            if started:
+                result.errors.append("🧬 Evolution trial started — mutating brain parameters")
+        except Exception as e: result.errors.append(f"Evolve: {e}")
         try:
             s = self.documenter.cycle_summary(result.findings, result.verifications)
             # Extract plasticity metrics from flow data for documentation
@@ -1192,8 +1391,11 @@ def on_cycle(result: CycleResult):
         print(f"    [{f.severity.upper()}] {f.pattern_name} (conf={f.confidence:.0%})")
     for fix in result.applied_fixes: print(f"    Fix {fix.id}: {fix.pattern_name}")
     for v in result.verifications: print(f"    Verify {v.fix_id}: {'OK' if v.passed else 'FAIL'} (score={v.effectiveness_score})")
+    evo_trials = [e for e in result.errors if e.startswith("🧬")]
+    for e in evo_trials: print(f"    {e}")
     if result.documented: print(f"    README updated")
-    for e in result.errors: print(f"    Warning: {e}")
+    for e in result.errors:
+        if not e.startswith("🧬"): print(f"    Warning: {e}")
 
 def main():
     p = argparse.ArgumentParser(description="Fly64 EvolutionSkill v" + SKILL_VERSION)
@@ -1259,8 +1461,9 @@ def main():
     resident = args.max_iterations <= 0
     print(f"Fly64 EvolutionSkill v{SKILL_VERSION}"
           + ("  [RESIDENT]" if resident else ""))
-    print("5-Phase: Monitor -> Diagnose -> Fix -> Verify -> Document")
-    print(f"Interval: {args.interval}s | Auto-fix: {args.auto_fix}\n")
+    print("6-Phase: Monitor -> Diagnose -> Fix -> Verify -> Evolve -> Document")
+    print(f"Interval: {args.interval}s | Auto-fix: {args.auto_fix} | "
+          f"Brain-param evolution: {'ON' if resident else 'OFF (resident mode)'}\n")
 
     pipe = EvolutionPipeline(auto_fix=args.auto_fix, window_seconds=args.window,
         verification_window=args.verify_window,
@@ -1284,14 +1487,18 @@ def main():
                     "findings": [{"id": f.pattern_id, "severity": f.severity} for f in result.findings],
                     "fixes": [f.id for f in result.applied_fixes],
                     "verifications": [{"id": v.fix_id, "passed": v.passed} for v in result.verifications],
+                    "evolution": list(pipe._evolution_results)[-1] if pipe._evolution_results else None,
                     "errors": result.errors}, ensure_ascii=False) + "\n")
         except: pass
         time.sleep(args.interval)
 
     stats = pipe.fix_statistics
+    evo = pipe.evolution_stats
     print(f"\nCompleted {i} iterations.")
     print(f"Fixes: {stats['total_fixes']} (effective: {stats['effective']}, pending: {stats['pending']})")
     print(f"Rate: {stats['effectiveness_rate']:.1%}")
+    print(f"Brain parameter evolution: {evo['total_trials']} trials ({evo['passed']} passed, "
+          f"{evo['pass_rate']:.0%} pass rate, top delta=+{evo['top_delta']:.2f})")
 
 if __name__ == "__main__":
     main()

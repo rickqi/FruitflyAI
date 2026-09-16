@@ -1,0 +1,74 @@
+{
+  "$schema": "fly64/brain-params-evolution/1.0",
+  "version": 1,
+  "description": "Tunable brain model parameters for evolutionary search. Each numeric parameter declares [min, max, default]; the mutator samples Gaussian noise clipped to the range.",
+  "params": {
+    "exploration.turn_bias": {
+      "aliases": ["bold_turn_bias", "cx_novelty_gain"],
+      "default": 0.25,
+      "min": 0.0,
+      "max": 1.0,
+      "description": "Novelty-driven turn bias multiplier injected into CX goal columns. Higher = stronger response to fresher ground."
+    },
+    "exploration.bold_explore_stuck_s": {
+      "default": 60.0,
+      "min": 15.0,
+      "max": 180.0,
+      "description": "Seconds of stuck before forced bold-explore (breakout) activates. Lower = faster breakout but more erratic."
+    },
+    "exploration.revisit_penalty_scale": {
+      "default": 0.4,
+      "min": 0.0,
+      "max": 0.8,
+      "description": "Weight of revisit_penalty in health_score. Higher = more aggressive avoidance of familiar ground."
+    },
+    "exploration.gate_forward_threshold": {
+      "default": 0.4,
+      "min": 0.1,
+      "max": 0.8,
+      "description": "Forward pool firing rate gate (Hz). Lower = easier to trigger forward motion."
+    },
+    "exploration.gate_jump_threshold": {
+      "default": 2.0,
+      "min": 0.5,
+      "max": 4.0,
+      "description": "Jump pool firing rate gate (Hz). Lower = jump triggers more easily."
+    },
+    "exploration.cliff_tangent_gain": {
+      "default": 1.0,
+      "min": 0.0,
+      "max": 3.0,
+      "description": "How strongly the cliff tangent bias influences turn pools. 0 = disable detour, 3 = strong swerve."
+    },
+    "exploration.loop_breakout_threshold": {
+      "default": 0.6,
+      "min": 0.3,
+      "max": 0.95,
+      "description": "loop_score above this activates forced escape behavior when stuck. Lower = escape from milder loops."
+    },
+    "exploration.stuck_ramp_cooldown": {
+      "default": 5.0,
+      "min": 1.0,
+      "max": 15.0,
+      "description": "Seconds stuck_ramp reflex stays suppressed after firing. Longer = less reflex thrashing."
+    },
+    "exploration.visual_gain_novelty_boost": {
+      "default": 0.1,
+      "min": -0.2,
+      "max": 0.5,
+      "description": "Sensor gain boost per unit novelty (applied at model.step). Positive = stronger response to novel visual input."
+    },
+    "exploration.dopamine_revisit_cost": {
+      "default": 0.5,
+      "min": 0.0,
+      "max": 1.0,
+      "description": "Dopamine punishment threshold for revisit_penalty. Higher = MB learns faster to avoid loops."
+    },
+    "exploration.breakout_forward_bias": {
+      "default": 0.7,
+      "min": 0.2,
+      "max": 1.0,
+      "description": "Fraction of forward drive during escape behavior (vs. turning). Higher = straighter breakout runs."
+    }
+  }
+}
