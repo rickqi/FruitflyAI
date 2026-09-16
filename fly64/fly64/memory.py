@@ -563,7 +563,7 @@ class SpatialMemoryMap:
         forced breakout maneuver.
         """
         base_key = self._key(x, 0, z)
-        cx, cz = base_key
+        cx, _, cz = base_key
 
         # 4 direction offsets relative to heading (sm64: heading 0 = +Z north)
         # Forward = (+sin(heading), +cos(heading)) in grid space
@@ -737,8 +737,12 @@ class SpatialMemoryMap:
                 data = pickle.load(f)
             if not isinstance(data, dict) or data.get("v") != 1:
                 return 0
-            self._cells = {tuple(int(x) for x in k.split(",")): np.uint16(v)
-                           for k, v in data["cells"].items()}
+            self._cells = {}
+            for k, v in data["cells"].items():
+                key = tuple(int(x) for x in k.split(","))
+                if len(key) == 2:
+                    key = (key[0], 0, key[1])  # pad old (x,z) → (x,y,z)
+                self._cells[key] = np.uint16(v)
             self._recency = {k: 1.0 for k in self._cells}
             self._last_tick = {k: 0 for k in self._cells}
             self._adj = {}

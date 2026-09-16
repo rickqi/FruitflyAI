@@ -679,6 +679,10 @@ class FlyModel:
         self.reflex_forward = 0
         self.reflex_jump = False
 
+        # Fallen recovery: persistent forward + jump when fallen
+        self._fallen_forward = 0.20       # forward current during fallen
+        self._fallen_jump_boost = 0.60    # jump boost during fallen (above ESCAPE_JUMP_DRIVE)
+
         # Navigation: exploration direction commitment + frontier
         self._explore_bias = 0.0          # current commit direction [-1,1]
         self._explore_commit_timer = 0     # frames remaining in commit
@@ -1533,6 +1537,7 @@ class FlyModel:
         # control write — executes the escape manoeuvre.
         if self.escape_jump_drive:
             self.v[self.jump_nodes] += self.ESCAPE_JUMP_DRIVE
+            self.v[self.forward] += self._fallen_forward         # forward during fallen
         if self.bold_turn_drive:
             if self.bold_turn_drive > 0:
                 self.v[self.turn_right] += self.BOLD_TURN_DRIVE * min(1.0, self.bold_turn_drive)

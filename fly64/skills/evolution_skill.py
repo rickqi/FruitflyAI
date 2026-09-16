@@ -1730,10 +1730,28 @@ def main():
     print(f"Interval: {args.interval}s | Auto-fix: {args.auto_fix} | "
           f"Brain-param evolution: {'ON' if resident else 'OFF (resident mode)'}\n")
 
+    lock = None
+    if not args.no_lock:
+        lock = acquire_loop_lock()
+        if lock is None:
+            print("ERROR: another resident EVO loop already holds "
+                  f"{LOOP_LOCK_PATH.name} — refusing to start a second one "
+                  "(use --no-lock to override).", file=sys.stderr)
+            sys.exit(1)
+
+    try:
+        _run_loop(pipe=None, args=args)
+    finally:
+        if lock:
+            release_loop_lock(lock)
+
+
+def _run_loop(pipe, args):
+    """The resident/iterative monitor loop (extracted for lock wrapping)."""
     pipe = EvolutionPipeline(auto_fix=args.auto_fix, window_seconds=args.window,
         verification_window=args.verify_window,
         patterns_path=Path(args.patterns) if args.patterns else None)
-
+    resident = args.max_iterations <= 0
     i = 0
     while resident or i < args.max_iterations:
         i += 1
