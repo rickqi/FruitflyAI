@@ -899,6 +899,7 @@ async def run(args) -> None:
                          f"loop={memory_ctrl.spatial.loop_score:.2f} "
                          f"cov={memory_ctrl.coverage_pct:.1f}%"),
                         frame,
+                        help_reason="stuck_no_progress",
                         screen_bytes=bridge.read_screen())).encode()
             elif _stuck_no_coverage_help_sent:
                 _stuck_no_coverage_help_sent = False

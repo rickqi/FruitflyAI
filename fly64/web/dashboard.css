@@ -69,7 +69,7 @@ body.layout-wide .area-events{display:grid;grid-template-rows:auto 1fr;align-con
 @keyframes helpPulse{0%,100%{opacity:1}50%{opacity:.35}}
 .help-pill{padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700;white-space:nowrap;background:#8b2020;color:#fff;cursor:pointer;animation:helpPulse 1s ease-in-out infinite}
 .help-panel{margin-top:6px;padding:6px 8px;background:#0d1520;border:1px solid #8b2020;border-radius:3px;font-size:11px}
-.help-body{display:flex;gap:10px;align-items:flex-start;margin-top:4px}
+.help-body{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start;margin-top:4px}
 .help-body img{border:1px solid #1a2430;border-radius:3px;image-rendering:pixelated;max-width:200px;width:200px;height:auto;display:block}
 /* t16 fold panels live inside <details>; let them grow naturally — the old
    max-height/overflow caps clipped the snapshot thumbnail and made the panel
@@ -83,7 +83,7 @@ body.layout-wide .area-events{display:grid;grid-template-rows:auto 1fr;align-con
    200×150 thumbnail without scrollbars. */
 #helpPanel,#coachPanel{grid-column:1/-1}
 #coachAdviceText{white-space:pre-wrap;word-break:break-word}
-.help-fields{flex:1;min-width:0;display:grid;grid-template-columns:auto 1fr;gap:1px 8px;font-variant-numeric:tabular-nums}
+.help-fields{flex:1;min-width:150px;display:grid;grid-template-columns:auto 1fr;gap:1px 8px;font-variant-numeric:tabular-nums}
 .help-fields dt{color:var(--muted)}
 .help-fields dd{margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
