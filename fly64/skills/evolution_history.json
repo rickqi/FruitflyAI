@@ -1,9 +1,9 @@
 {
   "$schema": "fly64/evolution-history/1.0",
   "canonical_versions": {
-    "brain": "2.18.0",
+    "brain": "2.19.0",
     "skill": "3.0.0",
-    "as_of": "2026-09-16T22:59:59.063897+08:00"
+    "as_of": "2026-09-16T16:44:00.105065+00:00"
   },
   "records": [
     {
@@ -669,24 +669,6 @@
       "notes": "正解方向=稠密核心拆分/GPU 批处理/降边数；选择路径微调不要再试"
     },
     {
-      "id": "EVO-040",
-      "date": "2026-09-16",
-      "time": "22:59:59 +0800",
-      "round": "Coach-P1",
-      "kind": "skill",
-      "brain_version": "2.18.0",
-      "skill_version": "3.0.0",
-      "trigger": "建议→行为→效果归因链断裂：coach 策略键下发后无效果统计（P4.4/P4.6 的数据地基缺失）；课程无状态（P4.3 单次问答）",
-      "changes": [
-        "plugin/coach_outcomes.py 新模块：outcome 快照/窗口解析(30s)/jsonl 累积/课程状态机(ok 连胜 2 次晋级、fail 连败 3 次降级)",
-        "runner.py 四挂点：cycle 开头 resolve pending、策略写后开归因窗、课程注入 consult 上下文、单实例 pending 持久化",
-        "cpg_last_abort 遥测映射（primitive_timeout pattern 的最后缺失字段，数据源=已有 cpg_status.last_abort，零 brain 改动）",
-        "修复过期测试 test_frame_captured_into_request（t21 改 /screen.json 后未同步 mock）"
-      ],
-      "tests": "test_coach_outcomes 12 + test_plugin_mhr(含修复) + history/propagation 共 83 passed",
-      "source": "commit 本次；roadmap=docs/evolution-coach-roadmap.md §2"
-    },
-    {
       "id": "AUTO-0001",
       "recorded_at": "2026-09-15T11:14:24.706289+00:00",
       "kind": "skill_fix",
@@ -890,6 +872,21 @@
         "observed_seconds": 60.5,
         "verified_at": "2026-09-16T13:04:21.937184+00:00"
       }
+    },
+    {
+      "id": "AUTO-0008",
+      "recorded_at": "2026-09-16T16:44:00.105065+00:00",
+      "kind": "brain_update_auto",
+      "round": null,
+      "brain_version": "2.19.0",
+      "previous_version": "2.18.0",
+      "skill_version": "3.0.0",
+      "trigger": "dashboard brain_version change",
+      "changes": [
+        "(auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, agent.md rule 15)"
+      ],
+      "tests": null,
+      "source": "resident skill loop"
     }
   ]
 }

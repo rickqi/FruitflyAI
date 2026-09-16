@@ -28,7 +28,7 @@ except ImportError:
     HAS_JSONSCHEMA = False
     ValidationError = type("ValidationError", (Exception,), {})
 
-SKILL_VERSION = "3.0.0"
+SKILL_VERSION = "3.1.0"
 SKILL_NAME = "evolution_skill"
 SKILL_DIR = Path(__file__).resolve().parent
 WORKSPACE = SKILL_DIR.parent.parent
@@ -40,6 +40,115 @@ EVOLUTION_HISTORY_PATH = SKILL_DIR / "evolution_history.json"
 SKILL_README_PATH = SKILL_DIR / "README.md"
 FIX_LOG_PATH = SKILL_DIR / "fix_log.json"
 VERIFY_STATE_PATH = SKILL_DIR / "verify_state.json"
+LOOP_LOCK_PATH = SKILL_DIR / ".evo_loop.lock"
+
+
+def _pid_alive(pid: int) -> bool:
+    """Cross-platform process liveness probe (no third-party deps)."""
+    if not pid or pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        STILL_ACTIVE = 259
+        try:
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid))
+            if not handle:
+                return False
+            try:
+                exit_code = ctypes.c_ulong()
+                if kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+                    return exit_code.value == STILL_ACTIVE
+                return False
+            finally:
+                kernel32.CloseHandle(handle)
+        except Exception:
+            return False
+    import signal
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def acquire_loop_lock(path: Path = LOOP_LOCK_PATH) -> Optional[Path]:
+    """Single-instance lock for the resident loop.
+
+    Returns the lock path when acquired, None when another live loop holds
+    it.  Stale locks (dead pid) are broken automatically.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        try:
+            pid = int(path.read_text(encoding="utf-8").strip() or 0)
+        except Exception:
+            pid = 0
+        if _pid_alive(pid):
+            return None
+        try:  # stale lock from a dead loop — break it
+            path.unlink()
+        except Exception:
+            return None
+    try:
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.write(fd, str(os.getpid()).encode())
+        os.close(fd)
+        return path
+    except FileExistsError:
+        return None
+
+
+def release_loop_lock(path: Path = LOOP_LOCK_PATH) -> None:
+    try:
+        path.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+def compute_funnel(log_path: Path = EVOLUTION_LOG_PATH,
+                   catalog: Optional[FixCatalog] = None) -> dict:
+    """Evolution meta-metrics funnel (P2): iteration → finding → fix →
+    verified → effective, with conversion rates between stages."""
+    iterations = 0
+    findings = 0
+    pattern_counts: dict = {}
+    try:
+        for line in log_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except Exception:
+                continue
+            iterations += 1
+            for f in row.get("findings", []):
+                findings += 1
+                pid = f.get("id") if isinstance(f, dict) else str(f)
+                pattern_counts[pid] = pattern_counts.get(pid, 0) + 1
+    except FileNotFoundError:
+        pass
+    cat = catalog or FixCatalog()
+    fixes = cat.fixes
+    landed = [f for f in fixes if not f.reverted]
+    verified = [f for f in landed if f.effective is not None]
+    effective = [f for f in verified if f.effective is True]
+    def rate(a, b):
+        return round(a / b, 3) if b else None
+    return {
+        "iterations": iterations,
+        "findings_fired": findings,
+        "patterns_seen": len(pattern_counts),
+        "fixes_recorded": len(landed),
+        "fixes_verified": len(verified),
+        "fixes_effective": len(effective),
+        "rate_finding_to_fix": rate(len(landed), findings),
+        "rate_fix_to_verified": rate(len(verified), len(landed)),
+        "rate_verified_to_effective": rate(len(effective), len(verified)),
+        "top_patterns": sorted(pattern_counts.items(), key=lambda kv: -kv[1])[:5],
+    }
 
 
 class EvolutionHistory:
@@ -1559,7 +1668,16 @@ def main():
     p.add_argument("--history-md", action="store_true",
                    help="Print the full evolution history as a Markdown table "
                         "(for pasting into README; regenerated from the JSON, never hand-edited).")
+    p.add_argument("--funnel", action="store_true",
+                   help="Print the evolution meta-metrics funnel "
+                        "(iteration → finding → fix → verified → effective).")
+    p.add_argument("--no-lock", action="store_true",
+                   help="Skip the resident-loop single-instance lock (for tests).")
     args = p.parse_args()
+
+    if args.funnel:
+        print(json.dumps(compute_funnel(), ensure_ascii=False, indent=2))
+        sys.exit(0)
 
     if args.history_md:
         hist = EvolutionHistory()
