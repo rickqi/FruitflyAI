@@ -43,7 +43,8 @@ def sample(minutes: float, interval: float, out: str) -> None:
         w = csv.writer(fh)
         w.writerow(["ts", "decision_source", "cpg_active", "completed", "aborted",
                     "event", "primitive", "disp_60s", "dopamine",
-                    *[f"mb_mbon_{m}" for m in MBONS]])
+                    *[f"mb_mbon_{m}" for m in MBONS],
+                    *[f"mb_w_{m}" for m in MBONS]])
         while time.time() < end:
             f = fetch_flow()
             if f:
@@ -61,7 +62,8 @@ def sample(minutes: float, interval: float, out: str) -> None:
                 w.writerow([round(time.time(), 2), src, active, comp, ab,
                             event, prim,
                             f.get("primitive_disp"), f.get("mb_dopamine"),
-                            *[f.get(f"mb_mbon_{m}") for m in MBONS]])
+                            *[f.get(f"mb_mbon_{m}") for m in MBONS],
+                            *[f.get(f"mb_w_{m}") for m in MBONS]])
                 rows += 1
                 if event:
                     fh.flush()
@@ -79,7 +81,10 @@ def analyse(csv_path: str) -> None:
         return
     ok = True
     for m in MBONS:
-        col = f"mb_mbon_{m}"
+        # Prefer the scene-independent weight mean; fall back to the MBON
+        # output level when weight telemetry is unavailable (older brain).
+        col = (f"mb_w_{m}" if rows and f"mb_w_{m}" in rows[0]
+               and rows[0][f"mb_w_{m}"] not in (None, "") else f"mb_mbon_{m}")
         suc = [float(r[col]) for r in events
                if r["event"] == "complete" and r["primitive"] == m
                and _disp(r) >= DISP_FLOOR]
@@ -104,6 +109,7 @@ def analyse(csv_path: str) -> None:
             print(f"  -> WRONG DIRECTION (success { _mean(suc):+.3f} <= ref {ref:+.3f})")
     verdict = "PASS: columns rise on success vs failure (RPE direction correct)" if ok \
         else "INCONCLUSIVE/WRONG DIRECTION: inspect dopamine sign path in add_primitive_outcome"
+    print(f"(metric: {'weight-mean' if 'mb_w_' in col else 'mbon-output'})")
     print(verdict)
 
 

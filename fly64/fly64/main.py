@@ -627,6 +627,7 @@ async def run(args) -> None:
     cpg = CPGController()
     _cpg_last_completed = 0
     _cpg_last_aborted = 0
+    _cpg_last_abort_reason = ""  # EVO: exposed to flow_json for primitive_timeout pattern
     # Restore previously explored scene signatures (landmark persistence)
     _loaded_sigs = memory_ctrl.load_scene_db()
     if _loaded_sigs:
@@ -1374,6 +1375,8 @@ async def run(args) -> None:
                         float(getattr(memory_ctrl, "disp_60s", 0) or 0))
                 elif cpg.aborted > _cpg_last_aborted:
                     model.add_primitive_outcome(cpg.last_primitive, False)
+                    _cpg_last_abort_reason = str(
+                        getattr(cpg, "last_abort_reason", "") or "aborted")
                     escape_buffer.start_event(
                         tick_start, f"cpg_abort_{cpg.last_primitive}",
                         pose_ev[0] if len(pose_ev) > 0 else 0.0,
@@ -1637,6 +1640,12 @@ async def run(args) -> None:
                     "mb_mbon_dive": round(float(model.mushroom.mbon_outputs[6]), 4),
                     "mb_mbon_groundpound": round(float(model.mushroom.mbon_outputs[7]), 4),
                     "mb_mbon_longjump": round(float(model.mushroom.mbon_outputs[8]), 4),
+                    # M3.1: per-column weight means — scene-independent
+                    # learning-direction metric (outputs vary with scene KC).
+                    "mb_w_punch": round(float(model.mushroom.weights[:, 5].mean()), 5),
+                    "mb_w_dive": round(float(model.mushroom.weights[:, 6].mean()), 5),
+                    "mb_w_groundpound": round(float(model.mushroom.weights[:, 7].mean()), 5),
+                    "mb_w_longjump": round(float(model.mushroom.weights[:, 8].mean()), 5),
                     "fg_fraction": round(getattr(model, "fg_fraction", 0.0), 4),
                     "mb_weight_std": round(float(getattr(model.mushroom, "weights").std()), 4),
                     "mb_saturation_events": getattr(model.mushroom, "saturation_events", 0),
@@ -1653,6 +1662,10 @@ async def run(args) -> None:
                         "ts": (llm_decision or {}).get("ts"),
                     },
                     "interactive_near": getattr(model, "interactive_near", False),
+                    # EVO: CPG primitive telemetry (primitive_timeout pattern)
+                    "cpg_aborted": int(_cpg_last_aborted),
+                    "cpg_completed": int(_cpg_last_completed),
+                    "cpg_last_abort": _cpg_last_abort_reason,
                     "evo_findings": _evo_findings,
                     "brain_version": BRAIN_VERSION,
                     "evo_iter": _evo_iter_counter,
