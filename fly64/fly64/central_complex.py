@@ -357,7 +357,7 @@ class CentralComplex:
         # environment, breaking position loops over time.
         if self.goal_strength < 0.05:
             self._idle_wander_phase += self._idle_wander_rate
-            wander = np.sin(self._idle_wander_phase) * 2.0
+            wander = np.sin(self._idle_wander_phase) * 4.0
             self._goal_float = (self._goal_float + wander * 0.05 + 0.002) % n
             self.goal_column = int(round(self._goal_float)) % n
             self.goal_strength = 0.30

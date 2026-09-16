@@ -966,6 +966,18 @@ async def run(args) -> None:
                     _esc.get("commit_ticks", 50))
                 model._escape_forward_accum = float(
                     _esc.get("forward_accum_max", 0.50))
+                model._fallen_forward = float(
+                    _esc.get("fallen_forward", 0.20))
+                model._fallen_jump_boost = float(
+                    _esc.get("fallen_jump_boost", 0.60))
+                model._explore_commit_ticks = int(
+                    _expl.get("commit_ticks_explore", 250))
+                model._explore_commit_strength = float(
+                    _expl.get("commit_strength", 0.10))
+                # Fallen toggle rate from active_strategy
+                global _CPG_FALLEN_SWITCH_S
+                _CPG_FALLEN_SWITCH_S = float(
+                    _esc.get("fallen_switch_s", 3.0))
 
             # ---- Pre-emptive cliff avoidance (fires BEFORE escape, highest priority) ----
             cliff_triggered = False

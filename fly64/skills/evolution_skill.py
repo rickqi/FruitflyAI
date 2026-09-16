@@ -1387,17 +1387,22 @@ class BrainMutator:
     def _inject(self, params: dict[str, float]) -> dict:
         """Write a candidate parameter set into active_strategy.json for the
         brain model's active_strategy hot-reload (main.py reads it every 600
-        ticks ≈ 12 s).  Returns the full strategy dict."""
+        ticks ≈ 12 s).  Supports grouped sections (exploration.* -> strat["exploration"],
+        escape.* -> strat["escape"], reflex.* -> strat["reflex"]).  Returns the full strategy dict."""
         strat = self._load_active_strategy()
-        current = strat.setdefault("exploration", {})
-        for pid, aliases in self._schema.get("params", {}).items():
-            target = (aliases.get("aliases", [pid])[0]
-                      if isinstance(aliases, dict) and "aliases" in aliases
+        for pid, meta in self._schema.get("params", {}).items():
+            target = (meta.get("aliases", [pid])[0]
+                      if isinstance(meta, dict) and "aliases" in meta
                       else pid)
-            if pid in params:
-                current[target] = params[pid]
-            elif pid not in current:
-                current[target] = aliases.get("default", 0.0) if isinstance(aliases, dict) else 0.0
+            # Route to correct section based on prefix
+            section_key = "exploration"  # default
+            param_name = pid
+            if "." in pid:
+                section_key, param_name = pid.split(".", 1)
+            if section_key not in strat:
+                strat[section_key] = {}
+            default = meta.get("default", 0.0) if isinstance(meta, dict) else 0.0
+            strat[section_key][param_name] = params.get(pid, strat[section_key].get(param_name, default))
         strat["__generation"] = strat.get("__generation", 0) + 1
         self._write_active_strategy(strat)
         return strat
@@ -1410,15 +1415,19 @@ class BrainMutator:
         The mutation rate adapts: wider ranges get proportional noise.
         """
         schema = self._schema.get("params", {})
-        current = self._load_active_strategy().get("exploration", {})
+        current_strat = self._load_active_strategy()
         candidate: dict[str, float] = {}
         for pid, meta in schema.items():
             default = meta.get("default", 0.0)
             mn, mx = meta.get("min", 0.0), meta.get("max", 1.0)
             rang = mx - mn
-            old = current.get(pid) or current.get(
-                meta.get("aliases", [pid])[0] if isinstance(meta, dict) and "aliases" in meta else pid,
-                default)
+            # Read current value from the correct section
+            section_key = "exploration"
+            param_name = pid
+            if "." in pid:
+                section_key, param_name = pid.split(".", 1)
+            current_section = current_strat.get(section_key, {}) if isinstance(current_strat, dict) else {}
+            old = current_section.get(param_name, default)
             # Gaussian mutation with decreasing rate over generations
             g = random.gauss(0, rang * self._mutation_rate)
             candidate[pid] = max(mn, min(mx, float(old) + g))
