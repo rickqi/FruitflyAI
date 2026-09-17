@@ -1251,7 +1251,7 @@ async def run(args) -> None:
                         "anomaly_state": memory_ctrl.anomaly_state_name,
                         "anomaly_duration": round(memory_ctrl.anomaly_duration, 2),
                         "terrain": model.terrain,
-                        "loop_score": round(memory_ctrl.loop_score, 4),
+                        "loop_score": round(memory_ctrl.spatial.loop_score, 4),
                         "novelty": round(memory_ctrl.novelty, 4),
                         "coach_keys": {
                             "bold_explore_stuck_s": getattr(memory_ctrl, "bold_explore_stuck_s"),
