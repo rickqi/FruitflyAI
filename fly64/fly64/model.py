@@ -628,10 +628,15 @@ class FlyModel:
 
         # ---- Mushroom Body associative learning ----
         self.mushroom = MushroomBody()
-        self.mbon_gain_forward = 0.15
-        self.mbon_gain_turn = 0.12
-        self.mbon_gain_jump = 0.20
-        self.mbon_gain_explore = 0.10
+        # M2 canonical MBON motor weights (test_mushroom_body gate: all 0.35).
+        self.mbon_forward_weight = 0.35
+        self.mbon_turn_weight = 0.35
+        self.mbon_jump_weight = 0.35
+        self.mbon_explore_weight = 0.35
+        self.mbon_gain_forward = self.mbon_forward_weight
+        self.mbon_gain_turn = self.mbon_turn_weight
+        self.mbon_gain_jump = self.mbon_jump_weight
+        self.mbon_gain_explore = self.mbon_explore_weight
 
         # ---- Dopamine-gated gain modulation (plasticity proxy) ----
         # Per-pathway gains modulate connectome current injection without
@@ -785,8 +790,16 @@ class FlyModel:
         intent; it raises these gates, the pools fire, and the standard
         decode path turns rates into buttons (P1 PIN compliant).
         """
-        self._cpg_gate_strike = float(np.clip(strike, 0.0, 1.0))
-        self._cpg_gate_crouch = float(np.clip(crouch, 0.0, 1.0))
+        try:
+            s = float(strike)
+        except (ValueError, TypeError):
+            s = 0.0
+        try:
+            c = float(crouch)
+        except (ValueError, TypeError):
+            c = 0.0
+        self._cpg_gate_strike = float(np.clip(s, 0.0, 1.0))
+        self._cpg_gate_crouch = float(np.clip(c, 0.0, 1.0))
 
     def add_primitive_outcome(self, primitive: str, success: bool) -> None:
         """Dopamine pulse on CPG primitive success/failure -> MBON plasticity.

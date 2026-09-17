@@ -110,6 +110,10 @@ class MushroomBody:
         self._plasticity_counter = 0   # frames remaining in plasticity window
         self.learning_enabled = True
         self.assoc_count = 0           # total plasticity events
+        # Adaptive learning rate: scene-novelty multiplier applied inside
+        # update_weights.  High scene_change_rate -> faster plasticity
+        # (new environment needs quick association), low -> conservative.
+        self.lr_adapt: float = 1.0
 
         # History for diagnostics
         self._dopamine_history = deque(maxlen=60)  # last ~1s at 50 Hz
@@ -305,15 +309,28 @@ class MushroomBody:
 
         return self.dopamine
 
+    def set_adaptive_lr(self, scene_change_rate: float) -> None:
+        """Map scene-change rate to a plasticity multiplier.
+
+        ``r=0.30`` (busy novel scene) -> 1.5; ``r=0.02`` (stable) -> ~0.57.
+        Formula: 0.5 + r/0.3, clamped to [0.45, 2.0].
+        """
+        try:
+            r = float(scene_change_rate)
+        except (TypeError, ValueError):
+            r = 0.0
+        self.lr_adapt = float(np.clip(0.5 + r / 0.3, 0.45, 2.0))
+
     def update_weights(self) -> int:
         """Apply dopamine-gated plasticity to KC->MBON weights.
 
         Called once per frame (after set_dopamine).  Implements the
         three-factor learning rule:
 
-            Delta_W[i,j] = eta * R(t) * E[i,j]
+            Delta_W[i,j] = eta * lr_adapt * R(t) * E[i,j]
 
-        where eta = learning rate, R(t) = dopamine signal,
+        where eta = learning rate, lr_adapt = scene-novelty multiplier
+        (set_adaptive_lr), R(t) = dopamine signal,
         and E[i,j] = eligibility trace.
 
         Only synapses with non-zero eligibility (i.e. active during
@@ -336,9 +353,9 @@ class MushroomBody:
             _rm = np.where(
                 self._suppression_counter >= self.suppression_threshold,
                 0.01, 1.0).astype(np.float32)
-            delta = self.lr * self.dopamine * _rm * self.eligibility
+            delta = self.lr * self.lr_adapt * self.dopamine * _rm * self.eligibility
         else:
-            delta = self.lr * self.dopamine * self.eligibility
+            delta = self.lr * self.lr_adapt * self.dopamine * self.eligibility
 
         # Only apply where eligibility > 1e-6 (active synapses)
         active_mask = np.abs(self.eligibility) > 1e-6
