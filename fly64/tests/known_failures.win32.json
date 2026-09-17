@@ -1,8 +1,7 @@
 {
  "platform": "win32",
- "recorded_at": "2026-09-17T13:18:02.872322+00:00",
- "count": 36,
- "how_to_use": "scripts/check_regressions.py compares a fresh pytest run against this file and fails ONLY on NEW failures, so a real regression is visible instead of buried among the known ones.  Refresh with --update after deliberately fixing an entry.  'cause' is one of environment / aspirational / test-drift / real-bug / unknown, with 'note' recording the evidence.",
+ "recorded_at": "2026-09-17T13:47:32.236156+00:00",
+ "count": 37,
  "entries": [
   {
    "id": "tests/test_bridge.py::test_bridge_round_trip",
@@ -33,6 +32,11 @@
    "id": "tests/test_bridge.py::test_write_control_z_button",
    "cause": "environment",
    "note": "Windows Python 3.11 has no time.clock_gettime_ns; the bridge uses it for monotonic frame timing"
+  },
+  {
+   "id": "tests/test_coach_dopamine.py::test_main_loop_wires_coach_bias",
+   "cause": "environment",
+   "note": "reads fly64/main.py with the default (locale) encoding, which is gbk on Windows and cannot decode the UTF-8 source; the same test passes on Linux"
   },
   {
    "id": "tests/test_evolution_capability.py::TestEvoRound10::test_bold_explore_decision_source",
