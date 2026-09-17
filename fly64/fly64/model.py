@@ -486,6 +486,7 @@ class FlyModel:
         self.movement_reward = 0.0  # EVO R11: displacement-based dopamine feedback
         self._pending_dopamine = 0.0  # EVO R13: external setback pulses (PPL1-like)
         self._success_pulse_floor = 0.0  # M3.2: success-tick dopamine floor
+        self._coach_dopamine_bias = 0.0   # R31-fix9: coach-strategy dopamine bias
         self._prev_stuck_duration = 0.0
         self._cumulative_reward = 0.0
         # Local motion detection: moving objects when Mario is stationary
@@ -1470,6 +1471,12 @@ class FlyModel:
         if getattr(self, "_success_pulse_floor", 0.0) > 0.0:
             dop = max(dop, self._success_pulse_floor)
             self._success_pulse_floor = 0.0
+        # R31-fix9: coach-strategy dopamine bias — the GLM can influence
+        # learning by recommending a sustained bias (e.g. "this scene is
+        # dangerous, penalise exploration") or via one-shot impulses.
+        _coach_bias = getattr(self, "_coach_dopamine_bias", 0.0)
+        if _coach_bias != 0.0:
+            dop = max(-1.0, min(1.0, dop + _coach_bias))
         try:
             self.mushroom.set_dopamine(dop)
             n_syn = self.mushroom.update_weights()

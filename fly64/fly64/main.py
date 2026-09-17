@@ -36,7 +36,7 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.23.5"  # R31-fix8: coach command.turn_and_go consumer + pos_y telemetry
+BRAIN_VERSION = "2.23.6"  # R31-fix9: coach→dopamine bias/setback pathway
 SKILL_VERSION = "3.4.1"   # EVO-067: Phase 6 fitness/diagnostic instrumentation (must mirror evolution_skill)
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
@@ -820,10 +820,12 @@ def load_active_strategy(path) -> dict:
     # _active_strategy.get("exploration"/"escape"/"command") ALWAYS returned
     # {} and every coach-tuned parameter silently fell back to a hardcoded
     # default — GLM advice reached the file but never reached behavior.
-    for key in ("exploration", "escape", "command"):
+    for key in ("exploration", "escape", "command", "dopamine"):
         section_value = data.get(key)
         if isinstance(section_value, dict):
             strategy[key] = section_value
+    # R31-fix9: coach dopamine config — bias and one-shot stimuli consumed
+    # in main loop -> _pending_dopamine path (see dopamine handling below).
     return strategy
 
 
@@ -1248,6 +1250,24 @@ async def run(args) -> None:
                     model.coach_forward_bias = _y
                     model.coach_timer = int(_duration / model.dt)
                     model.coach_active = True
+                # R31-fix9 · Coach dopamine influence — the GLM can write
+                # {"dopamine": {"bias": 0.15}} for a sustained positive/negative
+                # bias on the MB dopamine signal, or {"setback": 0.5} for a
+                # one-shot pulse (auto-cleared after consumption).  Both feed
+                # into the model's dopamine sum, driving KC→MBON plasticity.
+                # The bias gives the coach a learning channel: seeing a failed
+                # strategy in the screenshot, the coach tags it as aversive.
+                _dop = dict(_active_strategy.get("dopamine", {}) or {})
+                _bias = float(_dop.get("bias", 0.0))
+                if _bias != 0.0:
+                    model._coach_dopamine_bias = max(-0.3, min(0.3, _bias))
+                else:
+                    model._coach_dopamine_bias = 0.0
+                _sb = float(_dop.get("setback", 0.0))
+                if _sb != 0.0:
+                    model.add_setback(max(-1.0, min(1.0, _sb)))
+                    # clear the one-shot so it does not repeat every tick
+                    _active_strategy["dopamine"]["setback"] = 0.0
 
             # ---- Pre-emptive cliff avoidance (fires BEFORE escape, highest priority) ----
             cliff_triggered = False
