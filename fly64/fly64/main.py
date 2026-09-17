@@ -36,7 +36,7 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.23.3"  # R31-fix7: adaptive below-ground escape (depth+stuck escalation)
+BRAIN_VERSION = "2.23.4"  # EVO-062: expand dotted tunable ids so the operator sliders actually reach behaviour
 SKILL_VERSION = "3.3.0"   # progressive lesson ladder + evidence-base hardening (must mirror evolution_skill)
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
@@ -375,13 +375,10 @@ class DashboardHTTP(BaseHTTPRequestHandler):
         try:
             updates = json.loads(raw)
             cur = json.loads(_skp.read_text("utf-8")) if _skp.exists() else {}
-            for k, v in updates.items():
-                if isinstance(v, dict) and k in cur and isinstance(cur[k], dict):
-                    cur[k].update(v)
-                else:
-                    cur[k] = v
+            applied, rejected = apply_strategy_update(cur, updates)
             _skp.write_text(json.dumps(cur, indent=2, ensure_ascii=False), "utf-8")
-            body = json.dumps({"status":"ok","updated":list(updates.keys())}).encode()
+            body = json.dumps({"status":"ok","updated":list(updates.keys()),
+                               "applied":applied,"rejected":rejected}).encode()
             self.send_response(200)
             self.send_header("Content-Type","application/json")
             self.send_header("Content-Length",str(len(body)))
@@ -722,6 +719,56 @@ _CPG_PREV_XSIGN = 0
 _CPG_FALLEN_TOGGLE = 0    # alternates between LONG_JUMP and BACKFLIP
 _CPG_FALLEN_SWITCH_S = 3.0  # switch primitive every 3 seconds when fallen
 _DEEP_BAIL_START: float = 0.0  # monotonic timestamp for deep-pit bailout
+
+
+def apply_strategy_update(cur: dict, updates: dict):
+    """Apply an /active_strategy-update payload to the in-memory strategy.
+
+    DOTTED PATHS ARE EXPANDED.  The operator panel (`web/evo-params.html`) sends
+    the parameter ids straight out of `skills/brain_tunable_params.json`, which
+    are dotted paths: ``{"escape.commit_ticks": 125}``.  The previous handler
+    wrote that as a LITERAL top-level key, so the file gained
+    ``"escape.commit_ticks": 125`` while the brain reads
+    ``_active_strategy["escape"]["commit_ticks"]`` — the slider reported
+    success, the UI echoed the new value, and **nothing ever reached
+    behaviour**.  15 of the 21 tunable ids map onto paths the brain reads, so
+    the fix is exactly this one dot-expansion.
+
+    Returns ``(applied, rejected)``: ``applied`` maps the incoming key to the
+    resolved dotted path, ``rejected`` lists keys that could not be placed
+    without destroying existing data (a scalar where a section is expected).
+    Reporting them makes a dead write visible instead of silently "ok".
+    """
+    applied: dict = {}
+    rejected: list = []
+    if not isinstance(updates, dict):
+        return applied, ["<payload is not a JSON object>"]
+    for key, value in updates.items():
+        if not isinstance(key, str) or not key.strip():
+            rejected.append(str(key))
+            continue
+        parts = [p for p in key.split(".") if p]
+        if len(parts) <= 1:
+            cur[key] = value
+            applied[key] = key
+            continue
+        node = cur
+        blocked = False
+        for part in parts[:-1]:
+            nxt = node.get(part)
+            if nxt is None:
+                nxt = {}
+                node[part] = nxt
+            elif not isinstance(nxt, dict):
+                blocked = True          # never clobber a scalar with a section
+                break
+            node = nxt
+        if blocked:
+            rejected.append(key)
+            continue
+        node[parts[-1]] = value
+        applied[key] = ".".join(parts)
+    return applied, rejected
 
 
 def load_active_strategy(path) -> dict:
@@ -1190,6 +1237,17 @@ async def run(args) -> None:
                 global _CPG_FALLEN_SWITCH_S
                 _CPG_FALLEN_SWITCH_S = float(
                     _esc.get("fallen_switch_s", 3.0))
+                # Coach command injection — convert command section to model flags
+                _cmd = dict(_active_strategy.get("command", {}) or {})
+                if _cmd.get("type") == "turn_and_go":
+                    _heading = float(_cmd.get("heading", 0))
+                    _duration = float(_cmd.get("duration_s", 2.0))
+                    _y = float(_cmd.get("y", 50))
+                    _bias = max(-1.0, min(1.0, (_heading - 180) / 180.0))
+                    model.coach_turn_bias = _bias * 15.0
+                    model.coach_forward_bias = _y
+                    model.coach_timer = int(_duration / model.dt)
+                    model.coach_active = True
 
             # ---- Pre-emptive cliff avoidance (fires BEFORE escape, highest priority) ----
             cliff_triggered = False
@@ -1532,6 +1590,32 @@ async def run(args) -> None:
             else:
                 llm_press_hold = 0
                 control.b = False
+            # ---- Coach command consumer (R31-fix8) ----
+            # The GLM coach may issue a direct "turn_and_go" command via
+            # active_strategy.json: {command: {type, heading, duration_s, y}}.
+            # Execute it for the requested duration — overrides normal
+            # steering but yields to safety guardrails (cliff, below-ground).
+            _cmd = _active_strategy.get("command")
+            if isinstance(_cmd, dict) and _cmd.get("type") == "turn_and_go":
+                if not getattr(control, "_cmd_active", False):
+                    control._cmd_start = tick_start
+                    control._cmd_active = True
+                    _cmd_elapsed = 0.0
+                else:
+                    _cmd_elapsed = tick_start - control._cmd_start
+                _cmd_dur = float(_cmd.get("duration_s", 2.0))
+                if _cmd_elapsed < _cmd_dur and not _below_ground:
+                    _target_heading = float(_cmd.get("heading", 90.0)) * (3.14159 / 180.0)
+                    _current_yaw = pose_ev[3] if len(pose_ev) > 3 else 0.0
+                    _yaw_diff = _target_heading - _current_yaw
+                    # Normalise to [-pi, pi]
+                    while _yaw_diff > 3.14159: _yaw_diff -= 2 * 3.14159
+                    while _yaw_diff < -3.14159: _yaw_diff += 2 * 3.14159
+                    control.x = int(max(-70, min(70, _yaw_diff * 40)))
+                    control.y = int(_cmd.get("y", 70))
+                    control.jump = bool(_cmd.get("jump", False))
+                else:
+                    control._cmd_active = False
             # EVO R28 · below-ground auto-reset: when Mario is trapped
             # below the terrain (Y < -500) or at the origin (0,0,0) with
             # a live bridge, send a sustained jump burst to reset physics.
@@ -1742,9 +1826,8 @@ async def run(args) -> None:
                     model._deep_bail_start = time.monotonic()
                 elif time.monotonic() - model._deep_bail_start > 5.0:
                     control.jump = False
-                    control.y = 0
-                    print(f"[bailout] t={time.monotonic():.1f} fired")
-            elif pose_ev[1] >= 0 and getattr(model, "_deep_bail_start", 0.0) != 0.0:
+                    control.y = -70
+            elif getattr(model, "_deep_bail_start", 0.0) != 0.0 and _py > 0:
                 model._deep_bail_start = 0.0
             bridge.write_control(control.x, control.y, control.jump,
                                  b=getattr(control, "b", False),
@@ -1968,6 +2051,7 @@ async def run(args) -> None:
                     "recent_path": memory_ctrl.spatial.recent_path(80),
                     "cell_x": int(pose[0]),
                     "cell_z": int(pose[2]),
+                    "pos_y": round(float(pose[1]), 1),   # R31-fix8: for coach consult context
                     "xs": [round(float(v), 1) for v in xs[:2500]],
                     "zs": [round(float(v), 1) for v in zs[:2500]],
                     "heats": [round(float(v), 3) for v in heats[:2500]],

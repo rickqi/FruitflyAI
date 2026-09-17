@@ -153,13 +153,19 @@ class PluginRunner:
         CoachConsult escalation conditions.  Returns the consult context.
         """
         help_snap = snapshot.get("help")
+        mem = snapshot.get("memory") or {}
+        # Y position for consult context (R31-fix8): extract early so all
+        # return paths can include it.  memory.json now has an explicit
+        # "pos_y" key; fall back to the y of "position" when absent.
+        pos_y_ctx = (mem.get("pos_y", None)
+                     or (mem.get("position") or {}).get("y", None))
         if isinstance(help_snap, dict) and help_snap.get("help_reason"):
-            mem = snapshot.get("memory") or {}
             return {
                 "help_reason": help_snap.get("help_reason"),
                 "scene_name": help_snap.get("scene_name")
                               or mem.get("scene_name", "?"),
                 "position": help_snap.get("position") or {},
+                "pos_y": pos_y_ctx,
                 "diagnosis": help_snap.get("diagnosis", ""),
                 "stuck_duration": float(mem.get("stuck_duration", 0.0)),
                 "anomaly_state": mem.get("anomaly_state", "?"),
@@ -181,12 +187,26 @@ class PluginRunner:
             else:
                 self._prim_zero_run = 0
         stuck = float(mem.get("stuck_duration", 0.0))
+        # Y position for the consult context: prefer an explicit mem["pos_y"],
+        # else the y of mem["position"].
+        #
+        # NOTE: scripts/m8_add_posy_to_consult.py added the three
+        # `"pos_y": pos_y_ctx` entries below but its definition-insertion
+        # replace silently failed to match (it searched for `stuck = ...` at
+        # 12-space indent and assumed `no_reflex` followed on the next line,
+        # whereas in this file `stuck = ...` is at 8 spaces and an
+        # `if self._prim_zero_run >= 3:` block sits between them).  The result
+        # was a NameError on every help-escalation path — i.e. the coach would
+        # crash exactly when the fly is stuck.  The line below is the
+        # definition that script intended to insert.
+        pos_y_ctx = mem.get("pos_y", None) or (mem.get("position") or {}).get("y", None)
         if self._prim_zero_run >= 3:
             self._prim_zero_run = 0
             return {
                 "help_reason": "primitive_ineffective",
                 "scene_name": mem.get("scene_name", "?"),
                 "position": mem.get("position") or {},
+                "pos_y": pos_y_ctx,
                 "diagnosis": (f"CPG primitive completed {cpg.get('completed', 0)}x "
                               f"but 3 consecutive runs moved <30u "
                               f"(last disp_60s={disp}) — wrong primitive or "
@@ -209,6 +229,7 @@ class PluginRunner:
                                 else "unsolvable_stuck"),
                 "scene_name": mem.get("scene_name", "?"),
                 "position": mem.get("position") or {},
+                "pos_y": pos_y_ctx,
                 "diagnosis": "",
                 "stuck_duration": stuck,
                 "anomaly_state": mem.get("anomaly_state", "?"),
@@ -227,6 +248,7 @@ class PluginRunner:
                 "help_reason": "multi_signal_stuck",
                 "scene_name": mem.get("scene_name", "?"),
                 "position": mem.get("position") or {},
+                "pos_y": pos_y_ctx,
                 "diagnosis": f"weighted help score {score} ≥ "
                              f"{self.help_score_threshold}: {components}",
                 "stuck_duration": stuck,

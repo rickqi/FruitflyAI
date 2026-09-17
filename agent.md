@@ -55,6 +55,43 @@
 同时修复部署脚本的路径映射缺陷：`SRC` 取仓库根（`D:\codes\flygym`）而 `DEP` 取项目目录（`/root/fly64`），目标路径因此多出一层 `fly64/`，文件被写到 `/root/fly64/fly64/fly64/` 而真实文件从未更新——脚本却仍逐行打印 `ok`（无校验）。现改为 `SRC=/mnt/d/codes/flygym/fly64`、`DEP=/root/fly64` 的对齐映射，并在复制后逐个 **md5 逐字节校验**，任一不符即 ABORT。
 
 **教训**：任何触及 `main.py` 导入期的改动，必须**在 WSL 实机重启脑进程**验证，单元测试通过不构成证据。另需注意 `active_strategy.json` 会被其他写入方以**扁平点号键**形式覆写（`"escape.commit_ticks"`），一旦如此 `load_active_strategy()` 的段透传（EVO-054 修复）会再次静默失效——写入方审计为开放项。
+## 2026-09-17: EVO-062 — Brain v2.23.4（操作面板“死控件” + 教练上下文 NameError）
+
+### ① 面板滑块从未到达行为层
+
+`web/evo-params.html` 直接把 `skills/brain_tunable_params.json` 的参数 id POST 出去，而**这些 id 是点号路径**：
+
+```js
+fetch('/active_strategy-update', {..., body: JSON.stringify({[pid]: Number(value)})})
+// pid = "escape.commit_ticks"  ->  {"escape.commit_ticks": 125}
+```
+
+`/active_strategy-update` 的处理器把该键当**字面顶层键**写入文件：
+
+```python
+cur["escape.commit_ticks"] = 125      # 死键
+```
+
+而脑的热加载读取的是 `_active_strategy["escape"]["commit_ticks"]`。于是：滑块显示 ✓、UI 回显新值、接口返回 `{"status":"ok"}`，**行为层零变化**。21 个可调 id 中有 **15 个**本就精确映射到脑会读取的路径（`exploration.turn_bias`、`escape.commit_ticks`、`escape.forward_accum_max`…），整个特性**只差一次点号展开**。
+
+修复：新增模块级 `apply_strategy_update()` 展开点号路径为嵌套写入；接口响应新增 `applied`（每个键解析到的真实路径）与 `rejected`（被拒的键），把死写入从“裸 ok”变成可见事实；中间层已是标量时**拒绝而非覆盖**。
+
+### ② 每条求助路径都抛 NameError
+
+补丁脚本 `scripts/m8_add_posy_to_consult.py` 向三处上下文写入 `"pos_y": pos_y_ctx`，但其“插入定义”的 `str.replace` **未匹配源码**——它按 12 空格缩进搜索 `stuck = float(...)` 并假设 `no_reflex` 紧随其后，而实际 `stuck` 为 8 空格缩进且中间隔着 `if self._prim_zero_run >= 3:` 块。`str.replace` 不匹配时静默返回原串，脚本照常打印成功并退出 0。
+
+后果：`pos_y_ctx` 从未定义，`reflex_ineffective_stuck` / `unsolvable_stuck` / `multi_signal_stuck` 三条路径全部抛 `NameError`——即**飞行器卡住时教练恰好崩溃**，而卡住正是教练唯一的被调用时机。本次在部署前拦截。
+
+修复：按脚本原意补上定义（`mem["pos_y"]` 优先，回退 `position.y`）；并把该脚本改为锚定真实源码、幂等、定义缺失时**非零退出**。
+
+### 测试
+
+`tests/test_strategy_update_endpoint.py` 的关键断言走**真实消费者 API** `load_active_strategy`，而非“文件里有这个键”——旧实现恰好满足后者。另有 AST 守卫确保 `do_POST` 必须调用 helper 并上报 `applied`/`rejected`。
+`tests/test_consult_context_pos_y.py` 覆盖四条求助路径 + 静态守卫“定义先于首次使用”（**跳过注释行**：解释性注释引用同一字符串会让朴素 `str.index` 误报顺序违规）。
+
+**活体端到端验证**（脑 v2.23.4）：基线 `turn_bias=0.8` / `escape_stuck_threshold_s=5.0` → POST `{"exploration.turn_bias":0.37,"escape.stuck_threshold_s":77.7}` → 落盘嵌套、顶层无点号死键 → 600-tick 热加载后遥测读到 **0.37 / 77.7**。
+
+> 同类缺陷至此累计五例：t6 段透传、CX 死代码、P4.4 全参数指纹、启动期 NameError、本轮点号键。共同形态均为“**机制存在、报告成功、无法生效**”——规则 19 已就此立规：拒绝生效必须是可观测的，而非沉默。
 ## 2026-09-17: EVO-057 — Brain v2.22.0（CX 持续环路确定性破解）
 
 `circle_loop` 可持续数分钟不破：CX 的探索游走是 ~10s 正弦扫掠，频率远低于紧致轨道。工作树中另有一段"强制随机跳列"代码试图解决它，但**从未生效**——两个各自独立的死因，加上一个契约破坏：

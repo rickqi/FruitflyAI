@@ -904,7 +904,7 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 ### 完整进化历史档案
 
 <!-- EVOLUTION-HISTORY-TABLE:START
-下表由 `skills/evolution_skill.py --history-md` 从权威记录 `skills/evolution_history.json` 自动生成（62 条，权威版本 Brain v2.23.1 / Skill v3.3.0）。**请勿手改本表**——更新记录后重新执行该命令再粘贴。
+下表由 `skills/evolution_skill.py --history-md` 从权威记录 `skills/evolution_history.json` 自动生成（66 条，权威版本 Brain v2.23.4 / Skill v3.3.0）。**请勿手改本表**——更新记录后重新执行该命令再粘贴。
 
 | ID | 时间 | 轮次 | Brain | Skill | 触发原因 | 关键变更 | 测试 | 来源 |
 |----|------|------|-------|-------|---------|---------|------|------|
@@ -970,6 +970,10 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 | EVO-057 | 2026-09-17 18:31 | t9-A P1-1 环路破解 | 2.22.0 | 3.2.0 | circle_loop 可持续数分钟不破：CX 的探索游走是 ~10s 正弦扫掠，频率远低于紧致轨道；工作树中另有一段“强制随机跳列”代码，但它从未生效——两个各自独立的死因：① 读 getattr(self,'stuck_duration | central_complex.py: update() 新增 stuck_duration 形参，CX 首次获得真实卡；新增 CX_LOOP_BREAK_STUCK_S=45.0（对齐既有 30/60s 逃逸档位；旧值 300 且注释自相矛；新增 CX_LOOP_BREAK_COOLDOWN_TICKS=1500（~30s）：判据不再依赖被合成的 goal_s（等 7 项） | test_cx_loop_break 15/15；CX/导航/memory 回归 122 passed（test_cx_ | 本次会话 t9-A；工作树 R31-fix5 死代码替换 |
 | EVO-058 | 2026-09-17 18:31 | t9-B P4.4 本能固化 + 证据基座 | 2.23.0 | 3.3.0 | P4.4 场景→策略本能固化“已实现但结构上不可能达成”。四重独立死因：① 指纹要求全参数精确一致，而教练每次咨询都重调参数——真实 45 条 outcome 里同一场景产生 13 个互不相同的指纹，证据永远重启，晋级阈值不可达；② get | fly64/instinct_bindings.py: 新增显著量化签名 SALIENT_PARAMS（fallen_r；binding_params(): 只绑定签名所区分的参数（自洽要求），且取量化后的规范值——否则 turn_bias=；晋级规则改为“自上次 worse 以来的干净 improved ≥ 2”；worse 视为证伪：既降级已晋级绑定，也清零（等 8 项） | test_instinct_bindings 27/27（含签名不因逐集旋钮分裂、签名↔绑定参数自洽、竞争签名不共享证据 | 本次会话 t3/t4/t7/t8/t9-B + brain 活体验证 |
 | EVO-059 | 2026-09-17 18:40 | t9-C 启动崩溃修复 | 2.23.1 | 3.3.0 | 脑进程在生产环境无法启动：main.py 在模块级第 64 行调用 _load_evolution_history()，而该函数写入 DashboardHTTP.evolution_json，DashboardHTTP 却定义在第 176  | main.py: 移除模块级 _load_evolution_history() 调用，改在 main() 开头调用（此；main.py: 在原调用点留下显式注释说明为何不得移回 DashboardHTTP 类定义之前；新增 tests/test_brain_startup_regression.py 5 条：AST 检查模块级禁止调用该 | test_brain_startup_regression 5/5；WSL 实机验证：修正映射部署后 brain_ver | 本次会话 t9-C；缺陷源自并行提交 2202d1e（未在 WSL 重启验证） |
+| EVO-060 | 2026-09-17 18:41 | R31-fix6 | 2.23.2 | 3.2.0 | micro_loop stuck_duration 虚高：R31-fix5 的 cy=30 已产生实际位移（disp_60s>3000u），但 anomaly 分类器只看交替转向模式无视位移 → stuck_duration 持续积压 | memory.py AnomalyDetector._detect_micro_loop: Tier 2 加 disp_；disp_60s  threading: _vote → update → MemoryController.anoma；效果：有进展的交替转向不再被 stuck_duration 锁定，micro_loop 状态自然解除，CPG 原语层重新 | memory/test_fall/test_escape 100 passed；设计原则：简单有效——一行门控条件 | 实机分析：applied=(-69,30) 已证明之字形推进，分类器语义脱节。 |
+| AUTO-0012 | 2026-09-17 10:41 | — | 2.23.1 | 3.3.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
+| EVO-061 | 2026-09-17 19:58 | R31-fix7 | 2.23.3 | 3.3.0 | fallen 状态下 Mario 卡在地图下方 y=-954，固定 1.5s 跳冲无法复位（depth too extreme） | main.py below-ground 逃逸：burst duration 从固定 1.5s 改为自适应（深度因子 +；最大持续 12s 后停止，防止永久锁定 | 编译通过；实机验证 fallen 逃逸 | 实机 fallen 场景触动优化 |
+| EVO-062 | 2026-09-17 20:37 | t10 操作面板/教练上下文修复 | 2.23.4 | 3.3.0 | ① 操作面板滑块是“死控件”：web/evo-params.html 直接 POST brain_tunable_params.json 的参数 id，而它们是**点号路径**（JSON.stringify({[pid]: value})  | main.py: 新增模块级 apply_strategy_update(cur, updates) —— 展开点号路径；main.py do_POST: 改用 apply_strategy_update，响应体新增 applied（每个键解；拒绝策略：若中间层已是标量则拒绝该键并上报，绝不破坏既有数据；非字符串键、非 dict 载荷同样拒绝（等 7 项） | test_strategy_update_endpoint 16/16；test_consult_context_pos | 本次会话 t10；缺陷②源自并行会话在途补丁（部署前拦截） |
 <!-- EVOLUTION-HISTORY-TABLE:END -->
 
 > **档案维护规则**：本表由 `--history-md` 从权威 JSON 再生成，新进化轮次只写 `evolution_history.json`（规则 15），然后执行 `python3 fly64/skills/evolution_skill.py --history-md` 重新生成并替换 `<!-- EVOLUTION-HISTORY-TABLE -->` 标记之间的内容，随代码一起提交。
