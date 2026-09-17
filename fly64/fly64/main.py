@@ -1179,6 +1179,7 @@ async def run(args) -> None:
                 stuck_duration=memory_ctrl.stuck_duration,
                 pos=(_pose_r[0], _pose_r[2]),
                 breakout_hint=_hint,
+                wall_persist=memory_ctrl.wall_persist,
             )
             if reflex_active:
                 action = memory_ctrl.reflex_action

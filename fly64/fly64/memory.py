@@ -153,16 +153,41 @@ class StuckDetector:
         self._was_stuck = False
         self._fallen = False
         self._fall_recovery_ticks = 0
+        # R31-fix4: y history for the vertical-velocity term + thresholds
+        self._y_hist: list[tuple[float, float]] = []
+        self.fall_vz_min = -120.0        # u/s: sustained descent = falling
+        self.fall_debounce_ticks = 3     # ~60 ms of falling before flagged
+        self.map_reset_ticks = 10        # ~200 ms below floor before reset
 
     def update(self, temporal_energy: float, frame_seq: int,
                forward_rate: float, pos_y: float = 0.0) -> tuple[float, float, bool]:
         """Return ``(stuck_score, stuck_duration, fallen)`` for this tick."""
-        # --- Y-axis anomaly (fallen off map) ---
-        self._fallen = pos_y < self.y_min or pos_y > self.y_max
-        if self._fallen:
+        # --- Y-axis state: altitude alone is NOT "fallen" (R31-fix4) ---
+        # The old predicate `pos_y < y_min or pos_y > y_max` mislabelled
+        # legal high ground (towers/platforms at y>500) as a fall and had no
+        # velocity term or debounce.  Accurate model:
+        #   FALLING   sustained downward velocity (a fall in progress)
+        #   OFF_MAP   below the map floor, sustained (needs a reset)
+        #   high y with |vz| small is legitimate standing — never a fall.
+        self._y_hist.append((0.0, float(pos_y)))
+        self._y_hist = self._y_hist[-16:]
+        vz = 0.0
+        if len(self._y_hist) >= 2:
+            za = self._y_hist[0][1]
+            zb = self._y_hist[-1][1]
+            ticks = len(self._y_hist) - 1
+            vz = (zb - za) / (ticks * self._dt)
+        falling = vz < self.fall_vz_min
+        below_floor = pos_y < self.y_min
+        if falling or below_floor:
             self._fall_recovery_ticks += 1
         else:
             self._fall_recovery_ticks = 0
+        # debounced: velocity-based FALLING needs 3 sustained ticks; but
+        # below-floor is unambiguous — fires immediately (t23 contract:
+        # fallen -> escape without waiting)
+        self._fallen = ((falling and self._fall_recovery_ticks >= self.fall_debounce_ticks)
+                        or below_floor)
 
         # --- temporal energy ---
         if temporal_energy < self.temporal_threshold:
@@ -294,19 +319,18 @@ class SpatialMemoryMap:
     # -- helpers ----------------------------------------------------------
 
     def _key(self, x: float, y: float = 0.0, z: float = 0.0) -> tuple[int, int, int]:
-        """Map world coords to grid key (x, y_layer, z), clamping.
-        Y parameter for 3D grid; defaults to 0 for backward compat."""
-        ix = int(math.floor(x / self.cell_size))
-        iz = int(math.floor(z / self.cell_size))
-        half = self.grid_cells // 2
-        ix = max(-half, min(half - 1, ix))
-        iz = max(-half, min(half - 1, iz))
-        # Map Y from [-500, 1500] to [0, y_layers-1]
-        iy = max(0, min(self.y_layers - 1, int((y + 500) / 400)))
-        return (ix, iy, iz)
+        """Map world coords to grid key (x, y_layer, z).
 
-        return (max(-half, min(half - 1, ix)),
-                max(-half, min(half - 1, iz)))
+        EVO L2: x/z are UNBOUNDED — the hash grid grows with exploration so
+        the memory map always covers where Mario actually is.  The old ±5000
+        clamp piled every out-of-bounds position onto one boundary column,
+        desynchronising the memory map from the true trajectory (the grid/
+        trajectory mismatch fixed here).  Y stays layered ([-500,1500] →
+        [0, y_layers-1])."""
+        ix = int(math.floor(x / self.cell_size))
+        iy = max(0, min(self.y_layers - 1, int((y + 500) / 400)))
+        iz = int(math.floor(z / self.cell_size))
+        return (ix, iy, iz)
 
     def coverage_gap_vector(self, x: float, z: float,
                             radius: int = 6) -> tuple[float, float] | None:
@@ -1354,7 +1378,8 @@ class ReflexController:
     def update(self, dt: float, anomaly_state: dict,
                rng_choice, stuck_duration: float = 0.0,
                pos: tuple[float, float] | None = None,
-               breakout_hint: float = 0.0) -> str:
+               breakout_hint: float = 0.0,
+               wall_persist: float = 0.0) -> str:
         """Tick the reflex controller.
 
         Parameters
@@ -1368,6 +1393,10 @@ class ReflexController:
             ``model.rng.integers``).
         stuck_duration : float
             Seconds the fly has been stuck — drives adaptive cooldown (EVO R6).
+        wall_persist : float
+            Seconds of continuous wall contact (wall_score > 0.3).  When
+            > 2.0 s triggers early wall_stuck reflex BEFORE the anomaly
+            detector's gate (which requires escape_behavior=True) fires.
 
         Returns
         -------
@@ -1397,6 +1426,15 @@ class ReflexController:
                                           stuck_duration=stuck_duration,
                                           pos=pos,
                                           breakout_hint=breakout_hint)
+
+        # Early wall avoidance: wall_persist > 2s triggers wall_stuck reflex
+        # BEFORE the anomaly detector (which requires escape_behavior=True)
+        # has a chance to fire, so the agent backs away and turns much sooner.
+        if wall_persist > 2.0 and self._cooldowns[self.WALL_STUCK] <= 0.0:
+            return self._start_reflex(self.WALL_STUCK, rng_choice,
+                                      stuck_duration=stuck_duration,
+                                      pos=pos,
+                                      breakout_hint=breakout_hint)
 
         return ""
 
@@ -1688,6 +1726,12 @@ class MemoryController:
         # EVO L2: exploration-stall tracking for health scoring — rolling
         # window of "coverage_rate ≈ 0" flags (600 ticks ≈ 12 s at 50 Hz).
         self._stall_flags: deque = deque(maxlen=600)
+        # Wall persistence — tracks consecutive ticks spent pressing a wall
+        # independent of escape_behavior.  Used for early wall avoidance
+        # before the anomaly detector's wall_stuck gate (which requires
+        # escape_behavior=True) fires.
+        self._wall_persist: float = 0.0
+        self._wall_persist_heading: float = 0.0  # heading at wall contact start
 
     def update(self, temporal_energy: float, frame_seq: int,
                forward_rate: float, x: float, z: float,
@@ -1740,6 +1784,19 @@ class MemoryController:
         self._latest_anomaly_conf = anomaly_result["confidence"]
         self._latest_anomaly_dur = anomaly_result["duration_in_state"]
         self._latest_anomaly_state = anomaly_result["state"]
+
+        # Wall persistence — track consecutive ticks pressing a wall
+        # independent of escape_behavior.  Allows early hard-turn avoidance
+        # before the anomaly detector's wall_stuck gate (requires escape=True)
+        # fires 10+ seconds later.
+        _dt = getattr(self, "_bold_explore_dt", 0.02)
+        if wall_score > 0.3:
+            self._wall_persist += _dt
+            if abs(self._wall_persist - _dt) < 0.001:  # first tick
+                self._wall_persist_heading = heading
+        else:
+            self._wall_persist = 0.0
+            self._wall_persist_heading = 0.0
 
         # ---- Scene signature matching (landmark memory) ----
         if scene_sig is not None and scene_sig.size == 128:
@@ -1944,6 +2001,11 @@ class MemoryController:
 
     @property
     def fallen(self) -> bool: return self._fallen
+
+    @property
+    def wall_persist(self) -> float:
+        """Seconds of continuous wall contact independent of escape state."""
+        return self._wall_persist
 
     @property
     def coverage_percentage(self) -> float:
