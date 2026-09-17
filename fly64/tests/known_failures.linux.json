@@ -1,0 +1,162 @@
+{
+ "platform": "linux",
+ "recorded_at": "2026-09-17T13:23:26.559414+00:00",
+ "count": 31,
+ "entries": [
+  {
+   "id": "tests/test_coach_pipeline.py::TestDashboardThumbnail::test_help_frame_embed",
+   "cause": "unknown",
+   "note": ""
+  },
+  {
+   "id": "tests/test_coach_pipeline.py::TestServiceCycle::test_no_1210_errors_recently",
+   "cause": "unknown",
+   "note": ""
+  },
+  {
+   "id": "tests/test_coach_pipeline.py::TestServiceCycle::test_service_log_shows_success",
+   "cause": "unknown",
+   "note": ""
+  },
+  {
+   "id": "tests/test_coach_pipeline.py::TestSnapshotPipeline::test_frame_b64_is_valid_PNG",
+   "cause": "unknown",
+   "note": ""
+  },
+  {
+   "id": "tests/test_coach_pipeline.py::TestSnapshotPipeline::test_help_json_populated",
+   "cause": "unknown",
+   "note": ""
+  },
+  {
+   "id": "tests/test_coach_pipeline.py::TestSnapshotPipeline::test_screen_b64_size",
+   "cause": "unknown",
+   "note": ""
+  },
+  {
+   "id": "tests/test_evolution_capability.py::TestEvoRound10::test_bold_explore_decision_source",
+   "cause": "unknown",
+   "note": ""
+  },
+  {
+   "id": "tests/test_invariants.py::test_native_bridge",
+   "cause": "unknown",
+   "note": ""
+  },
+  {
+   "id": "tests/test_invariants.py::test_no_visual_motor_shortcut",
+   "cause": "unknown",
+   "note": ""
+  },
+  {
+   "id": "tests/test_invariants.py::test_torn_frames_return_last_good_frame",
+   "cause": "unknown",
+   "note": ""
+  },
+  {
+   "id": "tests/test_mbon_saturation.py::TestSaturationRecovery::test_absolute_override_at_095",
+   "cause": "unknown",
+   "note": ""
+  },
+  {
+   "id": "tests/test_mbon_saturation.py::TestSaturationRecovery::test_recovered_column_suppresses_retrigger",
+   "cause": "unknown",
+   "note": ""
+  },
+  {
+   "id": "tests/test_mbon_saturation.py::TestSaturationRecovery::test_recovery_counter_exists",
+   "cause": "unknown",
+   "note": ""
+  },
+  {
+   "id": "tests/test_mbon_saturation.py::TestSaturationRecovery::test_recovery_marks_column_after_scaling",
+   "cause": "unknown",
+   "note": ""
+  },
+  {
+   "id": "tests/test_mbon_saturation.py::TestSaturationRecovery::test_reset_clears_recovery_state",
+   "cause": "unknown",
+   "note": ""
+  },
+  {
+   "id": "tests/test_optic_flow.py::test_flow_computation_performance",
+   "cause": "unknown",
+   "note": ""
+  },
+  {
+   "id": "tests/test_optic_flow.py::test_memory_no_cliff_emergency_when_cliff_high",
+   "cause": "unknown",
+   "note": ""
+  },
+  {
+   "id": "tests/test_p1_neural_takeover.py::TestKpiBaseline::test_control_write_count_shrunk",
+   "cause": "unknown",
+   "note": ""
+  },
+  {
+   "id": "tests/test_retina.py::test_pose_and_pixels_share_the_frame_seqlock",
+   "cause": "unknown",
+   "note": ""
+  },
+  {
+   "id": "tests/test_spin_loop_fix.py::TestLoopScoreBounded::test_loop_score_zero_on_fresh_exploration",
+   "cause": "unknown",
+   "note": ""
+  },
+  {
+   "id": "tests/test_trajectory_height.py::test_trajectory_html_wiring",
+   "cause": "unknown",
+   "note": ""
+  },
+  {
+   "id": "tests/test_what_i_see_protocol.py::TestEnhancedPrompt::test_build_request_with_scene_context",
+   "cause": "unknown",
+   "note": ""
+  },
+  {
+   "id": "tests/test_what_i_see_protocol.py::TestEnhancedPrompt::test_build_request_without_scene_context",
+   "cause": "unknown",
+   "note": ""
+  },
+  {
+   "id": "tests/test_what_i_see_protocol.py::TestEnhancedPrompt::test_enhanced_prompt_has_innate_coach",
+   "cause": "unknown",
+   "note": ""
+  },
+  {
+   "id": "tests/test_what_i_see_protocol.py::TestEnhancedPrompt::test_enhanced_prompt_has_scene_context_placeholder",
+   "cause": "unknown",
+   "note": ""
+  },
+  {
+   "id": "tests/test_what_i_see_protocol.py::TestEnhancedPrompt::test_enhanced_prompt_has_semantic_level",
+   "cause": "unknown",
+   "note": ""
+  },
+  {
+   "id": "tests/test_what_i_see_protocol.py::TestSceneTagsPersistence::test_write_advice_persists_scene_tags",
+   "cause": "unknown",
+   "note": ""
+  },
+  {
+   "id": "tests/test_what_i_see_protocol.py::TestSceneTagsPersistence::test_write_strategy_does_not_persist_scene_tags",
+   "cause": "unknown",
+   "note": ""
+  },
+  {
+   "id": "tests/test_what_i_see_protocol.py::TestSemanticLevel::test_semantic_level_invalid_defaults",
+   "cause": "unknown",
+   "note": ""
+  },
+  {
+   "id": "tests/test_what_i_see_protocol.py::TestSemanticLevel::test_semantic_level_missing_defaults",
+   "cause": "unknown",
+   "note": ""
+  },
+  {
+   "id": "tests/test_what_i_see_protocol.py::TestSemanticLevel::test_semantic_level_non_string_defaults",
+   "cause": "unknown",
+   "note": ""
+  }
+ ]
+}

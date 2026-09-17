@@ -80,7 +80,10 @@ def test_pose_and_pixels_share_the_frame_seqlock(tmp_path):
         assert metadata == dict(pose=[1,2,3,.5],game_frame=123,render_ms=4.5)
         struct.pack_into('<I',bridge.mm,12,good[0]+1)
         struct.pack_into('<4fIf',bridge.mm,64,9,9,9,9,999,9)
-        bridge.mm[HEADER_SIZE:] = bytes([99])*FRAME_BYTES
+        # Corrupt ONLY the frame region: the mmap also holds a 320x240 SCREEN
+        # buffer after FRAME_BYTES, so `bridge.mm[HEADER_SIZE:]` is longer than
+        # one frame and raises IndexError (test-drift, EVO-068).
+        bridge.mm[HEADER_SIZE:HEADER_SIZE+FRAME_BYTES] = bytes([99])*FRAME_BYTES
         assert bridge.read_frame() == good
         assert bridge.frame_metadata == metadata
 

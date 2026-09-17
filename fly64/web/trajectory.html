@@ -324,15 +324,34 @@ async function refreshMemoryOverlay(traj){
     // the trajectory footprint — horizontal (x,z) alignment with the path is
     // exact; height is conveyed by the path line + drop-lines instead.
     const my=mapY;
-    if(Array.isArray(mem.heat_cells)&&mem.heat_cells.length){
-      const n=Math.min(mem.heat_cells.length,2600);
-      for(let i=0;i<n;i++){const c=mem.heat_cells[i];
-        _m4.makeTranslation(c[0],my,c[1]);
-        carpet.setMatrixAt(i,_m4);
-        carpet.setColorAt(i,heatColor(c[2]));}
-      carpet.count=n;carpet.instanceMatrix.needsUpdate=true;
-      if(carpet.instanceColor)carpet.instanceColor.needsUpdate=true;
-      carpet.visible=gridOn;
+    // ── Carpet: elevation-coloured tiles (height gradient matching the
+    // path), with recency controlling luminance.  Tiles above the median
+    // elevation glow warm (→red) — tiles below glow cool (→blue).  This
+    // adds a height/depth dimension to the flat memory grid.
+    const cs = 200;   // cell size, must match memory.py
+    const cellH = {}; // per-cell mean height from the trajectory
+    for (const p of traj) {
+      const k = Math.floor(p.x / cs).toFixed(0) + ',' + Math.floor(p.z / cs).toFixed(0);
+      (cellH[k] = cellH[k] || []).push(p.y);
+    }
+    const hMin = heightRange.min, hSpan = Math.max(heightRange.max - hMin, 1e-6);
+    if (Array.isArray(mem.heat_cells) && mem.heat_cells.length) {
+      const n = Math.min(mem.heat_cells.length, 2600);
+      const ky = (x,z) => Math.floor(x/cs).toFixed(0) + ',' + Math.floor(z/cs).toFixed(0);
+      for (let i = 0; i < n; i++) {
+        const c = mem.heat_cells[i];   // [x_center, z_center, recency]
+        _m4.makeTranslation(c[0], my, c[1]);
+        carpet.setMatrixAt(i, _m4);
+        // elevation colour from per-cell mean height (fallback: map trajectory avg)
+        const h0 = cellH[ky(c[0], c[1])];
+        const cy = h0 ? h0.reduce((s,v)=>s+v,0)/h0.length : (hMin + hSpan * 0.5);
+        const rgb = heightColor((cy - hMin) / hSpan);   // blue→red ramp
+        const lum = 0.35 + Math.min(c[2], 1) * 0.65;    // recency → brightness
+        carpet.setColorAt(i, {r: rgb[0]*lum, g: rgb[1]*lum, b: rgb[2]*lum});
+      }
+      carpet.count = n; carpet.instanceMatrix.needsUpdate = true;
+      if (carpet.instanceColor) carpet.instanceColor.needsUpdate = true;
+      carpet.visible = gridOn;
     }
     if(Array.isArray(mem.adjacency)&&mem.adjacency.length){
       const flat=[];

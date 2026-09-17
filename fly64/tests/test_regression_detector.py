@@ -19,9 +19,16 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-BASELINE = REPO_ROOT / "tests" / "known_failures.json"
 DETECTOR = REPO_ROOT / "scripts" / "check_regressions.py"
 SCRATCH = REPO_ROOT / "tests" / "test_zz_regression_detector_probe.py"
+
+sys.path.insert(0, str(REPO_ROOT))
+from scripts.check_regressions import CAUSES, baseline_path  # noqa: E402
+
+#: Resolved the same way the tool does, so a platform-scoped rename cannot leave
+#: these tests asserting against a file that no longer exists (which is exactly
+#: what happened when the baseline became tests/known_failures.<platform>.json).
+BASELINE = baseline_path()
 
 PROBE = '''
 """Scratch probe injected by test_regression_detector.py — must be deleted."""
@@ -56,7 +63,6 @@ class TestBaselineIsWellFormed:
                 assert e.get("note"), "%s has no evidence note" % e["id"]
 
     def test_causes_are_from_the_known_vocabulary(self):
-        from scripts.check_regressions import CAUSES
         data = json.loads(BASELINE.read_text(encoding="utf-8"))
         bad = {e["cause"] for e in data["entries"]} - set(CAUSES)
         assert not bad, "unknown cause labels: %s" % bad

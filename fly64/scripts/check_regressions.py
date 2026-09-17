@@ -35,8 +35,23 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-BASELINE = ROOT / "tests" / "known_failures.json"
 FAILED_RE = re.compile(r"^FAILED\s+(\S+)", re.M)
+
+
+def baseline_path(platform: str | None = None) -> Path:
+    """Platform-scoped baseline: the two suites have genuinely different
+    failure sets (e.g. the clock_gettime_ns tests pass on Linux and fail on
+    Windows Python 3.11), so a single shared file would be wrong on one side.
+
+    `tests/known_failures.<platform>.json` is preferred; the legacy unqualified
+    `tests/known_failures.json` is still honoured for backwards compatibility.
+    """
+    plat = platform or sys.platform
+    scoped = ROOT / "tests" / ("known_failures.%s.json" % plat)
+    if scoped.exists():
+        return scoped
+    legacy = ROOT / "tests" / "known_failures.json"
+    return scoped if not legacy.exists() else legacy
 
 CAUSES = {
     "environment": "platform/dependency gap, not a code defect",
@@ -73,10 +88,11 @@ def parse_report(path: Path) -> list[str]:
     return sorted({id_of(m.group(1)) for m in FAILED_RE.finditer(text)})
 
 
-def load_baseline() -> dict:
-    if not BASELINE.exists():
+def load_baseline(platform: str | None = None) -> dict:
+    p = baseline_path(platform)
+    if not p.exists():
         return {"entries": []}
-    return json.loads(BASELINE.read_text(encoding="utf-8"))
+    return json.loads(p.read_text(encoding="utf-8"))
 
 
 def main():
@@ -94,13 +110,14 @@ def main():
         print("running pytest ...", flush=True)
         current, tail = run_pytest()
 
-    base = load_baseline()
+    base = load_baseline(args.platform)
     known = {e["id"] for e in base.get("entries", [])}
 
     new = [t for t in current if t not in known]
     fixed = sorted(known - set(current))
     still = sorted(set(current) & known)
 
+    target = baseline_path(args.platform)
     if args.update:
         entries = []
         old = {e["id"]: e for e in base.get("entries", [])}
@@ -109,13 +126,13 @@ def main():
             entries.append({"id": t,
                             "cause": prev.get("cause", "unknown"),
                             "note": prev.get("note", "")})
-        BASELINE.write_text(json.dumps({
+        target.write_text(json.dumps({
             "platform": args.platform,
             "recorded_at": datetime.now(timezone.utc).isoformat(),
             "count": len(entries),
             "entries": entries,
         }, indent=1, ensure_ascii=False) + "\n", encoding="utf-8", newline="\n")
-        print("baseline updated: %d entries -> %s" % (len(entries), BASELINE))
+        print("baseline updated: %d entries -> %s" % (len(entries), target))
         return 0
 
     by_cause: dict[str, int] = {}

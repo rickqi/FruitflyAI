@@ -15,7 +15,13 @@ def test_torn_frames_return_last_good_frame(tmp_path):
         b.write_frame(bytes([41]) * FRAME_BYTES)
         expected = b.read_frame()
         struct.pack_into("<I", b.mm, 12, 3)
-        b.mm[HEADER_SIZE:] = bytes([99]) * FRAME_BYTES
+        # Corrupt ONLY the frame region.  The mmap holds a second buffer after
+        # it (SCREEN_BYTES, 320x240x3), so the old `b.mm[HEADER_SIZE:]` slice was
+        # longer than FRAME_BYTES and raised
+        #     IndexError: mmap slice assignment is wrong size
+        # — the bridge layout grew and this test was never updated (EVO-068
+        # classified it test-drift).
+        b.mm[HEADER_SIZE:HEADER_SIZE + FRAME_BYTES] = bytes([99]) * FRAME_BYTES
         assert b.read_frame() == expected
 
 def test_signed_event_propagation_matches_dense():
