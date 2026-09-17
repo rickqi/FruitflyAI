@@ -95,7 +95,9 @@ PROMPT_TEMPLATE = (
     '"strategy": {"fallen_recovery": {"mode": "mirror|directional_climb", '
     '"climb_period": 2.0, "persist_seconds": 2.0}, '
     '"exploration": {"bold_explore_stuck_s": 60.0, "turn_bias": 0}, '
-    '"escape": {"stuck_threshold_s": 30.0, "reverse_seconds": 0.5}}}\n'
+    '"escape": {"stuck_threshold_s": 30.0, "reverse_seconds": 0.5}, '
+    '"command": {"type": "turn_and_go", "heading": 90, "duration_s": 2.0, '
+    '"y": 70, "primitive": null}}}\n'
     '策略参数语义卡（严格遵守单位与方向，不要反向调参）:\n'
     '- exploration.bold_explore_stuck_s: 秒。异常持续该秒数后触发突围，'
     '越小越快突围（建议 20-120）。\n'
@@ -429,6 +431,19 @@ def sanitize_strategy(strategy: dict) -> dict:
                 clean_p["prefer"] = p
         if clean_p:
             clean["primitives"] = clean_p
+    # Command section — one-shot behavioral directive.
+    cmd = strategy.get("command")
+    if isinstance(cmd, dict) and cmd.get("type") in ("turn_and_go",):
+        out = {"type": cmd["type"]}
+        if "heading" in cmd and isinstance(cmd["heading"], (int, float)):
+            out["heading"] = int(cmd["heading"]) % 360
+        if "duration_s" in cmd:
+            out["duration_s"] = max(0.5, min(10.0, float(cmd.get("duration_s", 2.0))))
+        if "y" in cmd:
+            out["y"] = max(0, min(127, int(cmd.get("y", 70))))
+        if cmd.get("primitive") in ("longjump","backflip","groundpound","punch","dive"):
+            out["primitive"] = cmd["primitive"]
+        clean["command"] = out
     return clean
 
 

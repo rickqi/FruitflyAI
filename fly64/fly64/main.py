@@ -1429,6 +1429,16 @@ async def run(args) -> None:
             model._sideflip_reversal = bool(
                 _xsign != 0 and _CPG_PREV_XSIGN != 0 and _xsign != _CPG_PREV_XSIGN)
             _CPG_PREV_XSIGN = _xsign
+            # M3: coach command — one-shot behavioral directive from GLM.
+            _cmd = _active_strategy.get("command")
+            if _cmd and _cmd.get("type") == "turn_and_go":
+                _cmd_ts = _cmd.get("ts", 0)
+                if _cmd_ts != getattr(model, "_consumed_cmd_ts", 0):
+                    heading_rad = math.radians(_cmd.get("heading", 90))
+                    control.x = int(math.sin(heading_rad) * 70)
+                    control.y = _cmd.get("y", 70)
+                    model._consumed_cmd_ts = _cmd_ts
+                    print(f"[command] turn_and_go heading={_cmd.get('heading')} y={control.y}")
             if cpg.active is None and not dlg_now and not reflex_override:
                 # is_ramp is only assigned inside the cliff block (step>10);
                 # recompute locally so early ticks never hit an unbound name.
