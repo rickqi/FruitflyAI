@@ -272,12 +272,26 @@ class PluginRunner:
         """
         if not frame_b64:
             return None
-        png_b64 = raw_rgb_b64_to_png_b64(frame_b64)
+        # P0-fix: the screen.json frame is 320×240×3 raw RGB — the t21 code
+        # called raw_rgb_b64_to_png_b64 with the DEFAULT 384×256 dims, the
+        # size check failed and the frame was passed through unconverted, so
+        # the PNG magic check silently dropped EVERY snapshot.  Reuse
+        # frame_to_data_uri's dimension detection instead.
         try:
-            raw = base64.b64decode(png_b64, validate=True)
-            if raw[:8] != b"\x89PNG\r\n\x1a\n":
-                return None  # not a valid PNG — skip saving
+            from plugin.llm_consult import frame_to_data_uri
+        except ImportError:
+            from llm_consult import frame_to_data_uri
+        try:
+            uri = frame_to_data_uri(frame_b64)
         except Exception:
+            return None
+        if not uri or not uri.startswith("data:image/png;base64,"):
+            return None  # unrecognised payload — still not an encoded image
+        try:
+            raw = base64.b64decode(uri.split(",", 1)[1], validate=True)
+        except Exception:
+            return None
+        if raw[:8] != b"\x89PNG\r\n\x1a\n":
             return None
         stamp = round(float(ts if ts is not None else time.time()), 3)
         safe = re.sub(r"[^0-9A-Za-z\u4e00-\u9fff]+", "_",

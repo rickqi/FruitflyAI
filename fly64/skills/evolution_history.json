@@ -3,7 +3,7 @@
   "canonical_versions": {
     "brain": "2.19.2",
     "skill": "3.0.0",
-    "as_of": "2026-09-17T02:11:43.183978+08:00"
+    "as_of": "2026-09-17T08:36:27.423968+08:00"
   },
   "records": [
     {
@@ -682,6 +682,24 @@
       ],
       "tests": "docs/counterfactual-fallen-marathon.md 第二轮实验节",
       "source": "replay.counterfactual 分解实验（本次会话）"
+    },
+    {
+      "id": "EVO-047",
+      "date": "2026-09-17",
+      "time": "08:36:27 +0800",
+      "round": "Coach 修复",
+      "kind": "skill",
+      "brain_version": "2.19.0",
+      "skill_version": "3.1.0",
+      "trigger": "教练快照不截屏/建议链路缺失排查：①ServiceRunner.run_cycle 重写了周期流程，缺 t21 快照调用与 P1 归因/课程挂钩（守护进程跑的是旧副本）；②save_consult_frame 用默认 384×256 调 PNG 转换器，screen.json 的 320×240 裸帧被透传后魔数校验失败→静默丢弃",
+      "changes": [
+        "service.py run_cycle 补齐：save_consult_frame 快照留存 + P1 outcome 归因窗 + 课程注入（与 PluginRunner.run_cycle 对齐）",
+        "runner.py save_consult_frame：复用 frame_to_data_uri 尺寸检测（320×240/384×256 均可转换），双路径导入兜底",
+        "resolve_outcome 拒绝残缺 memory 快照（不再产出全零垃圾记录）；清除 4 条既有垃圾",
+        "GBK 控制台 emoji 崩溃修复（stdout 强制 UTF-8）"
+      ],
+      "tests": "test_snapshot_320 4/4（320×240/384×256/空/PNG 直存）+ coach_outcomes 13 + plugin_mhr 48 + 双守卫 OK",
+      "source": "commit 本次（实况验证：coach_frames 出现 3 张真实快照，help_reason 各异）"
     },
     {
       "id": "AUTO-0001",

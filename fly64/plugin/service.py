@@ -43,10 +43,12 @@ try:  # package-relative (fly64 on sys.path)
     from plugin.llm_consult import ConsultError, GLMConsultant
     from plugin.runner import DEFAULT_DASHBOARD, DEFAULT_INTERVAL, PluginRunner, fetch_json
     from plugin.strategy_writer import StrategyWriter
+    from plugin import coach_outcomes as co
 except ImportError:  # direct execution from fly64/
     from llm_consult import ConsultError, GLMConsultant
     from runner import DEFAULT_DASHBOARD, DEFAULT_INTERVAL, PluginRunner, fetch_json
     from strategy_writer import StrategyWriter
+    import coach_outcomes as co
 
 PLUGIN_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = PLUGIN_DIR.parent
@@ -189,7 +191,19 @@ class ServiceRunner:
         strategy_check = {"ok": True, "detail": "no consult this cycle"}
         try:
             snapshot = r.fetch_snapshot()
+            # P1: resolve a pending strategy-outcome window if due
+            try:
+                r._resolve_pending_outcome(snapshot, result)
+            except Exception:
+                pass  # attribution is best-effort, never break the cycle
             context = r.check_help_needed(snapshot)
+            # P4.3: inject the lesson plan so the coach teaches with state
+            try:
+                curriculum = co.load_curriculum()
+                if curriculum:
+                    context["curriculum"] = curriculum
+            except Exception:
+                pass
             dash = self.health.check_dashboard()
             bridge = self.health.check_bridge()
             if context is None:
@@ -199,6 +213,12 @@ class ServiceRunner:
             else:
                 result["context"] = context
                 frame_b64 = r.capture_frame()
+                # t21: persist the frame the coach is about to see — the
+                # supervised cycle previously skipped PluginRunner's snapshot
+                try:
+                    r.save_consult_frame(frame_b64, context.get("help_reason"))
+                except Exception:
+                    pass  # snapshot is best-effort; never block the consult
                 parsed = self._consult_with_fallback(context, frame_b64)
                 result["consulted"] = True
                 r.consultations += 1
@@ -212,6 +232,15 @@ class ServiceRunner:
                                              if self.degraded else r.consultant.model))
                 result["strategy_written"] = True
                 result["advice"] = parsed.get("advice", "")
+                # P1: open the outcome-attribution window for this strategy
+                try:
+                    r._pending_outcome = co.snapshot_outcome(
+                        strategy, snapshot.get("memory") or {},
+                        snapshot.get("flow") or {}, cycle=r.cycles,
+                        help_reason=str(context.get("help_reason") or ""))
+                    co.save_pending(r._pending_outcome)
+                except Exception:
+                    pass
                 strategy_check = self.health.check_strategy_write()
                 result["status"] = "ok"
                 r.last_error = None
