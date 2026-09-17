@@ -367,14 +367,11 @@ class SpatialMemoryMap:
         cxk = self._key(x, y, z)
         best_dist = float('inf')
         best_dx = best_dz = 0.0
-        half = self.grid_cells // 2
         for dx in range(-search_radius, search_radius + 1):
             for dz in range(-search_radius, search_radius + 1):
                 if dx == 0 and dz == 0:
                     continue  # skip center (it is visited)
-                kx = max(-half, min(half - 1, cxk[0] + dx))
-                kz = max(-half, min(half - 1, cxk[2] + dz))
-                k = (kx, cxk[1], kz)
+                k = (cxk[0] + dx, cxk[1], cxk[2] + dz)   # unbounded grid
                 if k in self._cells:
                     continue  # already visited
                 # Check if any neighbour is visited (frontier condition)
@@ -383,9 +380,7 @@ class SpatialMemoryMap:
                     for ndz in (-1, 0, 1):
                         if ndx == 0 and ndz == 0:
                             continue
-                        nk = (max(-half, min(half - 1, kx + ndx)),
-                              cxk[1],
-                              max(-half, min(half - 1, kz + ndz)))
+                        nk = (k[0] + ndx, cxk[1], k[2] + ndz)
                         if nk in self._cells:
                             is_frontier = True
                             break
@@ -555,19 +550,18 @@ class SpatialMemoryMap:
         """
         if not self._cells:
             return np.array([], np.float32), np.array([], np.float32), np.array([], np.float32)
-        keys = list(self._cells.keys())
-        xs = np.array(
-            [k[0] * self.cell_size + self.cell_size * 0.5 for k in keys],
-            dtype=np.float32,
-        )
-        zs = np.array(
-            [k[1] * self.cell_size + self.cell_size * 0.5 for k in keys],
-            dtype=np.float32,
-        )
-        heats = np.array(
-            [float(self._recency.get(k, 0.0)) for k in keys],
-            dtype=np.float32,
-        )
+        # 3D grid: aggregate the y-layers into one top-down column per (x,z)
+        # cell — k[0]=x, k[2]=z (k[1] is the y-LAYER; using it for z was the
+        # grid/trajectory desync bug).
+        columns: dict[tuple[int, int], float] = {}
+        for k in self._cells.keys():
+            col = (k[0], k[2])
+            r = float(self._recency.get(k, 0.0))
+            if r > columns.get(col, -1.0):
+                columns[col] = r
+        xs = np.array([ix * self.cell_size + self.cell_size * 0.5 for ix, _ in columns], np.float32)
+        zs = np.array([iz * self.cell_size + self.cell_size * 0.5 for _, iz in columns], np.float32)
+        heats = np.array(list(columns.values()), np.float32)
         return xs, zs, heats
 
     def novelty_direction(self, x: float, z: float, heading: float,
@@ -680,8 +674,19 @@ class SpatialMemoryMap:
 
     @property
     def coverage_percentage(self) -> float:
-        """Percentage of grid cells visited out of the total grid (0–100)."""
-        total = self.grid_cells * self.grid_cells
+        """Percentage of cells visited relative to the explored bounding box.
+
+        EVO L2: the grid is unbounded now, so a fixed 50×50 denominator no
+        longer applies.  Denominator = cells enclosed by the visited bounding
+        box (+2-cell ring), floored at the nominal 2500 so sparse corridor
+        runs don't inflate coverage to 100%."""
+        total = max(self.grid_cells * self.grid_cells, 1)
+        if self._cells:
+            xs = [k[0] for k in self._cells]
+            zs = [k[2] for k in self._cells]
+            bw = (max(xs) - min(xs) + 5)
+            bh = (max(zs) - min(zs) + 5)
+            total = max(total, bw * bh)
         return (len(self._cells) / total) * 100.0
 
     @property
@@ -755,9 +760,9 @@ class SpatialMemoryMap:
         """
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
-        data = {"v": 1,
-                "cells": {f"{k[0]},{k[1]}": int(v) for k, v in self._cells.items()},
-                "adj": {f"{a[0]},{a[1]}|{b[0]},{b[1]}": c for (a, b), c in self._adj.items()}}
+        data = {"v": 2,
+                "cells": {f"{k[0]},{k[1]},{k[2]}": int(v) for k, v in self._cells.items()},
+                "adj": {f"{a[0]},{a[1]},{a[2]}|{b[0]},{b[1]},{b[2]}": c for (a, b), c in self._adj.items()}}
         with open(p, "wb") as f:
             pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
 
@@ -767,21 +772,25 @@ class SpatialMemoryMap:
         try:
             with open(p, "rb") as f:
                 data = pickle.load(f)
-            if not isinstance(data, dict) or data.get("v") != 1:
+            if not isinstance(data, dict) or data.get("v") not in (1, 2):
                 return 0
             self._cells = {}
             for k, v in data["cells"].items():
                 key = tuple(int(x) for x in k.split(","))
                 if len(key) == 2:
-                    key = (key[0], 0, key[1])  # pad old (x,z) → (x,y,z)
+                    key = (key[0], 0, key[1])  # pad v1 (x,z) → (x,y,z)
                 self._cells[key] = np.uint16(v)
             self._recency = {k: 1.0 for k in self._cells}
             self._last_tick = {k: 0 for k in self._cells}
             self._adj = {}
             for s, c in data.get("adj", {}).items():
-                a, b = s.split("|")
-                self._adj[((tuple(int(x) for x in a.split(","))),
-                           (tuple(int(x) for x in b.split(","))))] = int(c)
+                pair = []
+                for part in s.split("|"):
+                    key = tuple(int(x) for x in part.split(","))
+                    if len(key) == 2:
+                        key = (key[0], 0, key[1])
+                    pair.append(key)
+                self._adj[(pair[0], pair[1])] = int(c)
             return len(self._cells)
         except Exception:
             return 0
@@ -1754,7 +1763,14 @@ class MemoryController:
         self._stuck_score, self._stuck_duration, self._fallen = self.stuck.update(
             temporal_energy, frame_seq, forward_rate, pos_y
         )
-        self._novelty = self.spatial.update(x, z)
+        self._stuck_score, self._stuck_duration, self._fallen = self.stuck.update(
+            temporal_energy, frame_seq, forward_rate, pos_y
+        )
+        # EVO L2 fix: the 3D grid signature is update(x, y, z) — the old
+        # two-arg call landed the real z in the y-slot and recorded every
+        # visit at z-cell 0, which desynchronised the memory grid from the
+        # true trajectory by thousands of units.
+        self._novelty = self.spatial.update(x, pos_y, z)
 
         # Update cliff detector with multi-frame confirmation
         self._cliff_state = self.cliff.update(flow_cliff)

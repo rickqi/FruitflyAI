@@ -900,16 +900,17 @@ def test_repulsion_zero_when_few_revisits():
 def test_repulsion_positive_with_many_revisits():
     """_get_repulsion > 0 when high-revisit cells are nearby."""
     sm = SpatialMemoryMap()
-    cell_key = (0, 1, 0)
+    cell_key = (0, 0, 0)
     # Manually fill a cell with high visit count
-    sm._cells[cell_key] = np.uint16(12)  # > 10 threshold
+    cell_key3 = (cell_key[0], 0, cell_key[1]) if len(cell_key) == 2 else cell_key
+    sm._cells[cell_key3] = np.uint16(12)  # > 10 threshold
     # Set revisit count > 10 by adding matching signatures
     sig = np.ones(128, dtype=np.float32) / np.sqrt(128)
     for _ in range(12):
         sm._scene_db.add(sig, 0)
     sm._scene_db.match(sig)  # trigger recount
-    # Query a neighboring cell
-    rep = sm._get_repulsion((1, 0))
+    # Query a neighboring cell (3-tuple: x, y_layer=0, z)
+    rep = sm._get_repulsion((1, 0, 0))
     assert rep > 0.0, f"Expected positive repulsion, got {rep}"
     assert rep <= 0.8
 
@@ -923,7 +924,7 @@ def test_novelty_reduced_by_repulsion():
     sm._recency[cell_key] = 1.0
     novelty_before = sm.novelty_at(0.0, 0.0)
     # Now add high-revisit neighboring cell and bump revisit_count
-    sm._cells[(1, 0)] = np.uint16(15)  # high revisit > 10
+    sm._cells[(1, 0, 0)] = np.uint16(15)  # high revisit > 10
     sig = np.ones(128, dtype=np.float32) / np.sqrt(128)
     for _ in range(12):
         sm._scene_db.add(sig, 0)
