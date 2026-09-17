@@ -1,6 +1,6 @@
 # EvolutionSkill — Self-Evolving Motion Diagnosis
 
-> 当前版本：BRAIN_VERSION **2.20.4** / SKILL_VERSION **3.2.0**（EVO-049：L2 导航质量——health v2 停滞/新颖项、L2a stuck_no_progress 求助触发、SOS 缩略图修复、六阶段 Evolve 脑参数进化；EVO-052 R31-fix3：伤害负 RPE + 受击格失败记忆 + coverage 门控位移奖励。完整逐轮记录见 skills/evolution_history.json）
+> 当前版本：BRAIN_VERSION **2.21.1** / SKILL_VERSION **3.2.0**（EVO-049：L2 导航质量 → EVO-052 R31-fix3：伤害 RPE → EVO-054 R31-fix5：micro_loop 反射带前向分量（cy=30），振荡=之字形前进而非原地旋转。完整逐轮记录见 skills/evolution_history.json）
 
 **Version**: 3.0.0
 **Status**: Active

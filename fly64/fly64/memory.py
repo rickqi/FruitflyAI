@@ -1610,8 +1610,12 @@ class ReflexController:
                 # EVO R28: mix CX steering bias into turn direction so the
                 # left/right alternation is tilted, breaking perfect heading
                 # cancellation while keeping the reflex in control.
+                # R31-fix5: cy=30 so alternation produces zig-zag forward
+                # movement instead of spin-in-place (micro_loop looks "stuck"
+                # when the turn phases cancel translation; forward component
+                # turns the oscillation into progress).
                 cx = self._turn_direction + int(getattr(self, "_last_cx_bias", 0.0) * 30)
-                cy = 0
+                cy = 30
             elif phase == "burst":
                 cx = -self._turn_direction // 3
                 cy = 70

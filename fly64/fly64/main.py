@@ -36,7 +36,7 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.21.0"  # Phase 3: motor_splits 6-seg + CPG gate×rate
+BRAIN_VERSION = "2.21.1"  # R31-fix5: micro_loop reflex forward component (no more spin-in-place)
 SKILL_VERSION = "3.2.0"   # primitive scoring + history isolation + Phase-6 Evolve (must mirror evolution_skill)
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
@@ -211,6 +211,15 @@ class DashboardHTTP(BaseHTTPRequestHandler):
                 except OSError:
                     pass
             body, mime = _evo_body, "application/json"
+        elif path == "/evolution-log.json":
+            # Last 50 evolution trials from the resident EVO loop
+            _elp = Path(__file__).resolve().parent.parent / "skills" / "evolution_log.jsonl"
+            try:
+                _lines = _elp.read_text("utf-8").strip().split("\n")
+                _entries = [json.loads(_l) for _l in _lines[-50:]]
+                body, mime = json.dumps(_entries).encode(), "application/json"
+            except Exception:
+                body, mime = b"[]", "application/json"
         elif path == "/help.json":
             body, mime = self.help_json, "application/json"
         elif path == "/coach_advice.json":
@@ -342,6 +351,40 @@ class DashboardHTTP(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
+
+    def do_POST(self):
+        """Write tunable parameter updates to active_strategy.json — consumed
+        by the brain model's hot-reload loop (every ~600 ticks ≈ 12 s)."""
+        path = urlsplit(self.path).path
+        if path != "/active_strategy-update":
+            self.send_error(404); return
+        length = int(self.headers.get("Content-Length", 0))
+        raw = self.rfile.read(length) if length else b"{}"
+        _skp = Path(__file__).resolve().parent.parent / "skills" / "active_strategy.json"
+        try:
+            updates = json.loads(raw)
+            cur = json.loads(_skp.read_text("utf-8")) if _skp.exists() else {}
+            for k, v in updates.items():
+                if isinstance(v, dict) and k in cur and isinstance(cur[k], dict):
+                    cur[k].update(v)
+                else:
+                    cur[k] = v
+            _skp.write_text(json.dumps(cur, indent=2, ensure_ascii=False), "utf-8")
+            body = json.dumps({"status":"ok","updated":list(updates.keys())}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type","application/json")
+            self.send_header("Content-Length",str(len(body)))
+            self.send_header("Cache-Control","no-store")
+            self.end_headers()
+            self.wfile.write(body)
+        except Exception as e:
+            body = json.dumps({"status":"error","message":str(e)}).encode()
+            self.send_response(400)
+            self.send_header("Content-Type","application/json")
+            self.send_header("Content-Length",str(len(body)))
+            self.send_header("Cache-Control","no-store")
+            self.end_headers()
+            self.wfile.write(body)
 
     def log_message(self, *_):
         pass
@@ -1078,6 +1121,25 @@ async def run(args) -> None:
                 _last_strategy_tick = model.step_count
                 _active_strategy = load_active_strategy(
                     project / "skills" / "active_strategy.json")
+                # P4.4 (t7): instinct consolidation — a scene whose coach
+                # parameters repeatedly produced improvements is bound and
+                # applied directly, bypassing the consult round-trip.
+                _instinct_scene = ""
+                _instinct_applied = False
+                try:
+                    from .instinct_bindings import get_binding, scene_key
+                    _scene_now = _scene_name(model, memory_ctrl, scene_recognizer)
+                    _instinct_scene = scene_key(_scene_now)
+                    _binding = get_binding(_instinct_scene)
+                    if _binding:
+                        for _sec, _vals in _binding.items():
+                            if isinstance(_vals, dict):
+                                _merged = dict(_active_strategy.get(_sec) or {})
+                                _merged.update(_vals)
+                                _active_strategy[_sec] = _merged
+                        _instinct_applied = True
+                except Exception:
+                    pass  # binding is an optimisation; never block the reload
                 # EVO R11 follow-up: push coach-tunable keys into the memory
                 # controller so GLM strategy advice tunes the escape/breakout
                 # behaviour (consumed in memory.py + bold breakout below).
@@ -1977,6 +2039,8 @@ async def run(args) -> None:
                             model, "_fallen_jump_boost", 0.60)), 3),
                         "command_type": (_active_strategy.get("command") or {}).get("type"),
                         "command_ts": (_active_strategy.get("command") or {}).get("ts"),
+                        "instinct_scene": _instinct_scene,
+                        "instinct_applied": _instinct_applied,
                     },
                     "evo_findings": _evo_findings,
                     "brain_version": BRAIN_VERSION,

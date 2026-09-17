@@ -762,7 +762,7 @@ def test_reflex_micro_loop_triggers():
     action = rc.get_action()
     assert action["phase"] == "turn"
     assert abs(action["control_x"]) == 69
-    assert action["control_y"] == 0
+    assert action["control_y"] == 30    # R31-fix5: forward component avoids spin-in-place
     # Tick past turn phase (0.5 s = 25 ticks)
     for _ in range(26):
         rc.update(0.020, anomaly_state, _always_pick_first)
