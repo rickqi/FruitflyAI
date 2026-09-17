@@ -36,7 +36,7 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.23.1"  # EVO-059: fix import-time NameError that killed every production start
+BRAIN_VERSION = "2.23.2"  # R31-fix6: micro_loop disp_60s gate (progress prevents false stuck)
 SKILL_VERSION = "3.3.0"   # progressive lesson ladder + evidence-base hardening (must mirror evolution_skill)
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
@@ -1719,7 +1719,6 @@ async def run(args) -> None:
             else:
                 model.set_cpg_gate(0.0, 0.0)
                 if cpg.completed > _cpg_last_completed:
-                    model.add_primitive_outcome(cpg.last_primitive, True)
                     # M3.3/S2: record a completion event (distance filled by
                     # the next memory update cycle; escape table renders it).
                     escape_buffer.start_event(

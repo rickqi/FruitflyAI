@@ -1,6 +1,6 @@
 # EvolutionSkill — Self-Evolving Motion Diagnosis
 
-> 当前版本：BRAIN_VERSION **2.23.1** / SKILL_VERSION **3.3.0**（EVO-057：CX 持续环路确定性破解；EVO-058：P4.4 本能固化可达化 + 证据基座加固（测试隔离 + 语料缩水守卫）；EVO-059：修复导入期 NameError —— 脑在 runtime/evolution_history.json 存在时（生产恒有）无法启动，干净检出却全测试通过。完整逐轮记录见 skills/evolution_history.json）
+> 当前版本：BRAIN_VERSION **2.23.2** / SKILL_VERSION **3.3.0**（EVO-057 CX 确定性破解 → EVO-060 R31-fix6：micro_loop disp_60s 门控——有进展的交替不再判为 stuck。完整逐轮记录见 skills/evolution_history.json）
 
 **Version**: 3.0.0
 **Status**: Active

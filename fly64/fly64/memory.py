@@ -1151,12 +1151,17 @@ class MotionStateDetector:
         return wall_score > 0.4 and escape_behavior and stuck_duration > 10.0
 
     def _detect_micro_loop(self, visited_cells: int, loop_score: float,
-                           stuck_duration: float) -> bool:
+                           stuck_duration: float,
+                           disp_60s: float | None = None) -> bool:
         # Tier 1: classic micro-loop in small area
         if visited_cells < 5 and loop_score > 0.5 and stuck_duration > 30.0:
             return True
         # Tier 2: general stuck — any cell count, stuck > 90s (covers exploration gaps)
         if stuck_duration > 90.0 and loop_score > 0.5:
+            # R31-fix6: if there's genuine displacement AND loop isn't extreme,
+            # this is "zig-zag progress" not true stuck — let CPG layer handle.
+            if (disp_60s is not None and disp_60s > 300.0 and loop_score < 0.8):
+                return False
             return True
         return False
 
@@ -1171,7 +1176,8 @@ class MotionStateDetector:
               escape_behavior: bool = False,
               visited_cells: int = 0,
               loop_score: float = 0.0,
-              pos_y: float | None = None) -> str:
+              pos_y: float | None = None,
+              disp_60s: float | None = None) -> str:
         """Return the per-frame state name, prioritised by severity."""
         # EVO R16 · P1-A3: pos_y validity gate.  Unknown elevation (None or
         # the historical 0.0 default) must not vote FALLEN — SM64 ground sits
@@ -1179,7 +1185,7 @@ class MotionStateDetector:
         fallen_active = pos_y is not None and pos_y != 0.0 and self._detect_fallen(pos_y)
         if fallen_active:
             return self.FALLEN
-        if self._detect_micro_loop(visited_cells, loop_score, stuck_duration):
+        if self._detect_micro_loop(visited_cells, loop_score, stuck_duration, disp_60s=disp_60s):
             return self.MICRO_LOOP
         if self._detect_oscillating():
             return self.OSCILLATING
@@ -1203,6 +1209,7 @@ class MotionStateDetector:
         loop_score: float = 0.0,
         pos_y: float | None = None,
         control_x: int = 0,
+        disp_60s: float | None = None,       # R31-fix6: progress gate
     ) -> dict:
         """Feed one tick; returns ``get_state()``."""
         self._total_ticks += 1
@@ -1218,6 +1225,7 @@ class MotionStateDetector:
             visited_cells=visited_cells,
             loop_score=loop_score,
             pos_y=pos_y,
+            disp_60s=disp_60s,
         )
         self._vote_buffer.append(vote)
 
@@ -1803,6 +1811,7 @@ class MemoryController:
             loop_score=self.spatial.loop_score,
             pos_y=pos_y,
             control_x=control_x,
+            disp_60s=getattr(self, "disp_60s", None),
         )
         self._latest_anomaly_conf = anomaly_result["confidence"]
         self._latest_anomaly_dur = anomaly_result["duration_in_state"]

@@ -1,9 +1,9 @@
 {
   "$schema": "fly64/evolution-history/1.0",
   "canonical_versions": {
-    "brain": "2.23.1",
+    "brain": "2.23.2",
     "skill": "3.3.0",
-    "as_of": "2026-09-17T18:40:44.273487+08:00"
+    "as_of": "2026-09-17T18:42:28.968345+08:00"
   },
   "records": [
     {
@@ -1162,6 +1162,39 @@
       "tests": "test_brain_startup_regression 5/5；WSL 实机验证：修正映射部署后 brain_version=2.23.1 且 /flow.json、/memory.json 可达，进程栈 fly64.main + plugin.service + evolution_skill + sm64 四进程齐全",
       "source": "本次会话 t9-C；缺陷源自并行提交 2202d1e（未在 WSL 重启验证）",
       "notes": "教训（已并入规则 19 的动机，并在此复述）：任何触及 main.py 导入期的改动必须在 WSL 实机重启脑进程验证，不能仅凭单元测试通过。本次同时暴露部署脚本的路径映射缺陷——SRC 取仓库根而 DEP 取项目目录，导致目标多一层 fly64/、真实文件未被更新却仍打印 ok；已改为复制后逐字节 md5 校验。"
+    },
+    {
+      "id": "EVO-060",
+      "date": "2026-09-17",
+      "time": "18:41 +0800",
+      "round": "R31-fix6",
+      "kind": "brain",
+      "brain_version": "2.23.2",
+      "skill_version": "3.2.0",
+      "trigger": "micro_loop stuck_duration 虚高：R31-fix5 的 cy=30 已产生实际位移（disp_60s>3000u），但 anomaly 分类器只看交替转向模式无视位移 → stuck_duration 持续积压",
+      "changes": [
+        "memory.py AnomalyDetector._detect_micro_loop: Tier 2 加 disp_60s 门控——当位移>300u 且 loop_score<0.8 时视为'之字形进展'而非微循环，返回 False",
+        "disp_60s  threading: _vote → update → MemoryController.anomaly.update，全链路贯通，零新数据源依赖",
+        "效果：有进展的交替转向不再被 stuck_duration 锁定，micro_loop 状态自然解除，CPG 原语层重新接管"
+      ],
+      "tests": "memory/test_fall/test_escape 100 passed；设计原则：简单有效——一行门控条件",
+      "deployed": true,
+      "source": "实机分析：applied=(-69,30) 已证明之字形推进，分类器语义脱节。"
+    },
+    {
+      "id": "AUTO-0012",
+      "recorded_at": "2026-09-17T10:41:17.901852+00:00",
+      "kind": "brain_update_auto",
+      "round": null,
+      "brain_version": "2.23.1",
+      "previous_version": "2.21.1",
+      "skill_version": "3.3.0",
+      "trigger": "dashboard brain_version change",
+      "changes": [
+        "(auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, agent.md rule 15)"
+      ],
+      "tests": null,
+      "source": "resident skill loop"
     }
   ]
 }
