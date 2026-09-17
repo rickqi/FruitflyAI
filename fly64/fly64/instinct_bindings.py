@@ -98,6 +98,32 @@ def scene_key(scene_label: Optional[str]) -> str:
 
     Labels look like "致命熔岩地 #f3f9"; the hash drifts with lighting, the
     prefix is stable, so bindings key on the prefix.
+
+    MEASURED, not assumed (scripts/measure_scene_identity.py, 24 samples over
+    2 minutes of live flight through one area):
+
+        distinct label prefixes :  2   (墙体·通道 x22, 墙体·山坡 x1)
+        distinct scene hashes   : 10   (2d989f x7, c69edb x8, then 8 singles)
+        label -> hashes         : 1-to-many
+        hash  -> labels         : 1-to-1
+
+    So the hash is the FASTER-drifting field (it changed roughly every 15 s) and
+    the prefix holds for minutes at a time.  Keying on the hash instead would be
+    strictly worse: each bucket would receive ~2 samples before drifting away,
+    and the promotion gate needs >=2 clean improvements *in one bucket*, so a
+    hash key would make promotion unreachable — the very defect EVO-058 removed.
+
+    Residual, deliberately NOT "fixed": the prefix still changes when the
+    terrain composition genuinely changes (墙体·通道 -> 墙体·山坡 is a corridor
+    becoming a slope).  Splitting evidence there is correct behaviour, not
+    drift, so no aliasing/normalisation is applied.
+
+    Note the actual cause of promotion not being reached yet is PARAMETER
+    fragmentation, not scene identity: the live store shows one scene with four
+    salient signatures whose turn_bias differs (0.6 / 0.7 / 0.8).  The coach
+    explores a different parameter set per consult, so a bucket rarely sees two
+    clean improvements.  That is inherent to exploration and should ease now
+    that coach parameters actually reach behaviour (EVO-062/t6).
     """
     if not scene_label:
         return ""
