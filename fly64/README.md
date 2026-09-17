@@ -960,7 +960,11 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 | AUTO-0009 | 2026-09-16 17:19 | — | 2.19.1 | 3.0.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
 | AUTO-0010 | 2026-09-16 18:03 | — | 2.19.2 | 3.0.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
 | AUTO-0011 | 2026-09-17 01:07 | — | 2.19.3 | 3.0.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
-| EVO-049 | 2026-09-17 11:20 | L2 导航质量与自我进化闭环 | 2.19.3 | 3.2.0 | SOS 缩略图空白（raw RGB 误作 PNG 解码）；L2 求助触发仅覆盖对话习惯化，高速绕圈类（loop>0.9/coverage_rate=0/stuck 200s）永不升级；health 公式粘性 0.5 地板无恢复梯度；EVO  | SOS 缩略图修复：snapshotDataUri() raw RGB→canvas→PNG（含 flipY 纠正 gl；L2a stuck_no_progress 求助触发器：stuck≥0.8∧coverage_rate<0.01∧dur；reflex_ineffective 判据补绕圈分支：loop>0.8∧coverage_rate<0.01∧stuck（等 10 项） | test_memory 83（含 stall/recovery/novelty 3 条新 PIN）+ evolution | 本会话 commits 6d37c04/84a9a55/c348a67/4e4da5f + 本次版本提交（fix_001 |
+| EVO-049 | 2026-09-17 11:20 | L2 导航质量与自我进化闭环 | 2.19.3 | 3.2.0 | SOS 缩略图空白（raw RGB 误作 PNG 解码）；L2 求助触发仅覆盖对话习惯化，高速绕圈类（loop>0.9/coverage_rate=0/stuck 200s）永不升级；health 公式粘性 0.5 地板无恢复梯度；EVO  | SOS 缩略图修复：snapshotDataUri() raw RGB→canvas→PNG（含 flipY 纠正 gl；L2a stuck_no_progress 求助触发器：stuck≥0.8∧coverage_rate<0.01∧dur；reflex_ineffective 判据补绕圈分支：loop>0.8∧coverage_rate<0.01∧stuck（等 10 项） | test_memory 83（含 stall/recovery/novelty 3 条新 PIN）+ evolution | commits 6d37c04/84a9a55/c348a67/4e4da5f + 本次版本提交 |
+| R23-N1 | 2026-09-17 | R23 | 2.20.0 | 3.2.0 | micro_loop_weave持续30/30轮检出 | breakout_gain自适应(stuck→0.50)+突破跳跃注入 | 26/26 tests | captain |
+| R23-N2 | 2026-09-17 | R23 | 2.20.0 | 3.2.0 | primitive_zero_disp 22/30轮检出 | CPG位移检测零位移自动切换SIDE_FLIP | 26/26 tests | captain |
+| R23-N3 | 2026-09-17 | R23 | 2.20.0 | 3.2.0 | telemetry_gap 30/30轮, 20个缺失字段 | flow.json补齐anomaly_state/reflex_active等8字段 | 26/26 tests | captain |
+| R23-FIX | 2026-09-17 | R23 | 2.20.0 | 3.2.0 | 测试失败38项(9项与3D grid/docs相关) | update(z→第2参数)+save_state v2格式+test期望值修复 | 26/26 tests | captain |
 
 <!-- EVOLUTION-HISTORY-TABLE:END -->
 
