@@ -677,6 +677,9 @@ class FlyModel:
         # Pending Python turn correction for t3 error gradient bridge
         self._pending_python_turn = 0
 
+        # Flow quality for restlessness detection (set by step)
+        self.flow_quality = 0.0
+
         # P4-1: Reflex→LIF bridge — reflex circuit sets flags, model
         # converts to current injection so the LIF network shares the
         # motor-pool decision with the reflex (instead of Python bypassing

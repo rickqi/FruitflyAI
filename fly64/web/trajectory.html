@@ -181,8 +181,8 @@ function smoothPts(){
   if(keep.length<3)return keep;
   const sm=[keep[0]];
   for(let i=0;i<keep.length-1;i++){const a=keep[i],b=keep[i+1];
-    sm.push({x:a.x*.75+b.x*.25,y:a.y*.75+b.y*.25,z:a.z*.75+b.z*.25},
-            {x:a.x*.25+b.x*.75,y:a.y*.25+b.y*.75,z:a.z*.25+b.z*.75});}
+    sm.push({x:a.x*.75+b.x*.25,y:a.y*.75+b.y*.25,z:a.z*.75+b.z*.25,t:(a.t||0)*.75+(b.t||0)*.25},
+            {x:a.x*.25+b.x*.75,y:a.y*.25+b.y*.75,z:a.z*.25+b.z*.75,t:(a.t||0)*.25+(b.t||0)*.75});}
   sm.push(keep[keep.length-1]);
   return sm;
 }
@@ -196,11 +196,19 @@ function pushPts(){
   const colAttr=pathGeo.attributes.color;
   const sm=smoothPts();
   const m=Math.min(sm.length,MAXP);
+  // t23: time fade — vertices older than FADE_S blend toward the background
+  // colour so long sessions keep the recent behaviour visually dominant.
+  const FADE_S=600, BG=[0.043,0.063,0.09];
+  const tMax=pts.length?pts[pts.length-1].t:0;
   for(let i=0;i<m;i++){
     const p=sm[i];
     pathArr[i*3]=p.x;pathArr[i*3+1]=p.y;pathArr[i*3+2]=p.z;
     const rgb=heightColor((p.y-ymin)/span);
-    pathColArr[i*3]=rgb[0];pathColArr[i*3+1]=rgb[1];pathColArr[i*3+2]=rgb[2];
+    const age=tMax-(p.t||tMax);
+    const f=Math.max(0.22,Math.min(1,1-Math.max(0,age)/FADE_S));
+    pathColArr[i*3]  =BG[0]+(rgb[0]-BG[0])*f;
+    pathColArr[i*3+1]=BG[1]+(rgb[1]-BG[1])*f;
+    pathColArr[i*3+2]=BG[2]+(rgb[2]-BG[2])*f;
   }
   pathGeo.attributes.position.needsUpdate=true;
   colAttr.needsUpdate=true;

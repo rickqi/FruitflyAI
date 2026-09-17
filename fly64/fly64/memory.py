@@ -728,9 +728,9 @@ class SpatialMemoryMap:
         """
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
-        data = {"v": 1,
-                "cells": {f"{k[0]},{k[1]}": int(v) for k, v in self._cells.items()},
-                "adj": {f"{a[0]},{a[1]}|{b[0]},{b[1]}": c for (a, b), c in self._adj.items()}}
+        data = {"v": 2,
+                "cells": {f"{k[0]},{k[1]},{k[2]}": int(v) for k, v in self._cells.items()},
+                "adj": {f"{a[0]},{a[1]},{a[2]}|{b[0]},{b[1]},{b[2]}": c for (a, b), c in self._adj.items()}}
         with open(p, "wb") as f:
             pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
 
@@ -740,13 +740,13 @@ class SpatialMemoryMap:
         try:
             with open(p, "rb") as f:
                 data = pickle.load(f)
-            if not isinstance(data, dict) or data.get("v") != 1:
+            if not isinstance(data, dict) or data.get("v") not in (1, 2):
                 return 0
             self._cells = {}
             for k, v in data["cells"].items():
                 key = tuple(int(x) for x in k.split(","))
                 if len(key) == 2:
-                    key = (key[0], 0, key[1])  # pad old (x,z) → (x,y,z)
+                    key = (key[0], 0, key[1])  # pad old v1 (x,z) → (x,y,z)
                 self._cells[key] = np.uint16(v)
             self._recency = {k: 1.0 for k in self._cells}
             self._last_tick = {k: 0 for k in self._cells}
