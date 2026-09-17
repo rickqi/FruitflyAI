@@ -1,0 +1,3 @@
+#!/bin/sh
+printf 'ready\n'
+sleep 2

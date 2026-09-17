@@ -1449,20 +1449,26 @@ class BrainMutator:
         """Single scalar fitness ∈ [0, 1]: higher = better.
 
         Factors (weight):
-          - coverage_pct / 50              (×0.35) explored fraction
-          - 1 - min(stuck_duration/120, 1) (×0.25) not-stuck
-          - novelty                         (×0.15) exploring new ground
+          - coverage_pct / 50              (×0.30) explored fraction
+          - 1 - min(stuck_duration/120, 1) (×0.20) not-stuck
+          - novelty                         (×0.10) exploring new ground
           - health_score                    (×0.15) overall well-being
           - min(coverage_rate×100, 0.5)     (×0.10) exploration speed
+          - first_contact_rate ×100         (×0.10) new cells per second
+          - revisit_penalty                  (×0.05) penalise excessive re-visits
         """
         if sample is None:
             return 0.0
-        cov = min(getattr(sample, "coverage_pct", 0) / 50.0, 1.0) * 0.35
-        unstuck = (1.0 - min(getattr(sample, "stuck_duration", 0) / 120.0, 1.0)) * 0.25
-        nov = min(getattr(sample, "novelty", 0), 1.0) * 0.15
+        cov = min(getattr(sample, "coverage_pct", 0) / 50.0, 1.0) * 0.30
+        unstuck = (1.0 - min(getattr(sample, "stuck_duration", 0) / 120.0, 1.0)) * 0.20
+        nov = min(getattr(sample, "novelty", 0), 1.0) * 0.10
         health = max(0.0, min(getattr(sample, "health_score", 0.5), 1.0)) * 0.15
         speed = min(getattr(sample, "coverage_rate", 0) * 100, 0.5) * 0.10
-        return round(cov + unstuck + nov + health + speed, 4)
+        # P1-D: reward first-contact rate (new cells/s), penalise re-visit ratio
+        fcr = min(getattr(sample, "first_contact_rate", 0) * 100, 1.0) * 0.10
+        rr = getattr(sample, "revisit_ratio", 0.0)
+        rp = max(0.0, (rr - 0.2) * 2.0) * 0.05  # >20% revisits → penalty
+        return round(cov + unstuck + nov + health + speed + fcr - rp, 4)
 
     @staticmethod
     def _load_active_strategy() -> dict:

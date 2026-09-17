@@ -1,0 +1,29 @@
+{
+  "$schema": "fly64/evolution-history/1.0",
+  "canonical_versions": {},
+  "records": [
+    {
+      "id": "AUTO-0001",
+      "recorded_at": "2026-09-17T03:39:10.556332+00:00",
+      "kind": "skill_fix",
+      "round": null,
+      "brain_version": null,
+      "skill_version": "3.2.0",
+      "fix_id": "fix_0042",
+      "pattern_id": "micro_loop_weave",
+      "severity": "high",
+      "trigger": "weave in place",
+      "changes": [
+        "# Strengthen oscillation-to-forward breakthrough"
+      ],
+      "current_values": {
+        "loop_score": 1.0
+      },
+      "baseline": {
+        "stuck": 155.8,
+        "coverage": 11.1
+      },
+      "source": "resident skill loop (auto_fix)"
+    }
+  ]
+}

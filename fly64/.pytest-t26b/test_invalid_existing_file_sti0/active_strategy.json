@@ -1,0 +1,9 @@
+{
+  "dialogue_decision": {
+    "action": "press_a",
+    "reason": "ok",
+    "source": "glm-5.3-flash",
+    "timed_out": false,
+    "ts": 1789617363.9
+  }
+}

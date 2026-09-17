@@ -464,14 +464,14 @@ class SpatialMemoryMap:
         return self._novelty(key)
 
     def _novelty(self, key: tuple[int, int]) -> float:
-        """novelty = 1 / (visit_count + 1) × recency × (1 - revisit_penalty - repulsion)
+        """novelty = 1 / (visit_count^2 + 1) × recency × (1 - revisit_penalty - repulsion)
         
-        When scene revisit_count > 10, the repulsion penalty from nearby
-        high-revisit cells is also applied, further suppressing novelty.
+        Square-law decay: 1 visit=0.50, 2 visits=0.20 (vs 0.33 before).
+        This aggressively reduces re-exploration of already-visited cells.
         """
         v = int(self._cells[key])
         r = self._recency.get(key, 0.0)
-        base = (1.0 / (v + 1)) * r
+        base = (1.0 / (v * v + 1)) * r
         penalty = self.revisit_penalty
         if self._scene_db.revisit_count > 10:
             penalty = min(1.0, penalty + self._get_repulsion(key))

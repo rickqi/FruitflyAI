@@ -1,0 +1,15 @@
+{
+  "$schema": "fly64/evolution-history/1.0",
+  "canonical_versions": {
+    "brain": "2.13.3",
+    "skill": "3.0.0"
+  },
+  "records": [
+    {
+      "id": "AUTO-0001",
+      "recorded_at": "2026-09-17T03:39:10.606137+00:00",
+      "kind": "brain_update_auto",
+      "brain_version": "2.14.0"
+    }
+  ]
+}

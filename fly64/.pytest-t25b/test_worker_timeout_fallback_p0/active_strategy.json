@@ -1,0 +1,16 @@
+{
+  "fallen_recovery": {
+    "mode": "mirror"
+  },
+  "coach_advice": "keep",
+  "advice_ts": 1789616349.63,
+  "source": "glm-5.3-flash",
+  "dialogue_decision": {
+    "action": "press_a",
+    "reason": "LLM timeout/error, autonomous fallback: subagent response not produced within 600s",
+    "source": "glm-5.3-flash",
+    "timed_out": true,
+    "ts": 1789616349.64,
+    "wait_seconds": 600.1
+  }
+}
