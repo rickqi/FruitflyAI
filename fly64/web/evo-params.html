@@ -77,12 +77,19 @@ function drawTrials(trials){
 }
 function renderParams(active,original){
   const body=$('paramsBody');body.innerHTML='';
-  let count=0;
-  for(const [pid,meta] of Object.entries(tunables)){
-    const cur=active[pid]!=null?active[pid]:meta.default;
+  let count=0,inert=0;
+  for(const [pid,meta] of Object.entries(tunables)){    const cur=active[pid]!=null?active[pid]:meta.default;
     const row=document.createElement('div');row.className='param-row';
-    const label=document.createElement('label');label.textContent=meta.label||pid;
+    // wired===false: verified to have no consumer anywhere in the brain, so
+    // moving this slider cannot change behaviour.  It is rendered disabled and
+    // labelled instead of silently doing nothing (the panel used to report a
+    // check mark for such writes). See skills/brain_tunable_params.json
+    // wired_note and scripts/audit_contract_pairs.py.
+    if(meta.wired===false){row.classList.add('inert');inert++}
+    const label=document.createElement('label');
+    label.textContent=(meta.label||pid)+(meta.wired===false?' · 未接线':'');   // 未接线 = not wired
     const range=document.createElement('input');range.type='range';range.min=meta.min;range.max=meta.max;range.step=(meta.max-meta.min)/100;range.value=cur;
+    if(meta.wired===false){range.disabled=true;range.title='该参数在脑中无任何消费者，调节不会改变行为（未接线）'}
     const val=document.createElement('span');val.className='val';val.textContent=Number(cur).toFixed(3);
     range.oninput=async function(){val.textContent=Number(this.value).toFixed(3);
       try{await fetch('/active_strategy-update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({[pid]:Number(this.value)})});
@@ -90,7 +97,7 @@ function renderParams(active,original){
     row.appendChild(label);row.appendChild(val);row.appendChild(range);
     body.appendChild(row);count++;
   }
-  $('paramCount').textContent=count;
+  $('paramCount').textContent=inert?(count+' ('+inert+' 未接线)'):count;
 }
 function renderTrials(trials){
   $('trialCount').textContent=trials.length;
@@ -127,7 +134,7 @@ async function load(){
     tunables={};
     for(const [pid,meta] of Object.entries(t.params||{})){
       const d=meta.description||'';const aliases=meta.aliases||[];
-      tunables[pid]={label:pid.replace('exploration.','')+(aliases.length?' ⚡':''),description:d,min:meta.min||0,max:meta.max||1,default:meta.default||0};}
+      tunables[pid]={label:pid.replace('exploration.','')+(aliases.length?' ⚡':''),description:d,min:meta.min||0,max:meta.max||1,default:meta.default||0,wired:meta.wired!==false};}
     await refresh();
   }catch(e){console.warn('load',e);}
   try{const f=await get('/flow.json');

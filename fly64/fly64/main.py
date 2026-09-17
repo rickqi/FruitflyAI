@@ -37,7 +37,7 @@ from .scene_recognition import SceneRecognizer
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
 BRAIN_VERSION = "2.23.5"  # R31-fix8: coach command.turn_and_go consumer + pos_y telemetry
-SKILL_VERSION = "3.3.0"   # progressive lesson ladder + evidence-base hardening (must mirror evolution_skill)
+SKILL_VERSION = "3.4.0"   # EVO-066: Phase 6 searches only wired params (dead-knob audit) (must mirror evolution_skill)
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
 _evo_iter_counter = 0
@@ -1604,7 +1604,7 @@ async def run(args) -> None:
                 else:
                     _cmd_elapsed = tick_start - control._cmd_start
                 _cmd_dur = float(_cmd.get("duration_s", 2.0))
-                if _cmd_elapsed < _cmd_dur and not _below_ground:
+                if _cmd_elapsed < _cmd_dur:
                     _target_heading = float(_cmd.get("heading", 90.0)) * (3.14159 / 180.0)
                     _current_yaw = pose_ev[3] if len(pose_ev) > 3 else 0.0
                     _yaw_diff = _target_heading - _current_yaw

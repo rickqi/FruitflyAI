@@ -2,8 +2,8 @@
   "$schema": "fly64/evolution-history/1.0",
   "canonical_versions": {
     "brain": "2.23.5",
-    "skill": "3.3.0",
-    "as_of": "2026-09-17T20:43:27.250707+08:00"
+    "skill": "3.4.0",
+    "as_of": "2026-09-17T20:54:49.835560+08:00"
   },
   "records": [
     {
@@ -1349,6 +1349,30 @@
       "tests": "test_curriculum_unknown_metric 14/14 + test_coach_outcomes 16 条，合计 30 passed；WSL 运行时复跑同一套件通过",
       "source": "本次会话 t12；实测污染窗口见 EVO-058/EVO-059 期间的课程状态",
       "notes": "**版本轨**：改动位于 plugin/coach_outcomes.py（教练插件/基础设施），未触及 brain 行为或 skills/evolution_skill.py 及其治理参数，故**不递增版本**（brain 沿用 canonical 2.23.5 / skill 3.3.0），与 EVO-062 对 plugin/ 的分类一致、与 EVO-064 同样以 infra 记录。规则 17 约束的是代码/行为变更的版本递增；此处无递增，不构成版本复用。**同类缺陷累计六例**：t6 段透传、CX 死代码、P4.4 全参数指纹、启动期 NameError、面板点号键、本轮不可观测状态。共同形态均为“机制存在、报告成功、无法生效”或“否定证据来自不可观测状态”——规则 19 已就此立规。"
+    },
+    {
+      "id": "EVO-066",
+      "date": "2026-09-17",
+      "time": "20:54:49 +0800",
+      "round": "t13 契约审计：死旋钮清理",
+      "kind": "skill",
+      "brain_version": "2.23.5",
+      "skill_version": "3.4.0",
+      "trigger": "把本次会话反复手工发现的“机制存在、报告成功、无法生效”缺陷族**系统化审计**：新增 scripts/audit_contract_pairs.py，对每个跨组件 JSON 工件的每个键（含嵌套路径）在其管线模块内做 AST 级写入点/读取点统计，标记“只写不读”（死写）与“只读不写”（静默默认）。首轮即机械地找出多个此前未知的死旋钮：① escape.reverse_seconds —— 被 SECTION_SPECS 白名单校验、被 GLM prompt 明确要求输出、被写入 active_strategy.json，但**全仓零消费者**（脑只读 stuck_threshold_s；代码中唯一的“反向”属于 wall_stuck 反射的 wall_stuck_reverse_duration，是另一机制另一归属）；git log -S 证实自插件首次提交起从未接线（消费教练键的 EVO R11 提交只列了 bold_explore_stuck_s / turn_bias / escape.stuck_threshold_s）。② fallen_recovery.climb_period / persist_seconds —— 同族：声明于 ACTIVE_STRATEGY_DEFAULTS、白名单、prompt 要求输出，但行为层只消费 mode。③ 更严重：brain_tunable_params.json 向操作面板宣传 21 个可调参数，其中 **14 个在整个 fly64/ 与 plugin/ 源码中零出现**（AST 读取点抽取 + 全仓标识符 grep 双重确认）——escape.commit_reinforce/commit_suppress/forward_accum_step、exploration.breakout_forward_bias/cliff_tangent_gain/dopamine_revisit_cost/gate_forward_threshold/gate_jump_threshold/loop_breakout_threshold/revisit_penalty_scale/stuck_ramp_cooldown/visual_gain_novelty_boost、reflex.adaptive_cooldown_scale/cooldown_min。它们是**先于实现写下的愿景名**（反射的真实概念是 cooldown_duration；gate_* 阈值在 model.py 中根本不存在）。后果远超 UI 观感：BrainMutator/Phase 6 对这 21 个全部做高斯变异，即约 2/3 的搜索维度是纯噪声，试验的适应度增量无法归因，可能提交一个“活维度其实没动”的候选——自进化循环的效率与可解释性同时受损。",
+      "changes": [
+        "新增 scripts/audit_contract_pairs.py：AST 级写入/读取点分类（含 .get/[]/in/字典字面量/序列化调用），递归嵌套容器，同时扫描 .js/.html 的浏览器消费者；把循环变量读取（for key in (...)）记为 decl 以抑制误报，跳过 schema 元数据字段——首版误报率高，这些精度规则都写进了模块文档",
+        "plugin/llm_consult.py: SECTION_SPECS 移除 escape.reverse_seconds 与 fallen_recovery.climb_period/persist_seconds；prompt 示例 JSON 同步收敛（ACTIVE_STRATEGY_DEFAULTS 与 load_active_strategy 保持原样，故加载器输出形状与行为不变，仅停止向教练宣传无法生效的旋钮）",
+        "skills/brain_tunable_params.json → v1.1.0：为全部 21 个参数增加 wired 布尔（7 true / 14 false），并新增 wired_note 说明语义与复核方式",
+        "skills/evolution_skill.py: BrainMutator 新增 live_params 属性（wired is not False 过滤），param_paths / generate_candidate / _inject 全部改用之——Phase 6 的搜索空间收敛为真正生效的 7 个维度",
+        "web/evo-params.html: 读取 wired 标志，未接线参数渲染为**禁用**并在标签标注“未接线”，计数显示为“总数 (n 未接线)”——不再提供会报成功却无效果的滑块",
+        "新增 tests/test_coach_contract.py 8 条：SECTION_SPECS 宣传的每个键必须在脑中存在读取点（永久契约守卫，把一次性修复变成机制）、三个死旋钮不得回归、净化器丢弃陈旧响应中的死键、审计脚本必须在仓中留存",
+        "新增 tests/test_tunable_wiring.py 12 条：每个参数必须显式声明 wired、wired=true 必须有消费者、wired 集合必须精确等于已验证的 7 个、unwired 集合不得被翻回、Phase 6 的 live_params/generate_candidate/param_paths 只含 wired、_inject 不把 unwired 写入策略、面板必须读取标志并禁用惰性滑块",
+        "tests/test_coach_advice_fix.py: TestPromptSemanticCard 的键表改为从 SECTION_SPECS **派生**（原硬编码表把三个死旋钮当作期望行为断言，正是“测试维持死机制存活”）；tests/test_plugin_mhr.py: test_sanitize_strategy 改为断言死键被丢弃（新增专用用例）",
+        "skills.md 版本横幅修复到当前 canonical（brain 2.23.5 / skill 3.4.0）"
+      ],
+      "tests": "test_coach_contract 8/8 + test_tunable_wiring 12/12；coach/strategy/plugin/consult 选择集 167 passed（余 2 个为基线已确认的 ENHANCED_PROMPT_TEMPLATE / scene_tags 未实现缺口）；evo/skill/tunable 选择集除 2 个基线既有失败（bold_explore decision_source、【gbk 解码】）外全绿；WSL 运行时复跑新套件通过",
+      "source": "本次会话 t13；审计工具 scripts/audit_contract_pairs.py",
+      "notes": "**版本轨**：本轮只递增 **skill 3.3.0 → 3.4.0**。依据规则 18——`skills/brain_tunable_params.json` 的参数集变更视为 Skill 版本变更；Phase 6 搜索空间由 21 维收敛为 7 维属行为变更（minor）。脑侧 `fly64/main.py` 仅同步 SKILL_VERSION 镜像常量，脑行为未变，故 **BRAIN_VERSION 保持 2.23.5**。**审计价值**：六个此前靠人工偶然发现的同族缺陷，本次由工具在首轮机械地找出三组（含此前完全未知的14 个惰性参数），验证了“系统性审计优于逐个碰”的判断。**开放项**：14 个未接线参数保留为“已记录但未实现”的意图（含 min/max/description），接线其一即需同步把 wired 翻为 true 并补真实消费者；守卫会拒绝无消费者的 wired=true。"
     }
   ]
 }

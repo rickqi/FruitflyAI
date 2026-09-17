@@ -234,10 +234,24 @@ class TestParseResponse:
             "unknown_section": {"x": 1},
             "escape": {"stuck_threshold_s": "20"}})
         assert s["fallen_recovery"]["mode"] == "mirror"
-        assert s["fallen_recovery"]["climb_period"] == 2.0  # default fallback
-        assert s["fallen_recovery"]["persist_seconds"] == 0.1  # clamped
         assert s["escape"]["stuck_threshold_s"] == 20.0
         assert "unknown_section" not in s
+
+    def test_sanitize_drops_the_dead_knobs(self):
+        """climb_period / persist_seconds / reverse_seconds have NO consumer.
+
+        They used to be whitelisted here, which kept the coach tuning a no-op
+        and kept this test asserting that behaviour.  The systematic audit
+        (scripts/audit_contract_pairs.py) proved no component reads them, so the
+        sanitizer now drops them and a stale coach response cannot reintroduce
+        them.  See tests/test_coach_contract.py for the enforced contract.
+        """
+        s = sanitize_strategy({
+            "fallen_recovery": {"mode": "mirror", "climb_period": 3.0,
+                                "persist_seconds": 1.0},
+            "escape": {"stuck_threshold_s": 20.0, "reverse_seconds": 0.8}})
+        assert set(s["fallen_recovery"]) == {"mode"}, s["fallen_recovery"]
+        assert set(s["escape"]) == {"stuck_threshold_s"}, s["escape"]
 
 
 # ── strategy hot-reload ─────────────────────────────────────────────────

@@ -92,10 +92,9 @@ PROMPT_TEMPLATE = (
     '{"scene_elements": ["..."], "what_i_see": ["屏幕文字1", "屏幕文字2"], '
     '"problem": "...", "action": "...", '
     '"advice": "给马里奥的一句中文建议", '
-    '"strategy": {"fallen_recovery": {"mode": "mirror|directional_climb", '
-    '"climb_period": 2.0, "persist_seconds": 2.0}, '
+    '"strategy": {"fallen_recovery": {"mode": "mirror|directional_climb"}, '
     '"exploration": {"bold_explore_stuck_s": 60.0, "turn_bias": 0}, '
-    '"escape": {"stuck_threshold_s": 30.0, "reverse_seconds": 0.5}, '
+    '"escape": {"stuck_threshold_s": 30.0}, '
     '"command": {"type": "turn_and_go", "heading": 90, "duration_s": 2.0, '
     '"y": 70, "primitive": null}}}\n'
     '策略参数语义卡（严格遵守单位与方向，不要反向调参）:\n'
@@ -110,9 +109,21 @@ PROMPT_TEMPLATE = (
 # Keys allowed per strategy section (name -> (type, default))
 SECTION_SPECS = {
     "fallen_recovery": {
+        # `climb_period` and `persist_seconds` were advertised here from the
+        # original plugin commit, asked for by the prompt, whitelisted and
+        # persisted — and read by NOTHING.  The fallen-recovery machinery
+        # consumes `mode` only; the two durations survive in
+        # ACTIVE_STRATEGY_DEFAULTS and are still emitted by
+        # load_active_strategy (so the loader's output shape is unchanged), but
+        # no behaviour reads them.  The systematic audit
+        # (scripts/audit_contract_pairs.py) plus the guard in
+        # tests/test_coach_contract.py found all three dead knobs — this pair
+        # and escape.reverse_seconds — in one pass.
+        #
+        # Advertising a parameter the brain cannot consume makes the coach spend
+        # prompt budget and reasoning on a no-op, so they are removed from the
+        # SPEC while leaving the defaults intact.
         "mode": (str, "mirror"),
-        "climb_period": (float, 2.0),
-        "persist_seconds": (float, 2.0),
     },
     "exploration": {
         "bold_explore_stuck_s": (float, 60.0),
@@ -120,7 +131,20 @@ SECTION_SPECS = {
     },
     "escape": {
         "stuck_threshold_s": (float, 30.0),
-        "reverse_seconds": (float, 0.5),
+        # `reverse_seconds` was advertised here from the original plugin commit
+        # and asked for by the prompt, but NO component ever consumed it: the
+        # brain's escape hot-reload reads only `stuck_threshold_s`, and the only
+        # reversal in the codebase belongs to the wall_stuck REFLEX
+        # (`ReflexController.wall_stuck_reverse_duration`), a different
+        # mechanism with a different owner.  Git history confirms it was never
+        # wired: the EVO Round 11 commit that consumed the coach's keys lists
+        # bold_explore_stuck_s / turn_bias / escape.stuck_threshold_s and not
+        # this one.
+        #
+        # It is removed rather than implemented because reconnecting it to the
+        # reflex's duration would invent a contract nobody designed.  Leaving it
+        # in made the coach spend prompt budget tuning a no-op and made the
+        # operator panel offer a slider with no effect.
     },
 }
 

@@ -92,6 +92,33 @@ cur["escape.commit_ticks"] = 125      # 死键
 **活体端到端验证**（脑 v2.23.4）：基线 `turn_bias=0.8` / `escape_stuck_threshold_s=5.0` → POST `{"exploration.turn_bias":0.37,"escape.stuck_threshold_s":77.7}` → 落盘嵌套、顶层无点号死键 → 600-tick 热加载后遥测读到 **0.37 / 77.7**。
 
 > 同类缺陷至此累计五例：t6 段透传、CX 死代码、P4.4 全参数指纹、启动期 NameError、本轮点号键。共同形态均为“**机制存在、报告成功、无法生效**”——规则 19 已就此立规：拒绝生效必须是可观测的，而非沉默。
+## 2026-09-17: EVO-066 — Skill v3.4.0（系统性契约审计：死旋钮清理）
+
+本次会话此前靠人工偶然发现了**六个**同族缺陷，于是改为**系统性审计**：新增 `scripts/audit_contract_pairs.py`，对每个跨组件 JSON 工件的每个键（含嵌套路径）在其管线模块内做 AST 级写入点/读取点统计，标记**只写不读**（死写）与**只读不写**（静默默认）。首轮即机械地找出三组此前未知的缺陷。
+
+### ① 三个教练死旋钮
+
+`escape.reverse_seconds`、`fallen_recovery.climb_period`、`fallen_recovery.persist_seconds` 被 `SECTION_SPECS` 白名单校验、被 GLM prompt **明确要求输出**、被写入 `active_strategy.json`——而**全仓零消费者**。脑只读 `escape.stuck_threshold_s` 与 `fallen_recovery.mode`。代码中唯一的"反向"属于 wall_stuck 反射的 `wall_stuck_reverse_duration`（另一机制、另一归属）；`git log -S` 证实自插件首次提交起从未接线（消费教练键的 EVO R11 提交只列了 `bold_explore_stuck_s` / `turn_bias` / `escape.stuck_threshold_s`）。
+
+处置：从 SPEC 与 prompt 中移除（`ACTIVE_STRATEGY_DEFAULTS` 与加载器保持原样，故输出形状与行为不变），只停止向教练宣传无法生效的旋钮。
+
+### ② 更严重：面板 21 个可调参数中 14 个完全惰性
+
+`brain_tunable_params.json` 向操作面板宣传 21 个参数，其中 **14 个在整个 `fly64/` 与 `plugin/` 源码中零出现**（AST 读取点抽取 + 全仓标识符 grep 双重确认）：`escape.commit_reinforce/commit_suppress/forward_accum_step`、`exploration.breakout_forward_bias/cliff_tangent_gain/dopamine_revisit_cost/gate_forward_threshold/gate_jump_threshold/loop_breakout_threshold/revisit_penalty_scale/stuck_ramp_cooldown/visual_gain_novelty_boost`、`reflex.adaptive_cooldown_scale/cooldown_min`。它们是**先于实现写下的愿景名**——反射的真实概念是 `cooldown_duration`，而 `gate_*` 阈值在 `model.py` 中根本不存在。
+
+后果远超 UI 观感：**BrainMutator / Phase 6 对这 21 个全部做高斯变异**，即约 **2/3 的搜索维度是纯噪声**，试验的适应度增量无法归因，可能提交一个"活维度其实没动"的候选——自进化循环的效率与可解释性同时受损。
+
+处置：schema → v1.1.0，为 21 个参数逐一标注 `wired`（7 true / 14 false）并写入 `wired_note`；`BrainMutator` 新增 `live_params`，`param_paths`/`generate_candidate`/`_inject` 全部改用之，**搜索空间 21 维 → 7 维**；面板读取标志，未接线参数**禁用**并标注"未接线"，计数显示为"总数 (n 未接线)"。
+
+### ③ 把一次性修复变成机制
+
+- `tests/test_coach_contract.py`：`SECTION_SPECS` 宣传的**每个**键必须在脑中有读取点——死旋钮无法回归
+- `tests/test_tunable_wiring.py`：每个参数必须显式声明 `wired`；`wired=true` 必须有消费者；集合必须精确等于已验证的 7 个；Phase 6 只含 wired；`_inject` 不写入 unwired；面板必须禁用惰性滑块
+- 同时修正两处**把死旋钮写成期望行为**的测试（`test_coach_advice_fix` 的硬编码键表改为从 `SECTION_SPECS` 派生；`test_plugin_mhr::test_sanitize_strategy` 改为断言死键被丢弃）——它们此前正是"测试维持死机制存活"
+
+> **审计价值**：六个此前靠人工偶然发现的同族缺陷，本次由工具在首轮机械地找出三组（含此前完全未知的 14 个惰性参数）。结论：**系统性契约审计优于逐个碰**，工具已留存于仓中以供每次改动后复核。
+
+**版本轨**：skill 3.3.0 → **3.4.0**（规则 18：`brain_tunable_params.json` 参数集变更属 Skill 变更；Phase 6 搜索空间收敛属行为变更 → minor）。脑侧仅同步 `SKILL_VERSION` 镜像常量，**BRAIN_VERSION 保持 2.23.5**。
 ## 2026-09-17: EVO-057 — Brain v2.22.0（CX 持续环路确定性破解）
 
 `circle_loop` 可持续数分钟不破：CX 的探索游走是 ~10s 正弦扫掠，频率远低于紧致轨道。工作树中另有一段"强制随机跳列"代码试图解决它，但**从未生效**——两个各自独立的死因，加上一个契约破坏：

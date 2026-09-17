@@ -28,7 +28,7 @@ except ImportError:
     HAS_JSONSCHEMA = False
     ValidationError = type("ValidationError", (Exception,), {})
 
-SKILL_VERSION = "3.3.0"
+SKILL_VERSION = "3.4.0"
 SKILL_NAME = "evolution_skill"
 SKILL_DIR = Path(__file__).resolve().parent
 WORKSPACE = SKILL_DIR.parent.parent
@@ -1443,7 +1443,32 @@ class BrainMutator:
     @property
     def param_paths(self) -> dict[str, str]:
         """Flatten param id -> dotted key map for active_strategy access."""
-        return {pid: p.get("aliases", [pid])[0] for pid, p in self._schema.get("params", {}).items()}
+        return {pid: p.get("aliases", [pid])[0]
+                for pid, p in self.live_params.items()}
+
+    @property
+    def live_params(self) -> dict:
+        """Schema entries the brain actually consumes (`wired` is not False).
+
+        VERIFIED, not assumed.  A repo-wide audit
+        (scripts/audit_contract_pairs.py plus an identifier grep) found that 14
+        of the 21 schema params have ZERO occurrences anywhere in fly64/ or
+        plugin/ source: `escape.commit_reinforce`, `escape.commit_suppress`,
+        `escape.forward_accum_step`, `exploration.breakout_forward_bias`,
+        `exploration.cliff_tangent_gain`, `exploration.dopamine_revisit_cost`,
+        `exploration.gate_forward_threshold`, `exploration.gate_jump_threshold`,
+        `exploration.loop_breakout_threshold`, `exploration.revisit_penalty_scale`,
+        `exploration.stuck_ramp_cooldown`, `exploration.visual_gain_novelty_boost`,
+        `reflex.adaptive_cooldown_scale`, `reflex.cooldown_min`.
+
+        Mutating them could not change behaviour, so including them made ~2/3 of
+        the search space pure noise and left a trial's fitness delta
+        unattributable — Phase 6 would "discover" improvements that no parameter
+        caused and could commit a candidate whose live dimensions had not moved.
+        Phase 6 therefore searches only wired params.
+        """
+        return {pid: meta for pid, meta in self._schema.get("params", {}).items()
+                if not (isinstance(meta, dict) and meta.get("wired") is False)}
 
     def fitness(self, sample: SensorSample) -> float:
         """Single scalar fitness ∈ [0, 1]: higher = better.
@@ -1488,7 +1513,7 @@ class BrainMutator:
         ticks ≈ 12 s).  Supports grouped sections (exploration.* -> strat["exploration"],
         escape.* -> strat["escape"], reflex.* -> strat["reflex"]).  Returns the full strategy dict."""
         strat = self._load_active_strategy()
-        for pid, meta in self._schema.get("params", {}).items():
+        for pid, meta in self.live_params.items():
             target = (meta.get("aliases", [pid])[0]
                       if isinstance(meta, dict) and "aliases" in meta
                       else pid)
@@ -1512,7 +1537,7 @@ class BrainMutator:
         Parameters whose current value is None / unknown start at default.
         The mutation rate adapts: wider ranges get proportional noise.
         """
-        schema = self._schema.get("params", {})
+        schema = self.live_params
         current_strat = self._load_active_strategy()
         candidate: dict[str, float] = {}
         for pid, meta in schema.items():

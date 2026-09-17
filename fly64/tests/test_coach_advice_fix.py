@@ -136,15 +136,47 @@ class TestRelaxedBoldTrigger:
 # ── 3. prompt semantic card ─────────────────────────────────────────────
 
 class TestPromptSemanticCard:
-    STRATEGY_KEYS = {
+    #: The authoritative set is SECTION_SPECS — the table the sanitizer
+    #: whitelists against and that tests/test_coach_contract.py checks for a real
+    #: consumer.  The key list is DERIVED from it rather than duplicated: the
+    #: previous hard-coded version kept three DEAD knobs alive
+    #: (climb_period, persist_seconds, reverse_seconds) by asserting the prompt
+    #: still advertised them, i.e. a test preserving a mechanism that could not
+    #: take effect.
+    #:
+    #: Documented semantics the prompt is expected to state for each key.
+    DOCUMENTED = {
         "fallen_recovery.mode": "mirror|directional_climb",
-        "fallen_recovery.climb_period": None,
-        "fallen_recovery.persist_seconds": None,
         "exploration.bold_explore_stuck_s": "秒",
         "exploration.turn_bias": "0-1",
         "escape.stuck_threshold_s": "秒",
-        "escape.reverse_seconds": None,
     }
+
+    @property
+    def STRATEGY_KEYS(self):
+        from plugin.llm_consult import SECTION_SPECS
+        keys = {}
+        for section, spec in SECTION_SPECS.items():
+            for key in spec:
+                dotted = "%s.%s" % (section, key)
+                keys[dotted] = self.DOCUMENTED.get(dotted)
+        return keys
+
+    def test_strategy_keys_cover_the_whole_spec(self):
+        from plugin.llm_consult import SECTION_SPECS
+        expected = {"%s.%s" % (s, k) for s, spec in SECTION_SPECS.items()
+                    for k in spec}
+        assert set(self.STRATEGY_KEYS) == expected, (
+            "the prompt/spec key list drifted from SECTION_SPECS")
+
+    def test_dead_knobs_are_not_advertised(self):
+        """The knobs the audit proved have no consumer in the brain."""
+        for dotted in ("fallen_recovery.climb_period",
+                       "fallen_recovery.persist_seconds",
+                       "escape.reverse_seconds"):
+            assert dotted not in self.STRATEGY_KEYS, (
+                "%s has no consumer — advertising it makes the coach tune a "
+                "no-op" % dotted)
 
     def test_all_keys_present_in_prompt(self, consult):
         p = consult.PROMPT_TEMPLATE
