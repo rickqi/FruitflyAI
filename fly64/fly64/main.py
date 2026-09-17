@@ -1429,17 +1429,15 @@ async def run(args) -> None:
             model._sideflip_reversal = bool(
                 _xsign != 0 and _CPG_PREV_XSIGN != 0 and _xsign != _CPG_PREV_XSIGN)
             _CPG_PREV_XSIGN = _xsign
-            # M3: coach command — one-shot behavioral directive from GLM.
-            _cmd = _active_strategy.get("command")
-            if _cmd and _cmd.get("type") == "turn_and_go":
-                _cmd_ts = _cmd.get("ts", 0)
-                if _cmd_ts != getattr(model, "_consumed_cmd_ts", 0):
-                    heading_rad = math.radians(_cmd.get("heading", 90))
-                    control.x = int(math.sin(heading_rad) * 70)
-                    control.y = _cmd.get("y", 70)
-                    model._consumed_cmd_ts = _cmd_ts
-                    print(f"[command] turn_and_go heading={_cmd.get('heading')} y={control.y}")
-            if cpg.active is None and not dlg_now and not reflex_override:
+            # C9: gate CPG behind LIF confidence.  If the LIF motor pools are
+            # producing meaningful output (forward >= 10 or turn >= 10) the
+            # neural network wins — CPG only activates when the brain has no
+            # opinion (motor dead zone).  This prevents hardcoded primitives
+            # from overriding an active LIF output that may be better suited
+            # to the current terrain (e.g. climbing a slope vs LONG_JUMP into
+            # a wall while fallen).
+            if cpg.active is None and not dlg_now and not reflex_override \
+                    and not (control.y > 10 or abs(control.x) > 10):
                 # is_ramp is only assigned inside the cliff block (step>10);
                 # recompute locally so early ticks never hit an unbound name.
                 _cpg_ramp = (getattr(model, "ramp_score", 0.0) > 0.5
@@ -1513,14 +1511,23 @@ async def run(args) -> None:
                       and getattr(model, "_sideflip_reversal", False)):
                     cpg.request(tick_start, Primitive.SIDE_FLIP)
             cpg_phase = cpg.update(tick_start)
+            # t25 P0 (LIF competition first): the CPG phase used to clobber
+            # the stick unconditionally, so every active primitive overrode
+            # the network's decision.  Now: when the LIF motor pools are
+            # actually driving (|x|>8 or |y|>8) the network keeps ownership —
+            # only the strike/crouch neural gates stay active (primitive
+            # influence flows through current injection, not field writes).
+            # The hardcoded primitive takes the stick ONLY on ~zero LIF
+            # output.  decision_source records lf_steering / lf_escape.
+            _lif_motion = abs(control.x) > 8 or abs(control.y) > 8
             if cpg_phase is not None:
-                control = cpg_apply_phase(control, cpg_phase)
-                # Phase 3: gate the neural strike/crouch pools (no bypass).
                 _strike_gates = ("punch", "dive")
                 _crouch_gates = ("longjump", "backflip", "groundpound", "crawl")
                 model.set_cpg_gate(
                     strike=1.0 if cpg_phase.primitive.value in _strike_gates else 0.0,
                     crouch=1.0 if cpg_phase.primitive.value in _crouch_gates else 0.0)
+                if not _lif_motion:
+                    control = cpg_apply_phase(control, cpg_phase)
             else:
                 model.set_cpg_gate(0.0, 0.0)
                 if cpg.completed > _cpg_last_completed:
