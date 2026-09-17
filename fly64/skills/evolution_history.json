@@ -1,9 +1,9 @@
 {
  "$schema": "fly64/evolution-history/1.0",
  "canonical_versions": {
-  "brain": "2.20.0",
+  "brain": "2.20.3",
   "skill": "3.2.0",
-  "as_of": "2026-09-17T12:17:21.426185+08:00"
+  "as_of": "2026-09-17T15:02:33.945694+08:00"
  },
  "records": [
   {
@@ -1026,6 +1026,25 @@
    "tests": "保真度 3/3 PASS（零占比 1.8%→27.9% 自然天空、活流 delta 0.51、与 cubemap 直方图区分）；游戏存活 120s+（旧代码 40s 段错误）；全量套件失败集与基线一致",
    "deployed": true,
    "source": "用户报告 coach 截屏不一致 → captain 根因定位（渲染管线钩子时机/视口/FBO 三重错位）→ 数据驱动修复"
+  },
+  {
+   "id": "EVO-052",
+   "date": "2026-09-17",
+   "time": "15:02 +0800",
+   "round": "R31-fix3",
+   "kind": "brain",
+   "brain_version": "2.20.3",
+   "skill_version": "3.1.1",
+   "trigger": "熔岩地移动型困境分析：位移奖励误指定（493u/60s 高速绕圈拿正奖励、coverage 4.1% 纹丝不动、掉血无负 RPE、受击格不在失败记忆）——教练求助门被位移口径正确关闭，但脑模型自身必须学会自治解决；设计原则：运动动作终极目标是简单有效，重复无效受罚、多样尝试受奖、coach 仅兜底",
+   "changes": [
+    "A: main.py 掉血检测（health 斜率>0 累积>0.02、2s 限速）→ model.add_setback（PPL1 样负 RPE，上限 0.5）——熔岩地绕圈产生负 RPE",
+    "B: 受击格写入 FailureMemory.record_failure——自动接入 CX 反失败目标向量与切向绕行",
+    "C: report_movement 增加 coverage_rate 进展门控——无新探索的位移奖励 ×0.25（修正奖励误指定根因）",
+    "tests/test_r31fix3_reward_reshaping.py: 6 用例（绕圈降奖/负向不缩放/legacy 兼容/累积限速/接线契约/FailureMemory）"
+   ],
+   "tests": "新用例 6/6 全过；设计原则：所有机制保持单规则简单有效，coach 保持兜底不前置",
+   "deployed": true,
+   "source": "用户提问'如何用脑模型强化学习机制解决移动型困境'→ R31-fix3 脑机制修复（非教官层规则）"
   }
  ]
 }

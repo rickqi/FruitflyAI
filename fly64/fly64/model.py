@@ -1271,7 +1271,8 @@ class FlyModel:
         self.inject_corrective_current(error_dict, reward_signal)
         return error_dict
 
-    def report_movement(self, displacement: float, expected: float = 40.0) -> None:
+    def report_movement(self, displacement: float, expected: float = 40.0,
+                        coverage_rate: float | None = None) -> None:
         """EVO R11: displacement-based dopamine feedback for the mushroom body.
 
         main.py feeds observed net displacement (game units over the last
@@ -1279,8 +1280,17 @@ class FlyModel:
         the MB depresses KC→MBON synapses for scene/action contexts that keep
         producing zero displacement — the network learns to stop choosing
         'face the wall' without any new Python branch.
+
+        R31-fix3 (C): reward misspecification guard.  Displacement alone
+        rewarded high-speed circling inside lethal zones (mobile stagnation:
+        493u/60s with coverage pinned at 4.1%).  When coverage_rate
+        (cells/min) shows no new exploration, the positive reward is scaled
+        down to a quarter — movement without progress stops paying.
         """
         self.movement_reward = max(-1.0, min(1.0, displacement / max(expected, 1e-6) - 0.25))
+        if (coverage_rate is not None and coverage_rate < 0.005
+                and self.movement_reward > 0.0):
+            self.movement_reward *= 0.25
         # Blend into the reward signal consumed by the existing dopamine sum.
         self.reward_signal = max(-1.0, min(1.0,
             self.reward_signal * 0.5 + self.movement_reward * 0.5))

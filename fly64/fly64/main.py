@@ -36,7 +36,7 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.20.2"  # t26 P1: MIN_ESCAPE_DURATION 1.5s - no flash releases; per-episode activation re-arm
+BRAIN_VERSION = "2.20.3"  # R31-fix3: damage RPE + failure-cell memory + coverage-gated reward (simple & effective)
 SKILL_VERSION = "3.2.0"   # primitive scoring + history isolation + Phase-6 Evolve (must mirror evolution_skill)
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
@@ -729,6 +729,10 @@ async def run(args) -> None:
     cpg = CPGController()
     _cpg_last_completed = 0
     _cpg_last_aborted = 0
+    # R31-fix3 (A): damage accumulation state for the brain-native punishment
+    _prev_health = 1.0
+    _dmg_accum = 0.0
+    _last_dmg_setback = 0.0
     # Restore previously explored scene signatures (landmark persistence)
     _loaded_sigs = memory_ctrl.load_scene_db()
     if _loaded_sigs:
@@ -914,7 +918,10 @@ async def run(args) -> None:
             if len(_pose_hist) >= 120:
                 _t0, _x0, _z0 = _pose_hist[0]
                 _disp = ((pose_ev[0] - _x0) ** 2 + (pose_ev[2] - _z0) ** 2) ** 0.5
-                model.report_movement(_disp)
+                # R31-fix3 (C): coverage-gated movement reward — circling in
+                # known area stops paying (mobile-stagnation guard).
+                model.report_movement(_disp,
+                                      coverage_rate=memory_ctrl.coverage_rate)
                 _pose_hist.clear()
             # EVO R12: 60 s rolling displacement → reflex-ineffective flag.
             # A reflex that stays active while 60 s displacement stays ~zero
@@ -1471,6 +1478,24 @@ async def run(args) -> None:
                         screen_bytes=scr))
                 except Exception:
                     pass
+            # ---- R31-fix3 (A+B) · damage → brain-native dopamine shaping ----
+            # A: falling health feeds a PPL1-like negative RPE (add_setback)
+            # so the MB learns "this scene signature hurts" — circling inside
+            # a lethal zone stops being positively reinforced.
+            # B: the damaged cell is written into FailureMemory, feeding the
+            # CX anti-failure goal vector and tangential avoidance.
+            # Both are autonomous brain mechanisms; the coach stays fallback.
+            _health_now = memory_ctrl.health_score
+            _dmg = _prev_health - _health_now
+            _prev_health = _health_now
+            if _dmg > 0.0:
+                _dmg_accum += _dmg
+            if _dmg_accum > 0.02 and tick_start - _last_dmg_setback >= 2.0:
+                model.add_setback(min(0.5, 0.2 + _dmg_accum))
+                _dmg_accum = 0.0
+                _last_dmg_setback = tick_start
+                if len(pose_ev) >= 3:
+                    memory_ctrl.failures.record_failure(pose_ev[0], pose_ev[2])
             # ---- Phase 2 · CPG motor primitives (cascade priority 4.5,
             # between escape and jump).  Gates reuse existing memory/model
             # signals; deterministic phase scripts own the Z→A button timing
