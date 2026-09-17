@@ -80,6 +80,7 @@ def analyse(csv_path: str) -> None:
         print("no primitive events captured yet — sample longer")
         return
     ok = True
+    wrong = False
     evaluated = 0
     for m in MBONS:
         # Prefer the scene-independent weight mean; fall back to the MBON
@@ -102,7 +103,6 @@ def analyse(csv_path: str) -> None:
         # and we need enough samples on both sides to say anything.
         if len(suc) < 5 or not (fail or zero):
             print(f"  -> INCONCLUSIVE (need >=5 successes and >=1 failure/zero sample)")
-            ok = False
             continue
         ref = _mean(fail) if fail else _mean(zero)
         evaluated += 1
@@ -111,15 +111,15 @@ def analyse(csv_path: str) -> None:
                   f"column hovering at balance, keep sampling)")
             continue
         if _mean(suc) <= ref:
-            ok = False
+            wrong = True
             print(f"  -> WRONG DIRECTION (success { _mean(suc):+.3f} <= ref {ref:+.3f})")
     if evaluated == 0:
         print("INCONCLUSIVE: no primitive had both success and comparison groups")
-    elif ok:
-        print(f"PASS ({evaluated} evaluated): success columns >= failure/zero columns "
-              "(RPE direction correct or at equilibrium)")
-    else:
+    elif wrong:
         print("WRONG DIRECTION detected: inspect dopamine sign path in add_primitive_outcome")
+    else:
+        print(f"PASS ({evaluated} evaluated): no wrong-direction column; "
+              "equilibrium/inconclusive columns keep sampling")
 
 
 def _disp(r) -> float:
