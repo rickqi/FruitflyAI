@@ -905,7 +905,7 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 
 <!-- EVOLUTION-HISTORY-TABLE:START
 
-下表由 `skills/evolution_skill.py --history-md` 从权威记录 `skills/evolution_history.json` 自动生成（54 条，权威版本 Brain v2.20.0 / Skill v3.2.0）。**请勿手改本表**——更新记录后重新执行该命令再粘贴。
+下表由 `skills/evolution_skill.py --history-md` 从权威记录 `skills/evolution_history.json` 自动生成（58 条，权威版本 Brain v2.21.0 / Skill v3.2.0）。**请勿手改本表**——更新记录后重新执行该命令再粘贴。
 
 | ID | 时间 | 轮次 | Brain | Skill | 触发原因 | 关键变更 | 测试 | 来源 |
 |----|------|------|-------|-------|---------|---------|------|------|
@@ -950,6 +950,7 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 | EVO-048 | 2026-09-17 10:28 | 运维收敛 | 2.19.3 | 3.1.0 | 双循环并发：Windows 循环（09-16 22:00 启动，pwsh 会话）+ WSL 循环（并行 agent 启动，旧代码无锁）——跨文件系统锁互不可见，双写致 AUTO id 撞号、catalog 覆盖、log 交错 | Windows 循环停止；WSL 单循环收敛（新代码含锁，pid 13420，锁文件 .evo_loop.lock 生效；agent.md 规则 16 固化：resident 循环只能在 WSL 运行，Windows 禁止启动；FAQ 双循环条目更新（跨文件系统根因 + 现行规则指引） | 锁三态 PIN（test_evolution_ops）+ 循环存活/日志验证 | 本次运维（EVO-048） |
 | EVO-049 | 2026-09-17 10:47 | v2.20.0 发布 | 2.20.0 | 3.1.1 | 3 项持续缺陷修复：①breakout 电流非自适应（恒定振幅压制转向）②CPG 原语零位移不切换③flow.json 遥测缺 8 字段 | breakout_gain 自适应：stuck_duration 映射至最高 +0.50，突破时附跳跃注入；CPG 原语 disp_60s<30u 时自动切换 SIDE_FLIP（原语零位移治理）；flow.json 补齐 anomaly_state/reflex_active/escape_behavior 等 8 | 67/67 通过 | commit 103bcb6（含 agent.md 规则 17 版本严格递增契约一并入库） |
 | EVO-050 | 2026-09-17 10:53 | — | 2.20.0 | 3.2.0 | 工作树观测到 SKILL_VERSION 3.1.1→3.2.0（并行会话在途轮）——按规则 15/17 留痕；完整 trigger/changes/tests 条目由执行进化的 agent 补全 | （待执行 agent 补全） | — | 版本纪律自动留痕 |
+| EVO-054 | 2026-09-17 17:13 | t6 根因修复 | 2.21.0 | 3.2.0 | coach 建议从未真正影响 behavior：load_active_strategy() 只返回 fallen_recovery 派生字段，从不透传 exploration/escape/command 段——调用方 _active_s | main.py load_active_strategy: 透传 exploration/escape/command ；flow.json 新增 coach_applied 实时遥测（mode/bold_explore_stuck_s/es；受控端到端验证：写入特征值(33.33/7.77/0.777/0.44) → 600 tick 热加载后全部出现在行为层 | test_strategy_passthrough 5/5（透传/命令段/缺失段/畸形段/坏文件回退） | 本次会话 t6 + brain 重启验证 |
 | AUTO-0001 | 2026-09-15 11:14 | — | 2.13.3 | 3.0.0 | Patterns skipped because their condition fields are absent from telemetry: ['mb_mbon_forward'] (patterns: ['mbon_saturat | # Expose missing condition keys in main.py flow_json/memory_json | — | resident skill loop (auto_fix) |
 | AUTO-0002 | 2026-09-15 11:39 | — | 2.13.3 | 3.0.0 | forward MBON saturated at ceiling while behaviour still loops. The built-in homeostatic synaptic scaling should shrink t | # Verify homeostatic scaling in mushroom_body.py saturation guard | — | resident skill loop (auto_fix) |
 | AUTO-0003 | 2026-09-15 13:10 | — | 2.13.3 | 3.0.0 | Fallen detection threshold (Y<-100) is too permissive. SM64 normal ground is Y=120. Y<50 already indicates below-ground  | # Fix: Lower fallen detection threshold from -100 to 50 | — | resident skill loop (auto_fix) |
@@ -962,11 +963,10 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 | AUTO-0009 | 2026-09-16 17:19 | — | 2.19.1 | 3.0.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
 | AUTO-0010 | 2026-09-16 18:03 | — | 2.19.2 | 3.0.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
 | AUTO-0011 | 2026-09-17 01:07 | — | 2.19.3 | 3.0.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
-| EVO-049 | 2026-09-17 11:20 | L2 导航质量与自我进化闭环 | 2.19.3 | 3.2.0 | SOS 缩略图空白（raw RGB 误作 PNG 解码）；L2 求助触发仅覆盖对话习惯化，高速绕圈类（loop>0.9/coverage_rate=0/stuck 200s）永不升级；health 公式粘性 0.5 地板无恢复梯度；EVO  | SOS 缩略图修复：snapshotDataUri() raw RGB→canvas→PNG（含 flipY 纠正 gl；L2a stuck_no_progress 求助触发器：stuck≥0.8∧coverage_rate<0.01∧dur；reflex_ineffective 判据补绕圈分支：loop>0.8∧coverage_rate<0.01∧stuck（等 10 项） | test_memory 83（含 stall/recovery/novelty 3 条新 PIN）+ evolution | commits 6d37c04/84a9a55/c348a67/4e4da5f + 本次版本提交 |
-| R23-N1 | 2026-09-17 | R23 | 2.20.0 | 3.2.0 | micro_loop_weave持续30/30轮检出 | breakout_gain自适应(stuck→0.50)+突破跳跃注入 | 26/26 tests | captain |
-| R23-N2 | 2026-09-17 | R23 | 2.20.0 | 3.2.0 | primitive_zero_disp 22/30轮检出 | CPG位移检测零位移自动切换SIDE_FLIP | 26/26 tests | captain |
-| R23-N3 | 2026-09-17 | R23 | 2.20.0 | 3.2.0 | telemetry_gap 30/30轮, 20个缺失字段 | flow.json补齐anomaly_state/reflex_active等8字段 | 26/26 tests | captain |
-| R23-FIX | 2026-09-17 | R23 | 2.20.0 | 3.2.0 | 测试失败38项(9项与3D grid/docs相关) | update(z→第2参数)+save_state v2格式+test期望值修复 | 26/26 tests | captain |
+| EVO-055 | 2026-09-17 11:20 | L2 导航质量与自我进化闭环 | 2.20.0 | 3.2.0 | SOS 缩略图空白（raw RGB 误作 PNG 解码）；L2 求助触发仅覆盖对话习惯化，高速绕圈类（loop>0.9/coverage_rate=0/stuck 200s）永不升级；health 公式粘性 0.5 地板无恢复梯度；EVO  | SOS 缩略图修复：snapshotDataUri() raw RGB→canvas→PNG（含 flipY 纠正 gl；L2a stuck_no_progress 求助触发器：stuck≥0.8∧coverage_rate<0.01∧dur；reflex_ineffective 判据补绕圈分支：loop>0.8∧coverage_rate<0.01∧stuck（等 10 项） | test_memory 83（含 stall/recovery/novelty 3 条新 PIN）+ evolution | 本会话 commits 6d37c04/84a9a55/c348a67/4e4da5f + 本次版本提交（fix_001 |
+| EVO-051 | 2026-09-17 12:17 | R31-fix2 | — | 3.1.1 | 教练截屏与实际游戏画面长期不一致：snapshot 只是游戏屏幕一部分——R21 截图点落在复眼观察者通道尾部（时机=帧中段、视口=观察者残留、FBO 绑定错误），且原审计只验证感官隔离不验证内容保真（测试盲区） | fly64_vision.c: 移除观察者通道尾部的错误捕获块；新增 fly64_vision_capture_scre；fly64_vision.h: 声明 fly64_vision_capture_screen；gfx_pc.c: gfx_run() 在 gfx_rapi->end_frame() 之后、swap 之前调用捕获（游（等 6 项） | 保真度 3/3 PASS（零占比 1.8%→27.9% 自然天空、活流 delta 0.51、与 cubemap 直方图 | 用户报告 coach 截屏不一致 → captain 根因定位（渲染管线钩子时机/视口/FBO 三重错位）→ 数据驱动修 |
+| EVO-052 | 2026-09-17 15:02 | R31-fix3 | 2.20.3 | 3.1.1 | 熔岩地移动型困境分析：位移奖励误指定（493u/60s 高速绕圈拿正奖励、coverage 4.1% 纹丝不动、掉血无负 RPE、受击格不在失败记忆）——教练求助门被位移口径正确关闭，但脑模型自身必须学会自治解决；设计原则：运动动作终极目标 | A: main.py 掉血检测（health 斜率>0 累积>0.02、2s 限速）→ model.add_setbac；B: 受击格写入 FailureMemory.record_failure——自动接入 CX 反失败目标向量与切向绕行；C: report_movement 增加 coverage_rate 进展门控——无新探索的位移奖励 ×0.25（修正（等 4 项） | 新用例 6/6 全过；设计原则：所有机制保持单规则简单有效，coach 保持兜底不前置 | 用户提问'如何用脑模型强化学习机制解决移动型困境'→ R31-fix3 脑机制修复（非教官层规则） |
+| EVO-053 | 2026-09-17 16:03 | R31-fix4 | 2.20.4 | 3.2.0 | 用户指出 fall 状态判定不准确：旧谓词 pos_y<50 or pos_y>500 把合法高处（塔/平台 y 可达 600~2000+）误判为坠落、无垂直速度项、无去抖（_fall_recovery_ticks 是死代码）、单 tick | memory.py StuckDetector: y 历史环形缓冲（16 tick）计算垂直速度 vz；状态三分：FALLING（vz<-120u/s 去抖 3 tick）/ OFF_MAP（y<50 持续 10 tick）；fallen 标志语义修正为'真坠落/已掉出地图'；下游 BACKFLIP 触发与 escape_jump_drive （等 5 项） | fall-state 6/6；memory 87 passed（仅剩 2 个基线预存 KeyError） | 用户报告 fall 判定不准确 → 准确状态模型（速度+去抖+区分高处） |
 
 <!-- EVOLUTION-HISTORY-TABLE:END -->
 
