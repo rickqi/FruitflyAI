@@ -1,0 +1,21 @@
+{
+ "ts": 1789606926.5419054,
+ "cycle": 0,
+ "window_s": 30.0,
+ "keys": {
+  "exploration": {
+   "bold_explore_stuck_s": 30,
+   "turn_bias": 0.6
+  }
+ },
+ "scene_id": "",
+ "scene_label": "洞穴",
+ "anomaly": "fallen",
+ "help_reason": "",
+ "baseline": {
+  "stuck_duration": 100.0,
+  "health_score": 0.5,
+  "disp_60s": 5.0,
+  "loop_score": 0.9
+ }
+}

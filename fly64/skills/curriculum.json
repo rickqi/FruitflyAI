@@ -1,0 +1,26 @@
+{
+ "course": "general-escape",
+ "stage": 1,
+ "goal": {
+  "metric": "disp_60s",
+  "op": "gt",
+  "target": 30
+ },
+ "attempts": 2,
+ "consecutive_ok": 0,
+ "consecutive_fail": 2,
+ "history": [
+  {
+   "at": 1789606802.4,
+   "verdict": "worse",
+   "met": false,
+   "stage": 1
+  },
+  {
+   "at": 1789606924.7,
+   "verdict": "improved",
+   "met": false,
+   "stage": 1
+  }
+ ]
+}

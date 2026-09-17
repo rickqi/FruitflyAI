@@ -1,0 +1,24 @@
+{
+  "$schema": "fly64/evolution-history/1.0",
+  "canonical_versions": {
+    "brain": "2.14.0",
+    "as_of": "2026-09-17T01:02:11.635404+00:00"
+  },
+  "records": [
+    {
+      "id": "AUTO-0001",
+      "recorded_at": "2026-09-17T01:02:11.635404+00:00",
+      "kind": "brain_update_auto",
+      "round": null,
+      "brain_version": "2.14.0",
+      "previous_version": "2.13.3",
+      "skill_version": "3.1.1",
+      "trigger": "dashboard brain_version change",
+      "changes": [
+        "(auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, agent.md rule 15)"
+      ],
+      "tests": null,
+      "source": "resident skill loop"
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+{"primitives": {"enabled": ["longjump", "punch", "dive"], "prefer": {"ramp": "longjump", "lava": "dive", "": "ignored"}}}
