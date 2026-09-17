@@ -1,6 +1,6 @@
 # EvolutionSkill — Self-Evolving Motion Diagnosis
 
-> 当前版本：BRAIN_VERSION **2.23.5** / SKILL_VERSION **3.4.0**（EVO-057 CX 环路确定性破解 → EVO-058 P4.4 本能固化可达化 + 证据基座加固 → EVO-059 生产启动 NameError → EVO-062 修复“死控件”：操作面板点号参数 id 从未到达行为层 → EVO-065 课程三态判定（不可观测≠失败）→ EVO-066 契约审计：清理 3 个教练死旋钮，并把 Phase 6 的搜索空间从 21 维收敛为 7 个真正生效的维度（依据规则 18 递增 skill）。完整逐轮记录见 skills/evolution_history.json）
+> 当前版本：BRAIN_VERSION **2.23.5** / SKILL_VERSION **3.4.1**（EVO-062 死控件 → EVO-065 课程三态判定 → EVO-066 契约审计清理死旋钮、Phase 6 搜索空间 21→7 → EVO-067 双环实测：Phase 6 提交率 2.27%、62.5% 试验精确零 delta（失败不可归因 → 已补分量与 same_sample 仪表）；P4.4 阻塞为证据量而非签名粒度。完整逐轮记录见 skills/evolution_history.json）
 
 **Version**: 3.0.0
 **Status**: Active

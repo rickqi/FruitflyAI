@@ -37,7 +37,7 @@ from .scene_recognition import SceneRecognizer
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
 BRAIN_VERSION = "2.23.5"  # R31-fix8: coach command.turn_and_go consumer + pos_y telemetry
-SKILL_VERSION = "3.4.0"   # EVO-066: Phase 6 searches only wired params (dead-knob audit) (must mirror evolution_skill)
+SKILL_VERSION = "3.4.1"   # EVO-067: Phase 6 fitness/diagnostic instrumentation (must mirror evolution_skill)
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
 _evo_iter_counter = 0

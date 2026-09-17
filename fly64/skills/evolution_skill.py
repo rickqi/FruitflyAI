@@ -28,7 +28,7 @@ except ImportError:
     HAS_JSONSCHEMA = False
     ValidationError = type("ValidationError", (Exception,), {})
 
-SKILL_VERSION = "3.4.0"
+SKILL_VERSION = "3.4.1"
 SKILL_NAME = "evolution_skill"
 SKILL_DIR = Path(__file__).resolve().parent
 WORKSPACE = SKILL_DIR.parent.parent
@@ -1432,6 +1432,7 @@ class BrainMutator:
         self._trial: Optional[dict] = None          # current candidate params
         self._trial_start: Optional[float] = None    # when trial began
         self._baseline_fitness: Optional[float] = None
+        self._baseline_components: Optional[dict] = None   # diagnostics (see below)
         self._mutation_rate = 0.12                   # stddev as fraction of range
 
     def _load(self) -> dict:
@@ -1470,6 +1471,50 @@ class BrainMutator:
         return {pid: meta for pid, meta in self._schema.get("params", {}).items()
                 if not (isinstance(meta, dict) and meta.get("wired") is False)}
 
+    def fitness_components(self, sample: SensorSample) -> dict:
+        """The seven weighted terms of :meth:`fitness`, un-summed.
+
+        Measured motivation (scripts/measure_evolution_health.py): of 88 unique
+        Phase 6 trials, 55 (62.5%) recorded a delta of EXACTLY 0.0 and 83 (94.3%)
+        stayed below the 0.03 pass gate — yet the log stored only the scalar
+        delta/baseline/current, so the cause was UNATTRIBUTABLE.  That is the
+        same "unobservable state" defect this session repeatedly had to fix.
+
+        Logging the components makes the next diagnosis read off the data:
+        identical components everywhere means the fitness inputs did not move;
+        a component that is 0.0 in both readings means the sample lacked that
+        field; and `sample_ts`/`sample_fields` show whether the collector handed
+        back the SAME sample object at both ends of the 120 s window (identical
+        timestamps would prove the metric never refreshed).
+        """
+        if sample is None:
+            return {}
+        rr = getattr(sample, "revisit_ratio", 0.0)
+        return {
+            "coverage": min(getattr(sample, "coverage_pct", 0) / 50.0, 1.0) * 0.30,
+            "unstuck": (1.0 - min(getattr(sample, "stuck_duration", 0) / 120.0, 1.0)) * 0.20,
+            "novelty": min(getattr(sample, "novelty", 0), 1.0) * 0.10,
+            "health": max(0.0, min(getattr(sample, "health_score", 0.5), 1.0)) * 0.15,
+            "speed": min(getattr(sample, "coverage_rate", 0) * 100, 0.5) * 0.10,
+            "first_contact": min(getattr(sample, "first_contact_rate", 0) * 100, 1.0) * 0.10,
+            "revisit_penalty": max(0.0, (rr - 0.2) * 2.0) * 0.05,
+            # raw inputs, so "the metric never moved" is distinguishable from
+            # "the metric moved but the weighted terms cancelled"
+            "raw": {
+                "coverage_pct": getattr(sample, "coverage_pct", None),
+                "stuck_duration": getattr(sample, "stuck_duration", None),
+                "novelty": getattr(sample, "novelty", None),
+                "health_score": getattr(sample, "health_score", None),
+                "coverage_rate": getattr(sample, "coverage_rate", None),
+                "first_contact_rate": getattr(sample, "first_contact_rate", None),
+                "revisit_ratio": rr,
+                "sample_ts": getattr(sample, "timestamp", None),
+                "sample_fields": sorted(
+                    k for k in vars(sample) if not k.startswith("_"))
+                if hasattr(sample, "__dict__") else None,
+            },
+        }
+
     def fitness(self, sample: SensorSample) -> float:
         """Single scalar fitness ∈ [0, 1]: higher = better.
 
@@ -1481,19 +1526,16 @@ class BrainMutator:
           - min(coverage_rate×100, 0.5)     (×0.10) exploration speed
           - first_contact_rate ×100         (×0.10) new cells per second
           - revisit_penalty                  (×0.05) penalise excessive re-visits
+
+        Implemented as the sum of :meth:`fitness_components`, which is the single
+        source of truth for the arithmetic.
         """
         if sample is None:
             return 0.0
-        cov = min(getattr(sample, "coverage_pct", 0) / 50.0, 1.0) * 0.30
-        unstuck = (1.0 - min(getattr(sample, "stuck_duration", 0) / 120.0, 1.0)) * 0.20
-        nov = min(getattr(sample, "novelty", 0), 1.0) * 0.10
-        health = max(0.0, min(getattr(sample, "health_score", 0.5), 1.0)) * 0.15
-        speed = min(getattr(sample, "coverage_rate", 0) * 100, 0.5) * 0.10
-        # P1-D: reward first-contact rate (new cells/s), penalise re-visit ratio
-        fcr = min(getattr(sample, "first_contact_rate", 0) * 100, 1.0) * 0.10
-        rr = getattr(sample, "revisit_ratio", 0.0)
-        rp = max(0.0, (rr - 0.2) * 2.0) * 0.05  # >20% revisits → penalty
-        return round(cov + unstuck + nov + health + speed + fcr - rp, 4)
+        c = self.fitness_components(sample)
+        return round(
+            c["coverage"] + c["unstuck"] + c["novelty"] + c["health"]
+            + c["speed"] + c["first_contact"] - c["revisit_penalty"], 4)
 
     @staticmethod
     def _load_active_strategy() -> dict:
@@ -1564,6 +1606,7 @@ class BrainMutator:
         self._trial = candidate
         self._trial_start = time.time()
         self._baseline_fitness = self.fitness(metrics) if metrics else 0.0
+        self._baseline_components = self.fitness_components(metrics)
 
     def evaluate(self, metrics: SensorSample | None) -> Optional[dict]:
         """After the verification window, compare current fitness vs baseline.
@@ -1581,14 +1624,27 @@ class BrainMutator:
         current_fitness = self.fitness(metrics) if metrics else 0.0
         delta = current_fitness - self._baseline_fitness
         passed = delta > 0.03  # 3% improvement threshold
+        cur_components = self.fitness_components(metrics)
+        base_components = self._baseline_components or {}
+        base_ts = (base_components.get("raw") or {}).get("sample_ts")
+        cur_ts = (cur_components.get("raw") or {}).get("sample_ts")
         result = {"passed": passed, "delta": round(delta, 4),
                   "baseline": round(self._baseline_fitness, 4),
                   "current": round(current_fitness, 4),
-                  "params": dict(self._trial)}
+                  "params": dict(self._trial),
+                  # Diagnostic surface: the scalar delta alone left 62.5% of
+                  # trials (delta exactly 0.0) unattributable — see
+                  # fitness_components().  `same_sample` is the decisive field:
+                  # True means the collector handed back the SAME sample at both
+                  # ends of the window, so the fitness inputs never refreshed.
+                  "baseline_components": base_components,
+                  "current_components": cur_components,
+                  "same_sample": bool(base_ts is not None and base_ts == cur_ts)}
         if passed:
             self._trial = None
             self._trial_start = None
             self._baseline_fitness = None
+            self._baseline_components = None
             result["committed"] = True
         else:
             # rollback: restore the original strategy without these changes
@@ -1596,6 +1652,7 @@ class BrainMutator:
             self._trial = None
             self._trial_start = None
             self._baseline_fitness = None
+            self._baseline_components = None
             result["committed"] = False
         return result
 

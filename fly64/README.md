@@ -904,7 +904,7 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 ### 完整进化历史档案
 
 <!-- EVOLUTION-HISTORY-TABLE:START
-下表由 `skills/evolution_skill.py --history-md` 从权威记录 `skills/evolution_history.json` 自动生成（74 条，权威版本 Brain v2.23.5 / Skill v3.4.0）。**请勿手改本表**——更新记录后重新执行该命令再粘贴。
+下表由 `skills/evolution_skill.py --history-md` 从权威记录 `skills/evolution_history.json` 自动生成（75 条，权威版本 Brain v2.23.5 / Skill v3.4.1）。**请勿手改本表**——更新记录后重新执行该命令再粘贴。
 
 | ID | 时间 | 轮次 | Brain | Skill | 触发原因 | 关键变更 | 测试 | 来源 |
 |----|------|------|-------|-------|---------|---------|------|------|
@@ -982,6 +982,7 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 | EVO-064 | 2026-09-17 20:41 | t11 场景身份实测（负结果 + 记录更正） | 2.23.4 | 3.3.0 | EVO-058 的 notes 把 scene_key 前缀漂移列为“下一步开放缺陷”，我在本轮报告里也据此宣称“场景身份稳定性是 P4.4 的真瓶颈”。这是**未测量的假设**：instinct_bindings.scene_key 的  | 新增 scripts/measure_scene_identity.py：采样实时 /flow.json + /memo；fly64/instinct_bindings.py：把 scene_key 的 docstring 从原则性断言改为*；记录更正：撤回 EVO-058 notes 与本次会话报告中的“场景身份是瓶颈”论断（见 notes） | test_instinct_bindings 31/31（文档改动行为中性，仅验证无回归）；实测（24 采样 / 2 分 | 本次会话 t11；实测脚本 scripts/measure_scene_identity.py |
 | EVO-065 | 2026-09-17 20:43 | t12 课程三态判定（不可观测≠失败） | 2.23.5 | 3.3.0 | 课程目标的度量在预热期不可观测时被静默计为**失败**：脑重启后约 4 分钟内 /memory.json 的 disp_60s 为 null（位移追踪器预热），而 _num(None) 会把 null 强转为 0.0，于是 `disp_60 | plugin/coach_outcomes.py: _goal_met 改为**三态**返回 True / False ；plugin/coach_outcomes.py: update_curriculum 对 None 不计入任何连击——；新增 tests/test_curriculum_unknown_metric.py 14 条：三态判定（含 null/（等 4 项） | test_curriculum_unknown_metric 14/14 + test_coach_outcomes 1 | 本次会话 t12；实测污染窗口见 EVO-058/EVO-059 期间的课程状态 |
 | EVO-066 | 2026-09-17 20:54 | t13 契约审计：死旋钮清理 | 2.23.5 | 3.4.0 | 把本次会话反复手工发现的“机制存在、报告成功、无法生效”缺陷族**系统化审计**：新增 scripts/audit_contract_pairs.py，对每个跨组件 JSON 工件的每个键（含嵌套路径）在其管线模块内做 AST 级写入点/读 | 新增 scripts/audit_contract_pairs.py：AST 级写入/读取点分类（含 .get/[]/i；plugin/llm_consult.py: SECTION_SPECS 移除 escape.reverse_secon；skills/brain_tunable_params.json → v1.1.0：为全部 21 个参数增加 wired（等 9 项） | test_coach_contract 8/8 + test_tunable_wiring 12/12；coach/st | 本次会话 t13；审计工具 scripts/audit_contract_pairs.py |
+| EVO-067 | 2026-09-17 21:04 | t14 双环度量 + Phase 6 归因仪表 | 2.23.5 | 3.4.1 | 执行上一轮给出的建议“度量 Phase 6 收益、跟踪 P4.4 晋级”。新增只读度量工具 scripts/measure_evolution_health.py，从既有运行时数据（skills/evolution_log.jsonl 15 | 新增 scripts/measure_evolution_health.py（只读，--phase6 / --p44 /；skills/evolution_skill.py: fitness() 重构为 fitness_components(；新增 tests/test_phase6_attribution.py 13 条：以**重构前的表达式为等价基准**逐例（等 4 项） | test_phase6_attribution 13/13 + test_tunable_wiring 12 + tes | 本次会话 t14；度量工具 scripts/measure_evolution_health.py |
 <!-- EVOLUTION-HISTORY-TABLE:END -->
 
 > **档案维护规则**：本表由 `--history-md` 从权威 JSON 再生成，新进化轮次只写 `evolution_history.json`（规则 15），然后执行 `python3 fly64/skills/evolution_skill.py --history-md` 重新生成并替换 `<!-- EVOLUTION-HISTORY-TABLE -->` 标记之间的内容，随代码一起提交。
