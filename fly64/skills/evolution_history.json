@@ -3,7 +3,7 @@
   "canonical_versions": {
     "brain": "2.23.5",
     "skill": "3.4.1",
-    "as_of": "2026-09-17T21:04:22.174516+08:00"
+    "as_of": "2026-09-17T21:20:49.127035+08:00"
   },
   "records": [
     {
@@ -1392,6 +1392,26 @@
       "tests": "test_phase6_attribution 13/13 + test_tunable_wiring 12 + test_coach_contract 8 = 32 passed；WSL 运行时复跑通过；--history-check OK",
       "source": "本次会话 t14；度量工具 scripts/measure_evolution_health.py",
       "notes": "**Phase 6 实测（88 次去重试验）**：提交 2 / 回滚 86（提交率 **2.27%**）；适应度增量 min=-0.0576 / p50=**0.0** / max=0.25 / mean=0.0003；**55 次（62.5%）delta 恰好为 0.0**（两端适应度逐位相同）；**83 次（94.3%）|delta| ≤ 0.03**（低于 0.03 通过门槛）；33 次非零中位数 |delta| 仅 0.0059、仅 2 次越过门槛；全部维度移动中惰维度占 **73.3%**。**假设证伪**：我曾断言 Phase 6 会“提交一个活维度其实没动的候选”——实测 **0/2 提交存在零活维度移动**，两次提交分别移动了 4 个与 7 个活维度。EVO-066 的 21→7 收敛因此定性为**卫生与可解释性改进**（每轮少写 14 个无用键、试验记录可读），而**不是**已观测错误提交的修复。**冻结输入假设仅弱支持**：零 delta 组 baseline 均值 0.186 vs 非零组 0.208、中位数几乎相同（0.1131 vs 0.1190），不足以断言“卡住导致适应度冻结”。**真正的缺陷是失败不可归因**：日志只存标量 delta/baseline/current，62.5% 的精确零值无法判断是“输入未变”“字段缺失”还是“权重相消”——与 EVO-065 同族的“不可观测状态”。已补上分量与 same_sample 诊断，下次可直接读数据判定。**P4.4 实测（10 签名 / 6 场景，0 晋级）**：7 个签名 improved=1（距晋级差 1）、3 个为 0、1 个被 worse 证伪；42 条 outcome 中 17 improved / 22 unchanged / 3 worse。**关键更正**：42 条里 31 条无场景标签而被丢弃，但**全部集中在 22:58–18:27**（脑进程不可达窗口）；**18:31 脑重启后 11/11 全部带标签**——因此该缺口是历史遗留而非进行中的记录缺陷，**无需改代码**（EVO-059 修好启动后自然消失）。因此我先前“签名复用 0% 是结构性的”论断**证据不足**：可用样本仅 11 条、分布在约 2.5 小时内，尚不足以断言教练从不重复参数集。**结论**：P4.4 当前的阻塞是**证据量**（而非签名粒度或场景身份——后者已在 EVO-064 实测排除），应跟踪的指标是 signature_reuse_rate 与可用 outcome 数量。**版本轨**：仅 skill 3.4.0 → 3.4.1（patch，诊断仪表化；适应度算术经等价测试逐例验证未变）；脑行为未变，BRAIN_VERSION 保持 2.23.5。"
+    },
+    {
+      "id": "EVO-068",
+      "date": "2026-09-17",
+      "time": "21:20:49 +0800",
+      "round": "t15 验证基线（回归可探测）",
+      "kind": "infra",
+      "brain_version": "2.23.5",
+      "skill_version": "3.4.1",
+      "trigger": "项目无法把进展与噪声分开：Windows 套件长期带约 40 个未分类失败，真实回归会被淹没——本轮为回答“我是否弄坏了什么”，不得不派子代理做一次基线归属（对照 pristine HEAD 副本），代价高且不可复用；且同一套件多次运行的失败数在 39/40 间漂移，其中一条来自活体脑状态。",
+      "changes": [
+        "新增 tests/known_failures.json：36 条基线，**每条标注 cause 与证据 note**。分类为 environment 13 / aspirational 15 / real-bug 5 / test-drift 3（0 未分类）：aspirational＝测试断言的功能在全仓零实现（ENHANCED_PROMPT_TEMPLATE 整套未实现、MushroomBody 的 _saturation_recovery_counter 全仓零出现）；test-drift＝功能仍在但断言过时（decision_source 已重构为 resolve_decision_source(...)，测试仍在 grep 旧字面赋值）；environment＝Windows 缺 time.clock_gettime_ns / gbk 解码 / 缺 .nc 缓存；real-bug＝行为与期望真实不符（loop_score 在 200 个新格后仍为 1.0、compute_flow 29.35ms vs 5ms 预算、视觉→运动池直连不变量被违反）",
+        "新增 scripts/check_regressions.py：跑 pytest（或解析既有 --report），与基线比对，输出 NEW / 仍失败 / 基线中已通过 三组；**仅在出现新失败时非零退出**（可安全用作门禁），--strict 还会因“基线条目已通过”失败以防基线腐化，--update 刷新基线",
+        "新增 tests/test_regression_detector.py 6 条：基线必须存在且每条都有 cause 与证据、cause 必须在词表内、对自身基线报告 0 新失败、**注入一个故意失败的测试后必须报告 NEW≥1 且非零退出**（证明探测器真的能探测），并在 finally 中清理探针",
+        "tests/test_coach_pipeline.py：修复设计性 flaky——4 条快照测试在 /help.json 无内容时失败（实测形态既有 {} 也有 {\"help_reason\": null}），新增 _get_live() 仅在“无求助内容”时 skip 并给出可测原因；**连接失败仍然失败**（脑挂掉必须被看见）；有内容时照常断言，故畸形快照无法靠 skip 蒙混",
+        "agent.md 新增规则 20（验证基线强制）"
+      ],
+      "tests": "test_regression_detector 6/6（含注入探针后 NEW≥1 且非零退出的实证）；Windows 全量套件：**40 failed / 881 passed / 36 skipped → 36 failed / 881 passed / 36 skipped**（失败的 4 条转为有据可查的 skip，通过数不变）；check_regressions.py 对自身基线报告 0 新失败",
+      "source": "本次会话 t15；基线归属对照 pristine HEAD 见子代理报告",
+      "notes": "**版本轨**：本轮不改动生产代码（仅测试质量、脚本与文档），故**不递增版本**（沿用 canonical brain 2.23.5 / skill 3.4.1），与 EVO-064/065 同样以 infra 记录。**平台范围**：基线记录 platform=win32，因为它是在 Windows 套件上测得的；WSL 侧失败集不同（如 clock_gettime_ns 类在 Linux 上本就通过），故基线是平台作用域的，工具已在文件与输出中显式标注。**与规则 19 的关系**：规则 19 管“证据不受损”，规则 20 管“回归可探测”——两者共同把“机制存在、报告成功、无法生效”的盲区从数据与验证两端堵住。**下一步价值**：`aspirational` 15 条（其中 test_what_i_see_protocol 10 条）与 EVO-066 发现的14 个未接参数同属“先写愿景、未实现”模式，累计 29 项——建议后续做成一张“已声明未实现”清单，逐项决定实现或正式废弃。"
     }
   ]
 }
