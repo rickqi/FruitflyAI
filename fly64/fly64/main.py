@@ -64,26 +64,63 @@ def _load_evolution_history() -> None:
 _load_evolution_history()
 
 class EscapeEventBuffer:
-    """Ring buffer of last 200 escape events.
+    """Ring buffer of last 200 escape events (t24 five-state schema).
 
-    Each event records: timestamp, reason (stuck/fallen/flow/cliff),
-    duration, position (x,z), outcome (resolved/still_escaping).
+    Outcome state machine:
+        in_progress          — escape active
+        resolved_effective   — ended, displacement >  EFFECTIVE_MIN_U
+        resolved_ineffective — ended, displacement ≤ EFFECTIVE_MIN_U
+        escalated            — ended but the situation re-escaped <10 s later
+        aborted              — ended without a measurable displacement sample
+
+    Each start snapshots the full behavioural context (reasons list, anomaly
+    state/duration, terrain, loop_score, novelty, coach strategy keys) and
+    ``post_escape_anomaly`` records the first anomaly seen after resolve.
     """
+
+    EFFECTIVE_MIN_U = 30.0
+    ESCALATE_WINDOW_S = 10.0
 
     def __init__(self, maxlen: int = 200):
         self._events: deque = deque(maxlen=maxlen)
+        self._last_resolved_ts: float | None = None
 
     def start_event(self, timestamp: float, reason: str,
-                    position_x: float, position_z: float) -> dict:
-        """Record the start of a new escape event."""
+                    position_x: float, position_z: float, *,
+                    reasons: list[str] | None = None,
+                    snapshot: dict | None = None) -> dict:
+        """Record the start of a new escape event.
+
+        ``reasons`` lists ALL active trigger conditions (the primary
+        ``reason`` first); ``snapshot`` merges behavioural context fields
+        (anomaly_state / anomaly_duration / terrain / loop_score / novelty /
+        coach_keys).
+        """
         event: dict = {
             "timestamp": round(timestamp, 2),
             "reason": reason,
+            "reasons": list(reasons) if reasons else [reason],
             "duration": 0.0,
             "position": {"x": round(position_x, 1), "z": round(position_z, 1)},
-            "outcome": "still_escaping",
+            "outcome": "in_progress",
             "distance_moved": 0.0,
         }
+        if snapshot:
+            event.update(snapshot)
+        event.setdefault("anomaly_state", "")
+        event.setdefault("anomaly_duration", 0.0)
+        event.setdefault("terrain", "")
+        event.setdefault("loop_score", 0.0)
+        event.setdefault("novelty", 0.0)
+        event.setdefault("coach_keys", {})
+        event.setdefault("post_escape_anomaly", None)
+        # escalation: the previous escape resolved moments ago and we are
+        # already escaping again — the previous attempt failed to solve it.
+        if (self._last_resolved_ts is not None
+                and timestamp - self._last_resolved_ts <= self.ESCALATE_WINDOW_S
+                and self._events
+                and str(self._events[-1].get("outcome", "")).startswith("resolved")):
+            self._events[-1]["outcome"] = "escalated"
         self._events.append(event)
         return event
 
@@ -93,11 +130,37 @@ class EscapeEventBuffer:
             self._events[-1]["duration"] = round(
                 self._events[-1]["duration"] + dt, 3)
 
-    def resolve_current(self, distance_moved: float) -> None:
-        """Mark the current event as resolved and record distance covered."""
-        if self._events:
-            self._events[-1]["outcome"] = "resolved"
-            self._events[-1]["distance_moved"] = round(distance_moved, 1)
+    def resolve_current(self, distance_moved: float,
+                        effective_min_u: float = EFFECTIVE_MIN_U,
+                        aborted: bool = False) -> str:
+        """Resolve the current event into an effective/ineffective/aborted
+        outcome based on displacement vs the effective threshold (30u)."""
+        if not self._events:
+            return ""
+        ev = self._events[-1]
+        if aborted or distance_moved is None:
+            ev["outcome"] = "aborted"
+        else:
+            ev["distance_moved"] = round(distance_moved, 1)
+            ev["outcome"] = ("resolved_effective"
+                             if distance_moved > effective_min_u
+                             else "resolved_ineffective")
+        self._last_resolved_ts = time.time()
+        return ev["outcome"]
+
+    def mark_post_escape_anomaly(self, anomaly_state: str) -> bool:
+        """Tag the most recent resolved event with a post-escape anomaly.
+
+        Returns True when a resolved (non-escalated) event was tagged.
+        """
+        if not anomaly_state or not self._events:
+            return False
+        ev = self._events[-1]
+        oc = ev.get("outcome", "")
+        if (oc.startswith("resolved") and not ev.get("post_escape_anomaly")):
+            ev["post_escape_anomaly"] = anomaly_state
+            return True
+        return False
 
     def get_recent(self, n: int = 100) -> list[dict]:
         """Return the last *n* events as a list."""
@@ -1149,23 +1212,50 @@ async def run(args) -> None:
             # ---- Escape event tracking ----
             currently_escaping = memory_ctrl.escape_behavior
             if currently_escaping and not previous_escape:
-                # Escape just started — determine reason
+                # Escape just started — collect ALL active trigger reasons
+                reasons = []
                 if reflex_override:
-                    reason = f"reflex_{memory_ctrl.reflex_type}" if memory_ctrl.reflex_type else "reflex"
-                elif memory_ctrl.fallen:
-                    reason = "fallen"
+                    reasons.append(f"reflex_{memory_ctrl.reflex_type}"
+                                   if memory_ctrl.reflex_type else "reflex")
+                if memory_ctrl.fallen:
+                    reasons.append("fallen")
                     event_counters["total_falls"] += 1
-                elif memory_ctrl.stuck_score > 0.8:
-                    reason = "stuck"
-                elif memory_ctrl.cliff_detected:
-                    reason = "cliff"
-                elif model.true_asymmetry > 0.3:
-                    reason = "flow"
+                if memory_ctrl.stuck_score > 0.8:
+                    reasons.append("stuck")
+                if memory_ctrl.cliff_detected:
+                    reasons.append("cliff")
+                    event_counters["total_cliff_escapes"] += 1
+                if model.true_asymmetry > 0.3:
+                    reasons.append("flow")
+                if not reasons:
+                    reasons.append("stuck")
+                reason = reasons[0]
+                # primary-class counter (t24): cliff / fallen / stuck
+                if reason == "cliff":
+                    pass  # counted above
+                elif reason == "fallen":
+                    pass
                 else:
-                    reason = "stuck"
+                    event_counters["total_stuck_escapes"] += 1
                 current_escape_event = escape_buffer.start_event(
                     round(tick_start - started, 2), reason,
-                    pose_ev[0], pose_ev[2])
+                    pose_ev[0], pose_ev[2],
+                    reasons=reasons,
+                    snapshot={
+                        "anomaly_state": memory_ctrl.anomaly_state_name,
+                        "anomaly_duration": round(memory_ctrl.anomaly_duration, 2),
+                        "terrain": model.terrain,
+                        "loop_score": round(memory_ctrl.loop_score, 4),
+                        "novelty": round(memory_ctrl.novelty, 4),
+                        "coach_keys": {
+                            "bold_explore_stuck_s": getattr(memory_ctrl, "bold_explore_stuck_s"),
+                            "turn_bias": getattr(memory_ctrl, "bold_turn_bias"),
+                            "escape_stuck_threshold_s": getattr(memory_ctrl, "escape_stuck_threshold_s"),
+                        },
+                    })
+                # t24: a resolved event followed by immediate re-escape means
+                # the previous attempt escalated (counters + outcome already
+                # handled inside the buffer via the escalate window).
                 event_counters["total_escapes"] += 1
                 event_last_pos = (pose_ev[0], pose_ev[2])
                 # ---- EvolutionSkill: on-demand diagnosis on escape trigger ----

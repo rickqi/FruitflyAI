@@ -65,19 +65,20 @@ def tick_normal(mc, clock, n=2, x=0.0, z=0.0):
     return out
 
 
-def oscillate(mc, clock, n=40):
+def oscillate(mc, clock, n=40, low_rate=True):
     """Drive control.x oscillation — activates the 'oscillating' anomaly.
 
     n=40 flushes the detector's 30-sample majority window with oscillating
-    votes so the state becomes active.
-    """
+    votes so the state becomes active.  low_rate=True also reduces the
+    forward rate so stuck conditions are met alongside oscillation."""
     out = None
     seq = 2000
+    rate = 5.0 if low_rate else 30.0
     for i in range(n):
         clock.advance(0.02)
         seq += 1
         out = mc.update(temporal_energy=0.5, frame_seq=seq,
-                        forward_rate=30.0, x=0.0, z=0.0, pos_y=50.0,
+                        forward_rate=rate, x=0.0, z=0.0, pos_y=50.0,
                         control_x=60 if i % 2 == 0 else -60)
     return out
 

@@ -182,7 +182,21 @@ def frame_to_data_uri(frame_b64: Optional[str]) -> Optional[str]:
         return None
     if frame_b64.startswith("data:"):
         return frame_b64
-    return "data:image/png;base64," + frame_b64
+    # Detect dimensions from raw RGB data length:
+    #   320×240×3 = 230400 B → 307200 base64 chars (screen.json)
+    #   384×256×3 = 294912 B → 393216 base64 chars (help.json frame_b64)
+    try:
+        raw_len = len(base64.b64decode(frame_b64, validate=True))
+    except Exception:
+        return "data:image/png;base64," + frame_b64
+    if raw_len == 230400:
+        w, h = 320, 240
+    elif raw_len == 294912:
+        w, h = 384, 256
+    else:
+        return "data:image/png;base64," + frame_b64  # assume already encoded
+    png_b64 = raw_rgb_b64_to_png_b64(frame_b64, w, h)
+    return "data:image/png;base64," + png_b64
 
 
 class GLMConsultant:

@@ -1,21 +1,21 @@
 {
   "exploration": {
-    "bold_turn_bias": 0.1939136911394091,
-    "exploration.bold_explore_stuck_s": 51.52007904043278,
-    "exploration.revisit_penalty_scale": 0.1859362574256039,
-    "exploration.gate_forward_threshold": 0.4083088968489238,
-    "exploration.gate_jump_threshold": 2.5022464376343927,
-    "exploration.cliff_tangent_gain": 0.9856199625375166,
-    "exploration.loop_breakout_threshold": 0.5051951127962149,
-    "exploration.stuck_ramp_cooldown": 4.548442077833211,
-    "exploration.visual_gain_novelty_boost": 0.32697017241240206,
-    "exploration.dopamine_revisit_cost": 0.7214365245996341,
-    "exploration.breakout_forward_bias": 0.36781275851752543,
-    "escape.commit_ticks": 19.687130921528674,
-    "escape.forward_accum_max": 0.681344066755966,
-    "escape.forward_accum_step": 0.0057979223692109635,
-    "escape.commit_reinforce": 0.05,
-    "escape.commit_suppress": 0.19077054444095606
+    "bold_turn_bias": 0.25,
+    "exploration.bold_explore_stuck_s": 15.0,
+    "exploration.revisit_penalty_scale": 0.10201942245811073,
+    "exploration.gate_forward_threshold": 0.8,
+    "exploration.gate_jump_threshold": 3.178348142738461,
+    "exploration.cliff_tangent_gain": 0.8434172613021873,
+    "exploration.loop_breakout_threshold": 0.3,
+    "exploration.stuck_ramp_cooldown": 11.326985046445781,
+    "exploration.visual_gain_novelty_boost": 0.47237449151610605,
+    "exploration.dopamine_revisit_cost": 0.6001579876301754,
+    "exploration.breakout_forward_bias": 0.25891782549986014,
+    "escape.commit_ticks": 139.66576217602793,
+    "escape.forward_accum_max": 0.2068500188183777,
+    "escape.forward_accum_step": 0.0018097140032441047,
+    "escape.commit_reinforce": 0.17013465038523679,
+    "escape.commit_suppress": 0.25
   },
-  "__generation": 33
+  "__generation": 116
 }

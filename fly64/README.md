@@ -958,6 +958,12 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 | AUTO-0008 | 2026-09-16 16:44 | — | 2.19.0 | 3.0.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
 | AUTO-0009 | 2026-09-16 17:19 | — | 2.19.1 | 3.0.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
 | AUTO-0010 | 2026-09-16 18:03 | — | 2.19.2 | 3.0.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
+| NAV-01 | 2026-09-07 | — | 2.19.0 | 3.0.0 | 探索方向无惯性导致局部徘徊严重 | model.py: 探索方向提交机制(5s保持), CX注入偏置±0.10 | 8 nav tests | captain |
+| NAV-02 | 2026-09-07 | — | 2.19.0 | 3.0.0 | 局部探索完成后无远距引导 | memory.py: frontier_direction()前沿探索, 半径15格 | 8 nav tests | captain |
+| NAV-03 | 2026-09-07 | — | 2.19.0 | 3.0.0 | 新颖性衰减过慢/回访惩罚太弱 | memory.py: fast_decay=0.995双时间尺度; revisit_penalty 0→0.7 | 8 nav tests | captain |
+| P0-FALLEN | 2026-09-07 | — | 2.19.0 | 3.0.0 | fallen_recovery_stuck连续检出20/20轮 | model.py: fallen时forward注入0.20+CPG原语3s交替; test 3项 | test_fallen_recovery 3/3 | captain |
+| P0-EVO | 2026-09-07 | — | 2.19.0 | 3.0.0 | fix_catalog 0 effective, 参数未热加载 | brain_tunable_params.json 21参数; BrainMutator分组路由(escape/reflex); main.py热加载 | test_evo_tunable 3/3 | captain |
+| P0-CTRL | 2026-09-07 | — | 2.19.0 | 3.0.0 | 31处control.x Python旁路 | dialogue/reflex→model桥梁; control.x 31→22处 | 66/67 tests pass | captain |
 
 <!-- EVOLUTION-HISTORY-TABLE:END -->
 

@@ -683,6 +683,7 @@ class FlyModel:
         # Fallen recovery: persistent forward + jump when fallen
         self._fallen_forward = 0.20       # forward current during fallen
         self._fallen_jump_boost = 0.60    # jump boost during fallen (above ESCAPE_JUMP_DRIVE)
+        self._fallen_share_forward = 0.5  # EVO R32: fallen forward duty cycle (time-share with steering)
 
         # Navigation: exploration direction commitment + frontier
         self._explore_bias = 0.0          # current commit direction [-1,1]
@@ -1551,7 +1552,17 @@ class FlyModel:
         # control write — executes the escape manoeuvre.
         if self.escape_jump_drive:
             self.v[self.jump_nodes] += self.ESCAPE_JUMP_DRIVE
-            self.v[self.forward] += self._fallen_forward         # forward during fallen
+            # EVO R32: time-share fallen forward with steering.  Constant
+            # forward current suppresses turn-pool competition (counterfactual
+            # report #1: |x| -95% at 2.5x amplitude — pushing harder straight
+            # into the void).  Forward duty-cycle phase lets spontaneous
+            # alternation / CX steering express between bursts.
+            _phase_len = 25  # 0.5s per phase at 50Hz
+            _duty = float(getattr(self, "_fallen_share_forward", 0.5))
+            _cycle = max(1, int(round(1.0 / max(_duty, 0.05))))
+            _forward_phase = (self.step_count // _phase_len) % _cycle == 0
+            if _forward_phase:
+                self.v[self.forward] += self._fallen_forward
         if self.bold_turn_drive:
             if self.bold_turn_drive > 0:
                 self.v[self.turn_right] += self.BOLD_TURN_DRIVE * min(1.0, self.bold_turn_drive)
