@@ -895,9 +895,11 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 | 归因 | — | `decision_source=cpg_primitive:longjump` 实时可见 |
 | stuck 时序 | 单调增长 100s+ | 周期性复位（门控自愈） |
 
-监控：jump 图表自动叠加 strike/crouch 曲线、因果卡 CPG PRIMITIVE 行、`/flow.json` 新增 `primitive_disp`/`cpg_status`/`mb_mbon_{punch,dive,groundpound,longjump}`。EVO 收编 `primitive_timeout`/`primitive_zero_disp` pattern（13→15 条）。
+监控：jump 图表自动叠加 strike/crouch 曲线、因果卡 CPG PRIMITIVE 行、`/flow.json` 新增 `primitive_disp`/`cpg_status`/`mb_mbon_{punch,dive,groundpound,longjump}` + `mb_w_*` 权重均值。EVO 收编 `primitive_timeout`/`primitive_zero_disp`/`mbon_wrong_direction` pattern（13→16 条）。
 
-**已知边界**：语义场景（拿钥匙开门）仍需教官层；原语门控当前为规则式，MBON 列学习效果待 A/B 评估后才接入门控闭环。
+**🛠️ R31-fix2 教练截屏保真修复（较大缺陷发现）**：R21 的教练截屏挂在复眼观察者通道尾部——时机（帧中段）、视口（观察者残留）、FBO 绑定三重错位，导致快照只是游戏画面的一部分且内容错位长达多个版本未被发现（原隔离审计验证的是相反性质）。已将捕获移至 `gfx_run()` 帧完成点（end_frame 后、swap 前，FB0 + Y 翻转 + 错误清零回退），并新增保真度回归 `tests/test_screen_fidelity.py`（FLY64_LIVE=1 门控；4 检查：完整帧/非零占比/与 cubemap 区分/活流非冻结）与独立脚本 `scripts/m4_screen_fidelity_check.py`。调试记录：帧中段 `glGet*` 状态查询在本驱动触发段错误，捕获路径不含任何状态查询。
+
+**已知边界**：语义场景（拿钥匙开门）仍需教官层；MBON 列方向已实证正确（见 `docs/analysis/motor-expansion/mbon-learning-evaluation.md`），longjump 列过零转正、自适应门控激活。
 
 ### 完整进化历史档案
 
