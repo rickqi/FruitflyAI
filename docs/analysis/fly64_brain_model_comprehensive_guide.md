@@ -1,10 +1,12 @@
 # Fly64 果蝇脑模型 — 技术实现分析方案与应用场景指引
 
 > **综合技术白皮书**  
-> **版本**: v2.0 | **分析日期**: 2026-09-15  
+> **版本**: v3.0 | **分析日期**: 2026-09-15  
 > **脑模型**: Fly64 v2.13.3 · SKILL v3.0.0  
 > **神经元规模**: 166,700 LIF | **突触**: 151.9M CSC边 (25.6M连接) | **连接组**: MaleCNS v1.0  
-> **推理频率**: 50Hz (纯CPU可运行) | **确定性**: 种子64完全可复现
+> **推理频率**: 50Hz (纯CPU可运行) | **确定性**: 种子64完全可复现  
+> **运动解码池**: 200神经元 (0.12%) · 4+2 解码池 · 9通道MBON → 14+ SM64动作原语  
+> **新增模块**: `motor_primitives.py` — CPG运动原语层 (293行, 9时序脚本, 6态状态机)
 
 ---
 
@@ -45,6 +47,9 @@ Fly64 不仅在 Super Mario 64 (SM64) 游戏环境中实现了端到端神经控
 | 确定性 | 种子64完全可复现 |
 | 跨领域代码复用率 | 45%-80%（因领域而异） |
 | 可观测性 | 70+仪表板指标 + 完整轨迹回放 |
+| **运动解码神经元** | **200 (0.12%) — 4常规 + 2 CPG 解码池, 9通道MBON** |
+| **SM64动作原语** | **14+ (Phase 3扩展: 5→14+)** |
+| **新增代码模块** | **`motor_primitives.py` (293行CPG引擎)** |
 
 ### 1.3 架构总览（L0-L5六层引擎）
 
@@ -229,9 +234,13 @@ true_asymmetry = flow_asymmetry - SELF_MOTION_K * heading_rate
 ```
 128维场景特征 → 随机投影(seed=64) → 2000维KC（5%稀疏，~100活跃）
     ↓
-KC→MBON可塑权重矩阵 (2000×5) → 三因子Hebbian学习
+KC→MBON可塑权重矩阵 (2000×9) → 三因子Hebbian学习
     ↓
-5 MBON输出通道: forward / left / right / jump / explore
+9 MBON输出通道: forward(0) / left(1) / right(2) / jump(3) / explore(4)
+                 strike_L(5) / strike_R(6) / crouch_L(7) / crouch_R(8)  🆕 Phase 3
+    ↓
+通道5-6→strike_pool (B按键, 20神经元)
+通道7-8→crouch_pool (Z按键, 20神经元)
 ```
 
 **三因子Hebbian可塑性规则**:
@@ -395,13 +404,15 @@ KC→MBON可塑权重矩阵 (2000×5) → 三因子Hebbian学习
 | `/active_strategy.json` | 当前策略 | 热加载策略参数 |
 | `/help.json` | L2帮助快照 | 诊断状态 |
 | `/positions.bin` | WS流 | 实时神经元位置 |
+| `/coach_frames/` | 咨询截图存档 | LLM视觉上下文 |
 | `/screen.json` | 全屏截图 | 视觉上下文 |
+| `/cpg_status.json` 🆕 | CPG原语状态 | 当前活跃原语/相位/马里奥状态/completed/aborted |
 
 **因果链可视化**: dashboard.js 的 `causalTimeline` + `drawArcs` 组件将神经活动、异常事件、控制信号对齐到统一时间轴，以因果弧线展示从感知到动作的完整延迟链路。
 
 ---
 
-## 3. 10大工程化能力详解
+## 3. 11大工程化能力详解
 
 ### 3.1 能力总览
 
@@ -417,6 +428,7 @@ KC→MBON可塑权重矩阵 (2000×5) → 三因子Hebbian学习
 | 8 | LLM教官层混合架构 | plugin/ | 5/5 | ★★★★★ | 低 | 低 |
 | 9 | 实时可观测性 | telemetry.py, main.py | 5/5 | ★★★★★ | 低 | 低 |
 | 10 | 跨进程mmap桥接协议 | bridge.py | 5/5 | ★★★★☆ | 中 | 中 |
+| 11🆕 | **CPG运动原语系统** | **motor_primitives.py** | **4/5** | **★★★★☆** | **高** | **高** |
 
 ### 3.2 各项能力详解
 
@@ -520,6 +532,36 @@ KC→MBON可塑权重矩阵 (2000×5) → 三因子Hebbian学习
 
 ---
 
+#### 能力11: CPG运动原语系统 (4/5 · ★★★★☆)
+
+**代码**: `fly64/fly64/motor_primitives.py` — CPGController (293行, 全新Phase 3模块)
+
+**原理**: VNC启发式中央模式发生器(CPG)，独立于LIF大脑生成节律性动作时序。LIF大脑仅发**门控信号**(`set_cpg_gate`)，CPG控制精确的按键时序(Z→A序列、按键保持时间等)。基于MaleCNS分布式控制论文(Nature 2026)的脑-VNC分层理论。
+
+**9个时序脚本**:
+
+| 原语 | 时序 | 特性 | 状态约束 |
+|------|------|------|---------|
+| LONG_JUMP | Z(0.06s)→A+y=70(0.65s) | 一次性 | GROUNDED |
+| BACKFLIP | Z(0.10s)→A(0.55s) | 一次性 | GROUNDED, UNKNOWN |
+| GROUND_POUND | Z(0.08s)→wait(1.20s) | 一次性 | AIRBORNE |
+| PUNCH | B(0.06s)→wait(0.20s) | 一次性 | GROUNDED |
+| DIVE | B+y=50(0.08s)→y=50(0.40s) | 一次性 | AIRBORNE |
+| WALL_JUMP | A(0.08s)→wait(0.45s) | 一次性 | WALL |
+| SIDE_FLIP | A(0.06s)→wait(0.50s) | 一次性 | GROUNDED |
+| SWIM_STROKE | A(0.10s)→wait(0.30s)循环 | 循环 | AIRBORNE, UNKNOWN |
+| CRAWL | Z+y=30(0.50s)循环 | 循环 | GROUNDED |
+
+**6态马里奥状态机**: GROUNDED/AIRBORNE/WALL/SLIDING/UNKNOWN/pose推断
+
+**CPG→MBON学习闭环**: 原语执行结果通过`add_primitive_outcome()`反馈多巴胺奖励/惩罚到蘑菇体学习系统
+
+**SM64耦合度高**: 时序参数(Z→A间隔0.06s/0.10s)针对SM64游戏引擎调优；状态阈值(AIRBORNE_VZ=120, WALL_SCORE_MIN=0.5)需跨游戏校准
+
+**限制**: 跨游戏迁移需重写时序参数 + 状态机阈值；一次性原语被电路断路器2.0s软限制
+
+---
+
 ## 4. 5级决策仲裁链
 
 Fly64的5级决策仲裁链在所有领域应用中保持一致：
@@ -575,7 +617,7 @@ Fly64 的 SM64 运动控制系统采用**三层解耦架构**，从桥接物理�
 
 ### 5.2 当前支持的完整动作集（14+ 动作原语）
 
-当前代码（Brain v2.13.3 + Phase 3 运动扩展）已将动作原语从原始 5 个扩展到 **14+ 个**：
+当前代码（Brain v2.13.3 + Phase 3 运动扩展）已将动作原语从原始 5 个扩展到 **14+ 个**。运动解码从原来的 **160神经元(0.096%) → 200神经元(0.12%)** 参与：
 
 | # | 动作 | 按键 | 解码池 | 神经/CPG | 触发条件 | 文件位置 |
 |---|------|------|--------|----------|---------|---------|
@@ -828,7 +870,60 @@ S1: 输入适配 → S2: 奖励重写 → S3: 动作映射 → S4: 环境对接 
 
 ---
 
-### 6.3 新增6大高潜力领域
+### 6.3 保险核保/理赔 — 详细脑模型→业务系统映射
+
+本映射基于 `docs/analysis/insurance/` 下15篇专项分析文档，针对团体健康保险(GH)赔付分析系统实现Fly64十模块全链路对应。
+
+#### 视觉系统 → 数据采集与预处理
+
+| Fly64脑组件 | 保险业务映射 | 对应gbcost模块 |
+|------------|------------|--------------|
+| SphericalRetina 6面采样(270°×144°) | 多源异构数据拉取(Doris/Excel/CSV) | data_sources/ |
+| ON/OFF通道(明/暗瞬态提取) | 数据对账(reconciliation): 字段完整性检查 | reconciliation/ |
+| 颜色4通道(sky_blue/danger_red/RG/BY) | 按责任类型分流(门诊/住院/牙科/生育) | claim_classifier/ |
+| HRC 4方向EMD | 同比/环比4维度趋势检测(费用升降/聚合/扩散) | ramp_analyzer/ |
+| 自运动分离(heading_rate校正) | 赔付率4因素链式分解: 出险率 vs 次均赔款分离 | loss_ratio_decomposer/ |
+| 光流计算(flow_asymmetry/τ/cliff) | 宏观态势感知(健康态势:扩张/收缩/稳定/危险) | trend_analyzer/ |
+
+#### 蘑菇体KC稀疏编码 → 风控模式识别
+
+| Fly64组件 | 保险映射 | 对应实现 |
+|-----------|---------|---------|
+| 2000KC 5%稀疏编码(仅~100活跃) | 少数高赔付占大部分金额的Pareto分布 | anomaly_detection_agent |
+| 5%稀疏→Top-K激活 | 异常检测引擎: 异常理赔自动突出 | fwa_agent/61规则 |
+| MBON 9通道(含strike/crouch) | 9维风险评估(赔付率+欺诈+滥用+道德+新业务+...) | health_score 6因子+扩展 |
+| 三因子Hebbian ΔW=η·R·KC·MBON·E | 带反馈的风险学习: 核实反馈驱动模型微调 | rule_llm_divergence/ |
+| 资格痕迹DECAY=0.8(5帧窗口) | 同一会员多次理赔的时间关联性→理赔序列模式 | temporal_analyzer/ |
+| 记忆巩固(阈值0.6, 最多10条) | 高置信度欺诈/滥用模式固化到YAML规则知识库 | knowledge/*.yaml |
+| 熟悉度信号familiarity[0,1] | 保单异常度评分: 偏离历史模式→重点关注 | outlier_detector/ |
+
+#### 中央复合体 → 分层下钻与根因定位
+
+| Fly64组件 | 保险映射 | 对应实现 |
+|-----------|---------|---------|
+| 16列环形吸引子(22.5°/列) | 4级分层异常(L1赔付率→L2责任→L3疾病→L4关键指标) | HierarchicalAnomalyDetector |
+| 自运动积分(CX-1 heading_rate驱动) | 6因子赔付率链式分解: LA出险率/LB诊次/LC次均/LD人均/LE趋势/LF赔付率 | factor_decomposer/ |
+| 锚点路径积分(CX-2 disp_x/disp_z) | 从当前异常追溯到最初源头(锚点=标杆期) | root_cause_analyzer/ |
+| GOAL_MEMORY_DECAY=0.999 | 精算基准的长期记忆(年/季度费率缓慢更新) | actuarial_baseline/ |
+
+#### 反射+LLM双轨 → 自动核保规则引擎
+
+| Fly64组件 | 保险映射 |
+|-----------|---------|
+| 逃离→转向开放空间 | 自动拒绝→转向人工核保 |
+| 悬崖反射→180°急转 | 高风险条件的自动加费/除外(年龄>65/BMI>35等) |
+| 跌落恢复→跳跃爆发 | 核保否决后的自动升级通道(主管复核/特批) |
+| 振荡突破→交替策略 | 规则循环/死锁的自动化解 |
+| 快/慢双轨 | 自动核保(规则快路径) vs 人工核保(LLM慢路径) |
+| 多帧确认(5帧窗口) | 多源信息确认(健康告知/体检/财务三重验证) |
+| 滞环(entering≠exiting) | 做"拒绝"决定比"接受"更难撤销的保守倾向 |
+| LLM降级→局部诊断 | 系统故障时默认承保标准件 |
+
+**映射价值**: 果蝇蘑菇体的**KC稀疏编码**与保险理赔分析的Pareto分布完全同构——从海量理赔中找出少数欺诈/滥用案件。三因子Hebbian规则提供了优雅的**自适应规则学习**替代传统硬编码阈值。详见 `docs/analysis/insurance/fly64-brain-module-to-insurance-mapping.md` (474行逐模块映射)。
+
+---
+
+### 6.4 新增6大高潜力领域
 
 #### 领域8: 医疗诊断 (P0·★★★★★·3-6月)
 
@@ -868,7 +963,7 @@ S1: 输入适配 → S2: 奖励重写 → S3: 动作映射 → S4: 环境对接 
 
 ## 7. 瓶颈与局限性分析
 
-### 7.1 7大核心瓶颈
+### 7.1 8大核心瓶颈
 
 | 编号 | 瓶颈 | 类型 | 严重度 | 根因 | 修复建议 |
 |------|------|------|--------|------|---------|
@@ -878,7 +973,7 @@ S1: 输入适配 → S2: 奖励重写 → S3: 动作映射 → S4: 环境对接 
 | **B4** | MBON饱和拉锯 | 进化新问题 | 高 | R17稳态缩放与DAN正DA结构性对抗→饱和/缩放交替 | 退出条件_recovery_counter; DAN自适应缩放(饱和DA衰减50%) |
 | **B5** | 计算纪律 | 进化新问题 | 中 | 每帧~30项独立计算无耗时预算, 50Hz下~5ms时限 | 性能基准test_performance_budget.py; skip_layers节流 |
 | **B6** | 遥测漂移回归 | 进化新问题 | 中 | 浮点精度±1e-6; 先读后写延迟; packet异常rows积压 | try-finally原子交换; 漂移检测600tick; numpy类型守卫 |
-| **B7** | 死值遥测 | 进化新问题 | 中 | 某些键从不更新; pattern死值检测链路不完整 | _dead_key_detector 100tick; seq/watchdog_seq心跳 |
+| **B8** | CPG原语学习未闭环 | Phase 3新增 | 中 | `add_primitive_outcome()`已实现→多巴胺反馈, 但CPG触发器仍以规则硬编码为主(场景标签/状态阈值), 缺乏直接从MBON学习"何时触发何原语"的端到端路径 | 扩展`active_strategy.json`的`primitives_prefer`为可学习MBON列; 原语选择器改为基于KC场景签名的联想决策而非固定规则 |
 
 ### 7.2 部分缓解项
 
@@ -989,13 +1084,14 @@ Month1-2      Month3-5      Month6-8      Month9-12     Month13-18
 
 Fly64 果蝇脑模型（166,700 LIF神经元 / 25.6M突触 / MaleCNS v1.0连接组）已经实现了一个**完整的、可观测的、自进化的神经形态控制系统范例**。该系统在SM64游戏环境中的端到端神经控制只是其工程化能力的一个子集。
 
-**五大关键发现**:
+**六大关键发现**:
 
-1. **泛化潜力极大**: 10大工程化能力中8项与SM64耦合度低，可直接跨领域复用
+1. **泛化潜力极大**: 11大工程化能力中8项与SM64耦合度低，可直接跨领域复用
 2. **核心引擎自洽**: LIF SNN推理引擎输入输出无关——替换输入传感器和输出执行器即可适配新领域
 3. **学习机制可移植**: 三因子Hebbian规则+TD多巴胺学习已被Nature Communications论文(Bennett 2021)证明与RL中Q-learning同构
 4. **自我进化是杀手特性**: 23轮已验证的Monitor→Diagnose→Fix→Verify→Document闭环是完全生产级的AutoML能力
 5. **混合决策架构是前沿范式**: LIF快速直觉+LLM慢速分析+反射紧急回路=完整三级混合决策系统
+6. **运动扩展已验证**: Phase 3实现VNC式CPG运动原语层, 动作原语从5→14+个, 验证了"多样化读出+分布式CPG+多巴胺塑形"的马达控制范式
 
 ### 10.2 最直接的商业化路径
 
@@ -1023,7 +1119,7 @@ Fly64 果蝇脑模型最重要的价值不在于它"能玩Mario"，而在于它�
 
 ---
 
-> **文档生成**: AgentTeams fly64-brain-doc · captain  
-> **数据源**: docs/analysis/ 全部 ~50 个文档  
-> **依赖输入**: t1(代码库盘点+瓶颈分析) · t1_deep_technical_migration_plan (7域迁移) · t2_new_domain_exploration (6新领域) · t3(工程能力分析+商业化路线图) · t4(可视化报告) · t5(跨领域应用+演示稿+信息图+思维导图) · t6(综合白皮书+演示包+执行摘要) · 保险分析子目录(15篇) · motor-expansion子目录(5篇)  
+> **文档生成**: AgentTeams fly64-brain-doc · captain (v3.0)  
+> **数据源**: docs/analysis/ 全部 ~50 个文档 + 实时代码分析  
+> **依赖输入**: t1(代码库盘点+瓶颈分析) · t1_deep_technical_migration_plan (7域迁移) · t2_new_domain_exploration (6新领域) · t3(工程能力分析+商业化路线图) · t4(可视化报告) · t5(跨领域应用+演示稿+信息图+思维导图) · t6(综合白皮书+演示包+执行摘要) · 保险分析子目录(15篇) · motor-expansion子目录(5篇) · 实时代码审查: model.py(1904行) · motor_primitives.py(293行) · bridge.py · main.py(1813行)  
 > **保存位置**: `docs/analysis/fly64_brain_model_comprehensive_guide.md`
