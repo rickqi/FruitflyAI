@@ -3,7 +3,7 @@
   "canonical_versions": {
     "brain": "2.23.5",
     "skill": "3.3.0",
-    "as_of": "2026-09-17T20:41:57.272162+08:00"
+    "as_of": "2026-09-17T20:43:27.250707+08:00"
   },
   "records": [
     {
@@ -1330,6 +1330,25 @@
       "tests": "test_instinct_bindings 31/31（文档改动行为中性，仅验证无回归）；实测（24 采样 / 2 分钟、同一区域飞行）：标签前缀 2 个取值（墙体·通道 x22、墙体·山坡 x1），scene_hash 10 个取值（2d989f x7、c69edb x8、其余 8 个各 1 次）；label→hash 一对多、hash→label 一对一",
       "source": "本次会话 t11；实测脚本 scripts/measure_scene_identity.py",
       "notes": "**负结果（就地记录）**：哈希是漂移更快的一方（2 分钟 10 个取值，约每 15s 变一次），前缀可稳定持续数分钟（22/23 样本同值）。因此 scene_key 按前缀绑定是**正确设计**，改用 scene_hash 会严格更差——每个桶在漂移前只能收到约 2 个样本，而晋级门槛要求**同一桶内 ≥2 次干净改进**，哈希键将使晋级重新变得不可达，正是 EVO-058 刚修掉的缺陷。请勿“优化”为哈希键。**晋级未达成的真实原因**：实测绑定库显示同一场景下 4 个显著签名、turn_bias 分别为 0.6/0.7/0.8 等——教练每次咨询都换参数集，故单个桶很少积累到 2 次干净改进。这是探索的固有代价，且应随“教练参数真正到达行为层”（EVO-062/t6）与课程渐进阶梯而缓解。**版本轨**：本轮为文档 + 只读工具，未改变脑行为或技能契约，故**不递增版本**（brain 沿用 2.23.4 / skill 沿用 3.3.0）。规则 17 约束的是代码/行为变更的递增；此处无递增，不构成版本复用。"
+    },
+    {
+      "id": "EVO-065",
+      "date": "2026-09-17",
+      "time": "20:43:27 +0800",
+      "round": "t12 课程三态判定（不可观测≠失败）",
+      "kind": "infra",
+      "brain_version": "2.23.5",
+      "skill_version": "3.3.0",
+      "trigger": "课程目标的度量在预热期不可观测时被静默计为**失败**：脑重启后约 4 分钟内 /memory.json 的 disp_60s 为 null（位移追踪器预热），而 _num(None) 会把 null 强转为 0.0，于是 `disp_60s > 30` 这类标量目标在每个预热周期都判为“未达成”，consecutive_fail 在虚假失败上持续累加——实测到连续 23 次失败，全部落在脑进程不可达/冷启动窗口内。配合 EVO-058 的渐进阶梯，虚假连败还可能触发**错误的降级**，因此这是正确性缺陷而非观感问题。同族形态：不可观测状态被当作否定证据。",
+      "changes": [
+        "plugin/coach_outcomes.py: _goal_met 改为**三态**返回 True / False / None，None 表示度量缺失或为 null（而非失败）；非数值、bool、未知算子一律 None",
+        "plugin/coach_outcomes.py: update_curriculum 对 None 不计入任何连击——attempts 仍递增、history 记 met: null、新增 unobserved 计数，但在场连击（ok/fail）均不变，因此既不会误晋级也不会误降级",
+        "新增 tests/test_curriculum_unknown_metric.py 14 条：三态判定（含 null/缺失/非数值/bool/未知算子/空快照）、23 次未知不累积失败、未知不打断合法 ok 连击（预热后仍能正常晋级）、未知不降级、真实失败仍降级、history 区分 null 与 false、预热爆发后接真实成功仍正确晋级",
+        "运行时补做：清零被污染的 consecutive_fail，并初始化 unobserved 字段（保留 history）"
+      ],
+      "tests": "test_curriculum_unknown_metric 14/14 + test_coach_outcomes 16 条，合计 30 passed；WSL 运行时复跑同一套件通过",
+      "source": "本次会话 t12；实测污染窗口见 EVO-058/EVO-059 期间的课程状态",
+      "notes": "**版本轨**：改动位于 plugin/coach_outcomes.py（教练插件/基础设施），未触及 brain 行为或 skills/evolution_skill.py 及其治理参数，故**不递增版本**（brain 沿用 canonical 2.23.5 / skill 3.3.0），与 EVO-062 对 plugin/ 的分类一致、与 EVO-064 同样以 infra 记录。规则 17 约束的是代码/行为变更的版本递增；此处无递增，不构成版本复用。**同类缺陷累计六例**：t6 段透传、CX 死代码、P4.4 全参数指纹、启动期 NameError、面板点号键、本轮不可观测状态。共同形态均为“机制存在、报告成功、无法生效”或“否定证据来自不可观测状态”——规则 19 已就此立规。"
     }
   ]
 }

@@ -904,7 +904,7 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 ### 完整进化历史档案
 
 <!-- EVOLUTION-HISTORY-TABLE:START
-下表由 `skills/evolution_skill.py --history-md` 从权威记录 `skills/evolution_history.json` 自动生成（72 条，权威版本 Brain v2.23.5 / Skill v3.3.0）。**请勿手改本表**——更新记录后重新执行该命令再粘贴。
+下表由 `skills/evolution_skill.py --history-md` 从权威记录 `skills/evolution_history.json` 自动生成（73 条，权威版本 Brain v2.23.5 / Skill v3.3.0）。**请勿手改本表**——更新记录后重新执行该命令再粘贴。
 
 | ID | 时间 | 轮次 | Brain | Skill | 触发原因 | 关键变更 | 测试 | 来源 |
 |----|------|------|-------|-------|---------|---------|------|------|
@@ -980,6 +980,7 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 | AUTO-0016 | 2026-09-17 12:35 | — | 2.23.4 | 3.3.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
 | EVO-063 | 2026-09-17 20:39 | R31-fix8 | 2.23.5 | 3.3.0 | 教练建议的 command.turn_and_go 是死键码——prompt 要求教练输出但脑模型从未消费；y=-954 虚空场景教练不知高度 | main.py: 读取 active_strategy.command 实现 P-I 转向+前冲（heading→yaw；plugin/runner.py: consult context +pos_y（优先 memory_json.pos_；main.py memory_json: +pos_y 键——教练 consulter 可读 | autonomy 17 passed; 编译全检查 | 实机 fallen 虚空场景教练建议无效分析→双修复 |
 | EVO-064 | 2026-09-17 20:41 | t11 场景身份实测（负结果 + 记录更正） | 2.23.4 | 3.3.0 | EVO-058 的 notes 把 scene_key 前缀漂移列为“下一步开放缺陷”，我在本轮报告里也据此宣称“场景身份稳定性是 P4.4 的真瓶颈”。这是**未测量的假设**：instinct_bindings.scene_key 的  | 新增 scripts/measure_scene_identity.py：采样实时 /flow.json + /memo；fly64/instinct_bindings.py：把 scene_key 的 docstring 从原则性断言改为*；记录更正：撤回 EVO-058 notes 与本次会话报告中的“场景身份是瓶颈”论断（见 notes） | test_instinct_bindings 31/31（文档改动行为中性，仅验证无回归）；实测（24 采样 / 2 分 | 本次会话 t11；实测脚本 scripts/measure_scene_identity.py |
+| EVO-065 | 2026-09-17 20:43 | t12 课程三态判定（不可观测≠失败） | 2.23.5 | 3.3.0 | 课程目标的度量在预热期不可观测时被静默计为**失败**：脑重启后约 4 分钟内 /memory.json 的 disp_60s 为 null（位移追踪器预热），而 _num(None) 会把 null 强转为 0.0，于是 `disp_60 | plugin/coach_outcomes.py: _goal_met 改为**三态**返回 True / False ；plugin/coach_outcomes.py: update_curriculum 对 None 不计入任何连击——；新增 tests/test_curriculum_unknown_metric.py 14 条：三态判定（含 null/（等 4 项） | test_curriculum_unknown_metric 14/14 + test_coach_outcomes 1 | 本次会话 t12；实测污染窗口见 EVO-058/EVO-059 期间的课程状态 |
 <!-- EVOLUTION-HISTORY-TABLE:END -->
 
 > **档案维护规则**：本表由 `--history-md` 从权威 JSON 再生成，新进化轮次只写 `evolution_history.json`（规则 15），然后执行 `python3 fly64/skills/evolution_skill.py --history-md` 重新生成并替换 `<!-- EVOLUTION-HISTORY-TABLE -->` 标记之间的内容，随代码一起提交。

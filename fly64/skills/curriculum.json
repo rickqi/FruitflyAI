@@ -6,52 +6,10 @@
   "op": "gt",
   "target": 30
  },
- "attempts": 1,
- "consecutive_ok": 1,
+ "attempts": 8,
+ "consecutive_ok": 0,
  "consecutive_fail": 0,
  "history": [
-  {
-   "at": 1789616237.9,
-   "verdict": "unchanged",
-   "met": false,
-   "stage": 1
-  },
-  {
-   "at": 1789616338.9,
-   "verdict": "improved",
-   "met": false,
-   "stage": 1
-  },
-  {
-   "at": 1789617192.3,
-   "verdict": "improved",
-   "met": false,
-   "stage": 1
-  },
-  {
-   "at": 1789617335.8,
-   "verdict": "improved",
-   "met": false,
-   "stage": 1
-  },
-  {
-   "at": 1789618392.3,
-   "verdict": "improved",
-   "met": false,
-   "stage": 1
-  },
-  {
-   "at": 1789618478.0,
-   "verdict": "improved",
-   "met": false,
-   "stage": 1
-  },
-  {
-   "at": 1789628021.7,
-   "verdict": "unchanged",
-   "met": false,
-   "stage": 1
-  },
   {
    "at": 1789628052.5,
    "verdict": "unchanged",
@@ -129,8 +87,51 @@
    "verdict": "improved",
    "met": true,
    "stage": 1
+  },
+  {
+   "at": 1789641425.3,
+   "verdict": "improved",
+   "met": false,
+   "stage": 1
+  },
+  {
+   "at": 1789641683.2,
+   "verdict": "worse",
+   "met": false,
+   "stage": 1
+  },
+  {
+   "at": 1789641815.0,
+   "verdict": "improved",
+   "met": false,
+   "stage": 1
+  },
+  {
+   "at": 1789646422.6,
+   "verdict": "improved",
+   "met": false,
+   "stage": 1
+  },
+  {
+   "at": 1789647496.7,
+   "verdict": "worse",
+   "met": false,
+   "stage": 1
+  },
+  {
+   "at": 1789648576.4,
+   "verdict": "improved",
+   "met": false,
+   "stage": 1
+  },
+  {
+   "at": 1789648825.1,
+   "verdict": "improved",
+   "met": false,
+   "stage": 1
   }
  ],
- "reset_at": "2026-09-17T18:35:10.751421+08:00",
- "reset_reason": "计数器被脑进程不可达窗口污染：memory.json 不可达 → 目标指标解析为 0 → 连续 23 次 met=false，属伪失败而非真实课程失败。同时固定 goal 曾造成假晋级（30 次尝试冲到 stage 9），已改为 STAGE_GOALS 渐进阶梯。"
+ "reset_at": "2026-09-17T20:43:41.602614+08:00",
+ "reset_reason": "连击被脑冷启动/不可达窗口的虚假失败污染（disp_60s=null 被判为未达成）；EVO-065 已改为三态判定，不可观测不再计入连击。",
+ "unobserved": 0
 }

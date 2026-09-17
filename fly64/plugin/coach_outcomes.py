@@ -219,9 +219,26 @@ def clear_pending(path: Path = PENDING_PATH) -> None:
 
 
 # ── curriculum state machine (P4.3) ───────────────────────────────────
-def _goal_met(goal: dict, memory: dict) -> bool:
+def _goal_met(goal: dict, memory: dict):
+    """Is the lesson goal met?  Returns True / False / **None (unknown)**.
+
+    `None` means the goal's metric is absent or null in the memory snapshot, so
+    the goal is UNOBSERVABLE rather than failed.  The distinction matters: the
+    brain publishes `disp_60s: null` for roughly the first four minutes after a
+    restart while its displacement tracker warms up, and `_num(None)` coerces
+    that to 0.0 — so a scalar `>` goal read as "not met" on every warmup cycle
+    and piled up spurious failures (observed live: 23 consecutive fails, all of
+    them during a window when the brain was dead or cold).  Callers must treat
+    None as "do not count this attempt" rather than as a failure.
+    """
     metric = goal.get("metric", "")
-    value = _num((memory or {}).get(metric))
+    raw = (memory or {}).get(metric)
+    if raw is None or isinstance(raw, bool):
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
     target = _num(goal.get("target"))
     op = goal.get("op", "gt")
     if op == "gt":
@@ -230,7 +247,7 @@ def _goal_met(goal: dict, memory: dict) -> bool:
         return 0 < value < target or (target == 0 and value == 0)
     if op == "le":
         return value <= target
-    return False
+    return None
 
 
 def load_curriculum(path: Path = CURRICULUM_PATH) -> Optional[dict]:
@@ -286,6 +303,13 @@ def update_curriculum(curriculum: Optional[dict], outcome: dict,
     fail_streak consecutive not-met outcomes → stage -= 1 (floor 1).
     Seeds DEFAULT_CURRICULUM when absent (P1 bugfix: without seeding the
     state machine could never start).  Returns the updated curriculum.
+
+    An UNOBSERVABLE goal (`_goal_met` returns None — the metric is absent or
+    null, e.g. `disp_60s: null` while the brain's displacement tracker warms up
+    after a restart) is neither a success nor a failure: the attempt is counted
+    and logged as `met: null` with `unobserved` incremented, but NEITHER streak
+    moves.  Counting it as a failure is what produced a live run of 23
+    consecutive phantom failures and could spuriously retreat a stage.
     """
     if curriculum is None:
         curriculum = json.loads(json.dumps(DEFAULT_CURRICULUM))
@@ -294,7 +318,9 @@ def update_curriculum(curriculum: Optional[dict], outcome: dict,
     curriculum["attempts"] = int(curriculum.get("attempts", 0)) + 1
     curriculum["consecutive_ok"] = int(curriculum.get("consecutive_ok", 0) or 0)
     curriculum["consecutive_fail"] = int(curriculum.get("consecutive_fail", 0) or 0)
-    if met:
+    if met is None:
+        curriculum["unobserved"] = int(curriculum.get("unobserved", 0) or 0) + 1
+    elif met:
         curriculum["consecutive_ok"] += 1
         curriculum["consecutive_fail"] = 0
     else:
