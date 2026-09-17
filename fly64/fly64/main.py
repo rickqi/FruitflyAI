@@ -237,6 +237,14 @@ class DashboardHTTP(BaseHTTPRequestHandler):
                 body, mime = _strat.read_bytes(), "application/json"
             except OSError:
                 body, mime = b'{"mode": "mirror"}', "application/json"
+        elif path == "/brain_tunable_params.json":
+            # EVO L2: brain parameter tuning schema — served to the evolution
+            # panel's slider UI (evo-params.html).
+            _btp = Path(__file__).resolve().parent.parent / "skills" / "brain_tunable_params.json"
+            try:
+                body, mime = _btp.read_bytes(), "application/json"
+            except OSError:
+                body, mime = b'{"params":{}}', "application/json"
         elif path == "/coach_frames" or path.startswith("/coach_frames/"):
             # t21 wrap-up UI: read-only static endpoint for the consult
             # frame snapshots.  Directory traversal is blocked by resolving
@@ -514,6 +522,7 @@ def start_http(project: Path, model, port: int, ws_port: int) -> ThreadingHTTPSe
         "/trajectory-height.js": (project / "web/trajectory-height.js", "text/javascript"),
         "/monitor-preview.html": (project / "web/monitor-preview.html", "text/html; charset=utf-8"),
         "/layout-wireframe.html": (project / "web/layout-wireframe.html", "text/html; charset=utf-8"),
+        "/evo-params.html": (project / "web/evo-params.html", "text/html; charset=utf-8"),
         "/measured.bin": (model.position_measured.astype(np.uint8).tobytes(), "application/octet-stream"),
     }
     DashboardHTTP.metadata = json.dumps(dict(n=model.n, ws=ws_port, label=model.label,
@@ -807,6 +816,13 @@ async def run(args) -> None:
     _labels_path.parent.mkdir(parents=True, exist_ok=True)
     scene_recognizer = SceneRecognizer(profiles_path=_labels_path)
     scene_save_counter = 0
+    # C: high-frequency trajectory snapshot (every 100 ticks ≈ 2 s) — if
+    # consolidate kills the process, at most ~2 s of data is lost.
+    traj_save_counter = 0
+    # P4.4 (t7): instinct binding — must be live in the outer scope so the
+    # flow_json dict (used later) never throws UnboundLocalError.
+    _instinct_scene = ""
+    _instinct_applied = False
     # Interaction loop breaker: a prompt that keeps re-appearing despite
     # A-presses (e.g. locked door) is an unrewarded stimulus — habituate.
     dialogue_engagements = 0
@@ -1124,8 +1140,6 @@ async def run(args) -> None:
                 # P4.4 (t7): instinct consolidation — a scene whose coach
                 # parameters repeatedly produced improvements is bound and
                 # applied directly, bypassing the consult round-trip.
-                _instinct_scene = ""
-                _instinct_applied = False
                 try:
                     from .instinct_bindings import get_binding, scene_key
                     _scene_now = _scene_name(model, memory_ctrl, scene_recognizer)
@@ -1802,6 +1816,28 @@ async def run(args) -> None:
                     heading_rate=model.heading_rate,
                     control_x=control.x,
                 )
+                # C: high-frequency trajectory snapshot (every 100 ticks ≈ 2s)
+                # so consolidate kills lose at most ~2s of data instead of ~12s.
+                traj_save_counter += 1
+                if traj_save_counter >= 100:
+                    traj_save_counter = 0
+                    try:
+                        _tp = DashboardHTTP.trajectory_points
+                        if len(_tp) >= 2:
+                            _arr = dict(
+                                t=np.array([p["t"] for p in _tp]),
+                                x=np.array([p["x"] for p in _tp]),
+                                y=np.array([p["y"] for p in _tp]),
+                                z=np.array([p["z"] for p in _tp]),
+                                heading=np.array([p["heading"] for p in _tp]),
+                                ctrl_x=np.array([p["ctrl_x"] for p in _tp], dtype=int),
+                                ctrl_y=np.array([p["ctrl_y"] for p in _tp], dtype=int),
+                                game_frame=np.array([p.get("game_frame", 0) for p in _tp], dtype=int))
+                            _arts = project / "artifacts"
+                            _arts.mkdir(parents=True, exist_ok=True)
+                            np.savez_compressed(_arts / "latest-session.trajectory.npz", **_arr)
+                    except Exception:
+                        pass
                 # Mirror memory controller state onto model for dopamine computation
                 model.stuck_duration = memory_ctrl.stuck_duration
                 model.fallen = memory_ctrl._fallen
