@@ -1,0 +1,34 @@
+{
+  "$catalog_version": "2.0",
+  "meta": {
+    "skill_name": "evolution_skill",
+    "skill_version": "3.2.0",
+    "total_fixes": 1,
+    "effective_count": 1,
+    "ineffective_count": 0,
+    "pending_count": 0,
+    "last_updated": "2026-09-17T03:39:09.868559+00:00"
+  },
+  "fixes": [
+    {
+      "id": "fix_0001",
+      "pattern_id": "prim_pat",
+      "pattern_name": "Primitive pattern",
+      "pattern_version": "1.0.0",
+      "diagnosis": "d",
+      "fix_template": "# fix",
+      "severity": "high",
+      "applied_at": "2026-09-17T03:39:09.842994+00:00",
+      "version": 1,
+      "baseline_stuck": 50.0,
+      "baseline_coverage": 10.0,
+      "post_fix_stuck": 0.0,
+      "post_fix_coverage": 10.0,
+      "effective": true,
+      "effectiveness_score": 0.7,
+      "reverted": false,
+      "reverted_at": null,
+      "notes": ""
+    }
+  ]
+}

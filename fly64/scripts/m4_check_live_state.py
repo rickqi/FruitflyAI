@@ -1,0 +1,10 @@
+import json, urllib.request
+f = json.load(urllib.request.urlopen("http://127.0.0.1:8765/flow.json", timeout=5))
+m = json.load(urllib.request.urlopen("http://127.0.0.1:8765/memory.json", timeout=5))
+st = json.load(urllib.request.urlopen("http://127.0.0.1:8765/bridge-status.json", timeout=5))
+print("brain_version =", f.get("brain_version"))
+print("decision_source =", f.get("decision_source"))
+print("anomaly_state =", m.get("anomaly_state"), "stuck =", round(m.get("stuck_duration",0),1))
+print("cpg_active =", (f.get("cpg_status") or {}).get("active"))
+print("pose =", [round(v,1) for v in (st.get("pose") or [])])
+print("game_frame =", st.get("game_frame"))

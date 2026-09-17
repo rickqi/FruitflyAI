@@ -693,6 +693,12 @@ class FlyModel:
         self.reflex_forward = 0
         self.reflex_jump = False
 
+        # Coach command bridge — explicit turn/forward from LLM advice
+        self.coach_turn_bias = 0.0
+        self.coach_forward_bias = 0
+        self.coach_timer = 0
+        self.coach_active = False
+
         # Fallen recovery: persistent forward + jump when fallen
         self._fallen_forward = 0.20       # forward current during fallen
         self._fallen_jump_boost = 0.60    # jump boost during fallen (above ESCAPE_JUMP_DRIVE)
@@ -1666,6 +1672,17 @@ class FlyModel:
             self.v[self.forward] += min(0.20, self.reflex_forward * 0.003)
         if self.reflex_jump:
             self.v[self.jump_nodes] += 0.30
+
+        # Coach command execution — LLM advice converted to current injection
+        if self.coach_active and self.coach_timer > 0:
+            self.coach_timer -= 1
+            if abs(self.coach_turn_bias) > 0.5:
+                self.v[self.turn_right] += self.coach_turn_bias * 0.006
+                self.v[self.turn_left] -= self.coach_turn_bias * 0.006
+            if self.coach_forward_bias > 0:
+                self.v[self.forward] += min(0.50, self.coach_forward_bias * 0.005)
+        elif self.coach_active:
+            self.coach_active = False  # timer expired
 
         # ---- Tau (time-to-contact) → jump motor pool current injection ----
         # Imminent collision → depolarise jump nodes directly so the neural
