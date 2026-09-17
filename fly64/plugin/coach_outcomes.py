@@ -164,6 +164,13 @@ def save_curriculum(curriculum: dict, path: Path = CURRICULUM_PATH) -> None:
     tmp.replace(path)
 
 
+DEFAULT_CURRICULUM = {
+    "course": "general-escape",
+    "stage": 1,
+    "goal": {"metric": "disp_60s", "op": "gt", "target": 30},
+}
+
+
 def update_curriculum(curriculum: Optional[dict], outcome: dict,
                       memory: dict, ok_streak: int = 2,
                       fail_streak: int = 3) -> Optional[dict]:
@@ -172,10 +179,11 @@ def update_curriculum(curriculum: Optional[dict], outcome: dict,
     goal format: {"metric": "disp_60s", "op": "gt", "target": 30}
     ok_streak consecutive goal-met outcomes → stage += 1 (lesson learned);
     fail_streak consecutive not-met outcomes → stage -= 1 (floor 1).
-    Returns the updated curriculum (or None when absent).
+    Seeds DEFAULT_CURRICULUM when absent (P1 bugfix: without seeding the
+    state machine could never start).  Returns the updated curriculum.
     """
-    if not curriculum:
-        return None
+    if curriculum is None:
+        curriculum = json.loads(json.dumps(DEFAULT_CURRICULUM))
     goal = curriculum.get("goal") or {}
     met = _goal_met(goal, memory)
     curriculum["attempts"] = int(curriculum.get("attempts", 0)) + 1

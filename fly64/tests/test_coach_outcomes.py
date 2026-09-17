@@ -79,6 +79,14 @@ class TestPersistence:
 
 
 class TestCurriculum:
+    def test_seeds_default_when_absent(self):
+        """P1 bugfix: without seeding, update_curriculum(None) returned None
+        and the state machine could never start."""
+        c = co.update_curriculum(None, {"verdict": "unchanged"},
+                                 {"disp_60s": 45.0})
+        assert c is not None and c["course"] == "general-escape"
+        assert c["stage"] == 1
+
     def _curriculum(self, **goal):
         return {"course": "escape-lava", "stage": 1, "attempts": 0,
                 "goal": {"metric": "disp_60s", "op": "gt", "target": 30}, **goal}
