@@ -1087,6 +1087,10 @@ async def run(args) -> None:
                     _expl.get("bold_explore_stuck_s", 60.0))
                 memory_ctrl.bold_turn_bias = float(
                     _expl.get("turn_bias", 69.0))
+                # P2: mirror coach turn_bias (0-1) into the LIF model so the
+                # strategy amplifies the winning turn pool directly.
+                model.strategy_turn_bias = max(
+                    0.0, min(1.0, float(_expl.get("turn_bias", 0.0) or 0.0)))
                 memory_ctrl.escape_stuck_threshold_s = float(
                     _esc.get("stuck_threshold_s", 2.0))
                 # P2: Escape parameter hot-loading from active_strategy

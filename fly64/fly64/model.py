@@ -1034,6 +1034,12 @@ class FlyModel:
         self.scene_var = scene_state["scene_var"]
         self.scene_change = scene_state["scene_change"]
         self.scene_change_rate = scene_state["scene_change_rate"]
+        # P1 scene-transfer: on scene change, blend similar consolidated
+        # memories into the plastic weights (rate-limited to once / ~30 s).
+        if scene_state["scene_change"] and \
+                self.step_count - getattr(self, "_last_warm_step", -10**9) > 1500:
+            self._last_warm_step = self.step_count
+            self.mushroom.warm_start()
 
         # ---- Scene signature: random projection of 1536-dim retina drive ----
         # Color-enhanced signature (5-channel) when color_signature flag is True
@@ -1588,6 +1594,17 @@ class FlyModel:
         # Escape-mode depolarisation of motor neurons
         if self.escape_mode:
             self.v[self.motor_nodes] += self.escape_current
+
+        # P2 strategy→LIF direct pathway: coach turn_bias (active_strategy
+        # exploration.turn_bias, mirrored by main.py) amplifies whichever
+        # turn pool is already winning — strengthens the brain's own turn
+        # preference instead of overriding it (no control bypass).
+        _bias = float(getattr(self, "strategy_turn_bias", 0.0) or 0.0)
+        if _bias > 0.01:
+            if self.v[self.turn_right].mean() >= self.v[self.turn_left].mean():
+                self.v[self.turn_right] += _bias * 0.30
+            else:
+                self.v[self.turn_left] += _bias * 0.30
         # P1 (audit A3): fallen → jump-pool burst drive; forced bold breakout
         # → mirrored turn-pool current.  The LIF competition — not a Python
         # control write — executes the escape manoeuvre.

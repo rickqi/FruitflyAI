@@ -439,6 +439,39 @@ class MushroomBody:
                                      (self.n_kc, self.n_mbon)).astype(np.float32)
         self.assoc_count = 0
 
+    def warm_start(self, top_k: int = 3, gain: float = 0.05) -> int:
+        """P1 scene-transfer: blend similar consolidated memories into the
+        plastic weights so a novel scene cold-starts from related experience
+        instead of random weights.
+
+        Scores every consolidated memory by KC-overlap with the current
+        activity, blends the best *top_k* into the weight columns, and
+        returns the number of memories used.  Purely synaptic (no control
+        bypass): the transferred bias still flows through the standard
+        MBON decode path.
+        """
+        if not self.consolidated:
+            return 0
+        scored = []
+        for kc_pat, mbon_vals, _ in self.consolidated:
+            overlap = float(np.dot(self.kc_activity, kc_pat))
+            if overlap > 0.0:
+                scored.append((overlap, kc_pat, mbon_vals))
+        if not scored:
+            return 0
+        scored.sort(key=lambda t: -t[0])
+        n = 0
+        for _overlap, kc_pat, mbon_vals in scored[:max(1, int(top_k))]:
+            active = kc_pat > 0
+            if not active.any():
+                continue
+            self.weights[np.ix_(np.flatnonzero(active),
+                                np.arange(self.n_mbon))] += (
+                gain * np.asarray(mbon_vals, dtype=np.float32)[None, :])
+            n += 1
+        np.clip(self.weights, W_MIN, W_MAX, out=self.weights)
+        return n
+
     def recall(self) -> np.ndarray | None:
         """Recall MBON outputs from consolidated memories.
 
