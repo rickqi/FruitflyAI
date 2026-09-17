@@ -36,7 +36,7 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.19.2"  # t23: escape release lockup triple fix (cooldown 60s / fallen bypass / stuck decouple)
+BRAIN_VERSION = "2.19.3"  # t24: escape events five-state outcome + composite snapshot + efficiency colouring
 SKILL_VERSION = "3.1.1"   # primitive scoring + history isolation (must mirror evolution_skill)
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
@@ -145,7 +145,9 @@ class EscapeEventBuffer:
             ev["outcome"] = ("resolved_effective"
                              if distance_moved > effective_min_u
                              else "resolved_ineffective")
-        self._last_resolved_ts = time.time()
+        # escalate window compares EVENT-relative timestamps (the same base
+        # start_event uses), never wall time — keeps the buffer testable.
+        self._last_resolved_ts = ev["timestamp"]
         return ev["outcome"]
 
     def mark_post_escape_anomaly(self, anomaly_state: str) -> bool:
@@ -798,7 +800,11 @@ async def run(args) -> None:
     escape_buffer = EscapeEventBuffer()
     event_counters = {"total_escapes": 0, "total_falls": 0,
                       "total_flow_avoid": 0, "total_help_requests": 0,
-                      "current_stuck_duration": 0.0}
+                      "current_stuck_duration": 0.0,
+                      # t24: per-reason breakdown + outcome quality
+                      "total_cliff_escapes": 0, "total_fallen_escapes": 0,
+                      "total_stuck_escapes": 0, "effective_count": 0,
+                      "ineffective_count": 0, "effectiveness_rate": 0.0}
     current_escape_event = None
     previous_escape: bool = False
     event_last_pos = (0.0, 0.0)
@@ -1258,6 +1264,11 @@ async def run(args) -> None:
                 # handled inside the buffer via the escalate window).
                 event_counters["total_escapes"] += 1
                 event_last_pos = (pose_ev[0], pose_ev[2])
+                # t24: tag the previous resolved event when the anomaly is
+                # already active again — evidence the last escape failed.
+                if memory_ctrl.anomaly_state_name:
+                    escape_buffer.mark_post_escape_anomaly(
+                        memory_ctrl.anomaly_state_name)
                 # ---- EvolutionSkill: on-demand diagnosis on escape trigger ----
                 if _evo_pipe is not None and tick_start - _evo_last_run > 10:
                     _evo_last_run = tick_start
@@ -1302,11 +1313,21 @@ async def run(args) -> None:
             if currently_escaping:
                 escape_buffer.update_current(model.dt)
             elif previous_escape:
-                # Escape just ended — resolve
+                # Escape just ended — resolve into effective/ineffective by
+                # displacement vs the 30u threshold (t24 five-state outcome)
                 dx = pose_ev[0] - event_last_pos[0]
                 dz = pose_ev[2] - event_last_pos[1]
                 dist = math.sqrt(dx * dx + dz * dz)
-                escape_buffer.resolve_current(dist)
+                outcome = escape_buffer.resolve_current(dist)
+                if outcome == "resolved_effective":
+                    event_counters["effective_count"] += 1
+                elif outcome == "resolved_ineffective":
+                    event_counters["ineffective_count"] += 1
+                _den = (event_counters["effective_count"]
+                        + event_counters["ineffective_count"])
+                event_counters["effectiveness_rate"] = (
+                    round(event_counters["effective_count"] / _den, 3)
+                    if _den else 0.0)
                 current_escape_event = None
             previous_escape = currently_escaping
             event_counters["current_stuck_duration"] = round(memory_ctrl.stuck_duration, 3)

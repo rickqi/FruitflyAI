@@ -96,6 +96,21 @@ setsid nohup env FLY64_BRIDGE=/tmp/f64b_traj \
 
 # 变更日志
 
+## 2026-09-15: t24 Escape Events 五态 outcome + 复合快照 + 效率着色 — Brain v2.19.3
+
+**变更**：
+- `EscapeEventBuffer` schema 扩充：`reasons`（全部激活条件列表，首项为主原因）、快照字段 `anomaly_state`/`anomaly_duration`/`terrain`/`loop_score`/`novelty`/`coach_keys`（bold_explore_stuck_s/turn_bias/escape_stuck_threshold_s）、`post_escape_anomaly`（逃逸结束后首个再激活异常标注）
+- **outcome 五态**：in_progress / resolved_effective(>30u) / resolved_ineffective(≤30u) / escalated(<10s 内再逃逸，前次自动升级) / aborted；`resolve_current(distance, effective_min_u=30, aborted=False)` 阈值参数化；升级窗口使用事件相对时间戳（可测性）
+- main.py 逃逸起点采集复合 reasons（reflex_/fallen/stuck/cliff/flow 并列非互斥）+ 快照注入；resolve 处 effective/ineffective 计数 + effectiveness_rate；事件起点若异常已再激活则回标前次事件
+- 仪表板：事件表新增 **Eff（u/s 效率比=distance/duration）** 与 **Outcome** 列（绿=effective/红=ineffective/金=escalated/cyan=in_progress/灰=aborted），reason 列 "+N" 提示复合原因，行 title 含 post_escape_anomaly；头部新增质量统计 `✓eff ✗ineff · eff rate`
+- counters 新增：total_cliff_escapes / total_fallen_escapes / total_stuck_escapes / effective_count / ineffective_count / effectiveness_rate
+
+**回归**：新增 `tests/test_escape_outcomes.py` 11 用例（五态各分支、复合 reasons、快照字段、post_escape_anomaly 标注与去重、效率比输入、escalate 窗口内外、计数器契约）；escape 套件 18/18、plugin 45/45；全量 45 failed 与 HEAD 基线逐项一致（零新增）。修复：升级窗口改用事件相对时间戳（原混用墙钟导致窗口判断失真）。
+
+**版本**：Brain 2.19.2→**2.19.3**（SKILL 3.1.1 镜像不变）。
+
+---
+
 ## 2026-09-15: t23 逃逸释放锁死三合一修复 — Brain v2.19.2
 
 **触发**：幽灵公馆场景 fallen→escape 被释放冷却锁死 30 分钟，loop_score 饱和不回落，突围失败。

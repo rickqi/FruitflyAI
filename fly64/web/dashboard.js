@@ -797,18 +797,37 @@ function escapeReasonInfo(reason) {
   return { label: escapeReasonLabels[reason] || reason, cls: escapeReasonClasses[reason] || '' };
 }
 
+const OUTCOME_META = {
+  in_progress:          { label: '···',          cls: 'outcome-progress' },
+  resolved_effective:   { label: '✓ effective',  cls: 'outcome-effective' },
+  resolved_ineffective: { label: '✗ ineffective', cls: 'outcome-ineffective' },
+  escalated:            { label: '⤴ escalated',  cls: 'outcome-escalated' },
+  aborted:              { label: '⊘ aborted',    cls: 'outcome-aborted' },
+};
+
 function renderEscapeTable(data) {
   const tbody = $('escapeBody');
   if (!tbody) return;
   const events = data.events || [];
   const counters = data.counters || {};
 
-  // Update event count
+  // Update event count + t24 outcome-quality stats line
   const countEl = $('escapeCount');
   if (countEl) {
     const total = counters.total_escapes || 0;
     const falls = counters.total_falls || 0;
     countEl.textContent = `${total} escapes · ${falls} falls`;
+  }
+  const statEl = $('escapeStats');
+  if (statEl) {
+    const eff = counters.effective_count || 0;
+    const ineff = counters.ineffective_count || 0;
+    const rate = counters.effectiveness_rate != null
+      ? Math.round(counters.effectiveness_rate * 100) + '%' : '—';
+    statEl.innerHTML =
+      `<span class="outcome-effective">✓ ${eff}</span>`
+      + ` <span class="outcome-ineffective">✗ ${ineff}</span>`
+      + ` · eff ${rate}`;
   }
 
   // Build rows (most recent first, last 50)
@@ -821,11 +840,19 @@ function renderEscapeTable(data) {
     const dur = ev.duration !== undefined ? ev.duration.toFixed(1) + 's' : '—';
     const dist = ev.distance_moved !== undefined ? ev.distance_moved.toFixed(0) + 'u' : '—';
     const time = ev.timestamp !== undefined ? ev.timestamp.toFixed(1) + 's' : '—';
+    // t24: outcome five-state + efficiency ratio (distance / duration)
+    const oc = OUTCOME_META[ev.outcome]
+      || { label: ev.outcome || '···', cls: 'outcome-progress' };
+    const effRatio = (ev.duration > 0.5 && ev.distance_moved !== undefined)
+      ? (ev.distance_moved / ev.duration).toFixed(1) + 'u/s' : '—';
+    // extra reasons beyond the primary, shown in tooltip
+    const extra = Array.isArray(ev.reasons) && ev.reasons.length > 1
+      ? ' · +' + (ev.reasons.length - 1) : '';
     const jumpable = ev.timestamp !== undefined && window.__CAUSAL_ENABLED !== false;
-    html += `<tr${jumpable ? ` class="causal-jump" data-t="${ev.timestamp}" title="click: jump timeline to t-${number(ev.timestamp,1)}s"` : ''}><td>${time}</td><td class="${reasonClass}">${reasonLabel}</td><td>${dur}</td><td>${dist}</td></tr>`;
+    html += `<tr${jumpable ? ` class="causal-jump" data-t="${ev.timestamp}" title="click: jump timeline to t-${number(ev.timestamp,1)}s${ev.post_escape_anomaly ? ' · post-escape anomaly: ' + ev.post_escape_anomaly : ''}"` : ''}><td>${time}</td><td class="${reasonClass}">${reasonLabel}${extra}</td><td>${dur}</td><td>${dist}</td><td>${effRatio}</td><td class="${oc.cls}">${oc.label}</td></tr>`;
   }
   if (!html) {
-    html = '<tr><td colspan="4" class="escape-empty">No escape events yet</td></tr>';
+    html = '<tr><td colspan="6" class="escape-empty">No escape events yet</td></tr>';
   }
   tbody.innerHTML = html;
 }
