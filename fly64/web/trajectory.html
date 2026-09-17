@@ -318,7 +318,9 @@ async function refreshLive(){
   }catch(_){/* transient network blip — keep last good frame */}
 }
 async function refreshMemoryOverlay(traj){
+  console.log('[fly64] refreshMemoryOverlay called, traj.len='+(traj?traj.length:'null')+' points');
   try{const m=await fetch('/memory.json');if(!m.ok)return;const mem=await m.json();
+    console.log('[fly64] memory.json loaded, heat_cells='+(Array.isArray(mem.heat_cells)?mem.heat_cells.length:'none'));
     // The memory grid is a TOP-DOWN occupancy map: carpet tiles, adjacency
     // edges and memory dots all sit on ONE flat plane (mapY) directly under
     // the trajectory footprint — horizontal (x,z) alignment with the path is
@@ -339,15 +341,16 @@ async function refreshMemoryOverlay(traj){
       const n = Math.min(mem.heat_cells.length, 2600);
       const ky = (x,z) => Math.floor(x/cs).toFixed(0) + ',' + Math.floor(z/cs).toFixed(0);
       for (let i = 0; i < n; i++) {
-        const c = mem.heat_cells[i];   // [x_center, z_center, recency]
+        const c = mem.heat_cells[i];
         _m4.makeTranslation(c[0], my, c[1]);
         carpet.setMatrixAt(i, _m4);
-        // elevation colour from per-cell mean height (fallback: map trajectory avg)
+        // elevation colour from per-cell mean height
         const h0 = cellH[ky(c[0], c[1])];
         const cy = h0 ? h0.reduce((s,v)=>s+v,0)/h0.length : (hMin + hSpan * 0.5);
-        const rgb = heightColor((cy - hMin) / hSpan);   // blue→red ramp
-        const lum = 0.35 + Math.min(c[2], 1) * 0.65;    // recency → brightness
-        carpet.setColorAt(i, {r: rgb[0]*lum, g: rgb[1]*lum, b: rgb[2]*lum});
+        const rgb = heightColor((cy - hMin) / hSpan);
+        const lum = 0.35 + Math.min(c[2], 1) * 0.65;  // recency → brightness
+        _c3.set(rgb[0] * lum, rgb[1] * lum, rgb[2] * lum);
+        carpet.setColorAt(i, _c3);
       }
       carpet.count = n; carpet.instanceMatrix.needsUpdate = true;
       if (carpet.instanceColor) carpet.instanceColor.needsUpdate = true;
