@@ -1,9 +1,9 @@
 {
   "$schema": "fly64/evolution-history/1.0",
   "canonical_versions": {
-    "brain": "2.19.3",
-    "skill": "3.1.1",
-    "as_of": "2026-09-17T10:28:30.224988+08:00"
+    "brain": "2.20.0",
+    "skill": "3.2.0",
+    "as_of": "2026-09-17T10:53:13.689143+08:00"
   },
   "records": [
     {
@@ -686,6 +686,38 @@
       "source": "本次运维（EVO-048）"
     },
     {
+      "id": "EVO-049",
+      "date": "2026-09-17",
+      "time": "10:47 +0800",
+      "round": "v2.20.0 发布",
+      "kind": "brain+skill",
+      "brain_version": "2.20.0",
+      "skill_version": "3.1.1",
+      "trigger": "3 项持续缺陷修复：①breakout 电流非自适应（恒定振幅压制转向）②CPG 原语零位移不切换③flow.json 遥测缺 8 字段",
+      "changes": [
+        "breakout_gain 自适应：stuck_duration 映射至最高 +0.50，突破时附跳跃注入",
+        "CPG 原语 disp_60s<30u 时自动切换 SIDE_FLIP（原语零位移治理）",
+        "flow.json 补齐 anomaly_state/reflex_active/escape_behavior 等 8 字段（遥测审计闭环）"
+      ],
+      "tests": "67/67 通过",
+      "source": "commit 103bcb6（含 agent.md 规则 17 版本严格递增契约一并入库）"
+    },
+    {
+      "id": "EVO-050",
+      "date": "2026-09-17",
+      "time": "10:53:13 +0800",
+      "round": null,
+      "kind": "skill_update_auto",
+      "brain_version": "2.20.0",
+      "skill_version": "3.2.0",
+      "trigger": "工作树观测到 SKILL_VERSION 3.1.1→3.2.0（并行会话在途轮）——按规则 15/17 留痕；完整 trigger/changes/tests 条目由执行进化的 agent 补全",
+      "changes": [
+        "（待执行 agent 补全）"
+      ],
+      "tests": null,
+      "source": "版本纪律自动留痕"
+    },
+    {
       "id": "AUTO-0001",
       "recorded_at": "2026-09-15T11:14:24.706289+00:00",
       "kind": "skill_fix",
@@ -949,6 +981,30 @@
       ],
       "tests": null,
       "source": "resident skill loop"
+    },
+    {
+      "id": "EVO-049",
+      "date": "2026-09-17",
+      "time": "11:20:00 +0800",
+      "round": "L2 导航质量与自我进化闭环",
+      "kind": "skill",
+      "brain_version": "2.19.3",
+      "skill_version": "3.2.0",
+      "trigger": "SOS 缩略图空白（raw RGB 误作 PNG 解码）；L2 求助触发仅覆盖对话习惯化，高速绕圈类（loop>0.9/coverage_rate=0/stuck 200s）永不升级；health 公式粘性 0.5 地板无恢复梯度；EVO 五阶段缺脑参数进化能力；轨迹回放原始点直连杂乱不平滑",
+      "changes": [
+        "SOS 缩略图修复：snapshotDataUri() raw RGB→canvas→PNG（含 flipY 纠正 glReadPixels 自下而上），优先 screen_b64 游戏屏",
+        "L2a stuck_no_progress 求助触发器：stuck≥0.8∧coverage_rate<0.01∧dur>5s 持续 30s 即产出含缩略图的 SOS 快照（已在生产真实命中）",
+        "reflex_ineffective 判据补绕圈分支：loop>0.8∧coverage_rate<0.01∧stuck>30s（生产已命中 disp60=275u 类）",
+        "help_reason 显式化：L2a 不再落入 interaction_blocked 默认值",
+        "SOS 面板显示修复：移除裁切 cap，fold 跨列（108px→290px），缩略图 200×151，自动展开 details，字段换行",
+        "health 公式 v2：+stall_cost(0.25) 探索停滞项、+novelty 奖励(0.1)、revisit 权重 0.4→0.35——同场景恢复有梯度，绕圈无进展有惩罚（stall_ratio 暴露至 memory.json）",
+        "EVO 六阶段：新增 Phase 6 Evolve（BrainMutator 高斯变异 brain_tunable_params.json 十参数，120s 试验，适应度=覆盖+非卡死+新颖+健康+速度，≥3% 提交/否则回滚；stuck>60s∧loop>0.6 时 2% 概率自触发）",
+        "轨迹回放平滑：距离抽稀（迭代阈值≤3000 点）+ Chaikin 角切割 + 游标 lerp 插值；时间基准播放消跳帧；Live 增量合并 + 🟢/📄 状态指示",
+        "轨迹存档闭环：latest-session.trajectory.npz 每 600-tick 滚动 + session-时间戳快照保留 20 份，File 下拉不再永久为空",
+        "并入在途 t24/t25 变更：逃逸五态结果、复合快照、效率着色、LLM 双传输降级（一并提交以闭合规则 15 记录）"
+      ],
+      "tests": "test_memory 83（含 stall/recovery/novelty 3 条新 PIN）+ evolution_capability 43 + autonomy_regression 14 + layout_audit 门禁 4 视口全绿 + 实机 Playwright 端到端（缩略图 320×240 真实帧、回放单调推进）",
+      "source": "本会话 commits 6d37c04/84a9a55/c348a67/4e4da5f + 本次版本提交（fix_0017/0018 已入 catalog）"
     }
   ]
 }

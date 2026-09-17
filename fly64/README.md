@@ -903,7 +903,7 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 
 <!-- EVOLUTION-HISTORY-TABLE:START
 
-下表由 `skills/evolution_skill.py --history-md` 从权威记录 `skills/evolution_history.json` 自动生成（51 条，权威版本 Brain v2.19.3 / Skill v3.0.0）。**请勿手改本表**——更新记录后重新执行该命令再粘贴。
+下表由 `skills/evolution_skill.py --history-md` 从权威记录 `skills/evolution_history.json` 自动生成（54 条，权威版本 Brain v2.20.0 / Skill v3.2.0）。**请勿手改本表**——更新记录后重新执行该命令再粘贴。
 
 | ID | 时间 | 轮次 | Brain | Skill | 触发原因 | 关键变更 | 测试 | 来源 |
 |----|------|------|-------|-------|---------|---------|------|------|
@@ -946,6 +946,8 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 | EVO-038 | 2026-09-16 18:30 | Motor-P4/P5+M1 | 2.17.0 | 3.0.0 | Phase 4 仪表板可视化 + Phase 5 EVO pattern + M1 优化层（债务清理 + 新动作原语 PUNCH/DIVE） | Phase 4 电机扩展仪表板；Phase 5 EVO patterns + R21 patch backport；M1.1 既有债务清理（BRAIN_VERSION 2.17.0）（等 4 项） | — | commits e664bd5/1736cac/f1021bf |
 | EVO-039 | 2026-09-16 20:50 | P1-2 perf | 2.17.0 | 3.0.0 | P1-2 CSC 传播 8-15ms/step 制约 tick 频率与进化验证吞吐；尝试选择路径微优化（布尔掩码/fancy/gather+bincount） | 三变体在真实 25.6M 连接组上交错基准（9 次中位数）：0.95–1.38×，全部落在负载噪声内——负结果；synaptic_current() 自适应选择保留为等价基线 + 传播点注释留档负结果；test_propagation_perf.py 7 用例等价性 PIN（全分数段 allclose） | test_propagation_perf 7/7 | 本次会话（负结果留档，防重复尝试） |
 | EVO-048 | 2026-09-17 10:28 | 运维收敛 | 2.19.3 | 3.1.0 | 双循环并发：Windows 循环（09-16 22:00 启动，pwsh 会话）+ WSL 循环（并行 agent 启动，旧代码无锁）——跨文件系统锁互不可见，双写致 AUTO id 撞号、catalog 覆盖、log 交错 | Windows 循环停止；WSL 单循环收敛（新代码含锁，pid 13420，锁文件 .evo_loop.lock 生效；agent.md 规则 16 固化：resident 循环只能在 WSL 运行，Windows 禁止启动；FAQ 双循环条目更新（跨文件系统根因 + 现行规则指引） | 锁三态 PIN（test_evolution_ops）+ 循环存活/日志验证 | 本次运维（EVO-048） |
+| EVO-049 | 2026-09-17 10:47 | v2.20.0 发布 | 2.20.0 | 3.1.1 | 3 项持续缺陷修复：①breakout 电流非自适应（恒定振幅压制转向）②CPG 原语零位移不切换③flow.json 遥测缺 8 字段 | breakout_gain 自适应：stuck_duration 映射至最高 +0.50，突破时附跳跃注入；CPG 原语 disp_60s<30u 时自动切换 SIDE_FLIP（原语零位移治理）；flow.json 补齐 anomaly_state/reflex_active/escape_behavior 等 8 | 67/67 通过 | commit 103bcb6（含 agent.md 规则 17 版本严格递增契约一并入库） |
+| EVO-050 | 2026-09-17 10:53 | — | 2.20.0 | 3.2.0 | 工作树观测到 SKILL_VERSION 3.1.1→3.2.0（并行会话在途轮）——按规则 15/17 留痕；完整 trigger/changes/tests 条目由执行进化的 agent 补全 | （待执行 agent 补全） | — | 版本纪律自动留痕 |
 | AUTO-0001 | 2026-09-15 11:14 | — | 2.13.3 | 3.0.0 | Patterns skipped because their condition fields are absent from telemetry: ['mb_mbon_forward'] (patterns: ['mbon_saturat | # Expose missing condition keys in main.py flow_json/memory_json | — | resident skill loop (auto_fix) |
 | AUTO-0002 | 2026-09-15 11:39 | — | 2.13.3 | 3.0.0 | forward MBON saturated at ceiling while behaviour still loops. The built-in homeostatic synaptic scaling should shrink t | # Verify homeostatic scaling in mushroom_body.py saturation guard | — | resident skill loop (auto_fix) |
 | AUTO-0003 | 2026-09-15 13:10 | — | 2.13.3 | 3.0.0 | Fallen detection threshold (Y<-100) is too permissive. SM64 normal ground is Y=120. Y<50 already indicates below-ground  | # Fix: Lower fallen detection threshold from -100 to 50 | — | resident skill loop (auto_fix) |
@@ -958,7 +960,7 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 | AUTO-0009 | 2026-09-16 17:19 | — | 2.19.1 | 3.0.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
 | AUTO-0010 | 2026-09-16 18:03 | — | 2.19.2 | 3.0.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
 | AUTO-0011 | 2026-09-17 01:07 | — | 2.19.3 | 3.0.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
-| R23 | 2026-09-17 | R23 | 2.20.0 | 3.0.0 | micro_loop_weave持续30/30轮检出; CPG原语零位移22/30; telemetry_gap 30/30 | breakout_gain自适应(stuck→0.5)+突破跳跃注入; CPG位移检测零位移自动切换原语(SIDE_FLIP); flow.json补齐anomaly_state/reflex_active等8字段 | 67/67 tests | captain |
+| EVO-049 | 2026-09-17 11:20 | L2 导航质量与自我进化闭环 | 2.19.3 | 3.2.0 | SOS 缩略图空白（raw RGB 误作 PNG 解码）；L2 求助触发仅覆盖对话习惯化，高速绕圈类（loop>0.9/coverage_rate=0/stuck 200s）永不升级；health 公式粘性 0.5 地板无恢复梯度；EVO  | SOS 缩略图修复：snapshotDataUri() raw RGB→canvas→PNG（含 flipY 纠正 gl；L2a stuck_no_progress 求助触发器：stuck≥0.8∧coverage_rate<0.01∧dur；reflex_ineffective 判据补绕圈分支：loop>0.8∧coverage_rate<0.01∧stuck（等 10 项） | test_memory 83（含 stall/recovery/novelty 3 条新 PIN）+ evolution | 本会话 commits 6d37c04/84a9a55/c348a67/4e4da5f + 本次版本提交（fix_001 |
 
 <!-- EVOLUTION-HISTORY-TABLE:END -->
 
