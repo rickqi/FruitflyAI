@@ -36,7 +36,7 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.23.0"  # EVO-058: P4.4 instinct consolidation reaches behaviour (incl. EVO-057 CX loop break)
+BRAIN_VERSION = "2.23.1"  # EVO-059: fix import-time NameError that killed every production start
 SKILL_VERSION = "3.3.0"   # progressive lesson ladder + evidence-base hardening (must mirror evolution_skill)
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
@@ -61,7 +61,10 @@ def _load_evolution_history() -> None:
         pass  # no history yet or corrupted file — start fresh
 
 
-_load_evolution_history()
+# NOTE: _load_evolution_history() is called from main() — see the comment there
+# for why it must NOT be invoked at module level (it references DashboardHTTP,
+# which is defined further down this file).
+
 
 class EscapeEventBuffer:
     """Ring buffer of last 200 escape events (t24 five-state schema).
@@ -2269,6 +2272,17 @@ def parse_args():
 
 
 def main():
+    # agent.md rule 9: restore the evolution iteration history before the
+    # dashboard starts serving /evolution.json.
+    #
+    # This call used to sit at module level (line 64), BEFORE DashboardHTTP was
+    # defined at line 176.  It only raised when runtime/evolution_history.json
+    # existed — which it always does in the WSL runtime, because the resident
+    # EVO loop writes it — so the brain died at import with
+    # `NameError: name 'DashboardHTTP' is not defined` on every production
+    # start, while a fresh checkout started fine.  Do not move it back above
+    # the DashboardHTTP class definition.
+    _load_evolution_history()
     try:
         asyncio.run(run(parse_args()))
     except KeyboardInterrupt:

@@ -1,6 +1,6 @@
 # EvolutionSkill — Self-Evolving Motion Diagnosis
 
-> 当前版本：BRAIN_VERSION **2.23.0** / SKILL_VERSION **3.3.0**（EVO-057：CX 持续环路确定性破解——旧“随机跳列”块因两个独立死因从未生效（读的是 CentralComplex 从不拥有的 stuck_duration；守卫被游走块抬到 0.30 而自我毒化）且用了未播种 RNG，已换为显式信号 + _ext_goal_strength + 冷却 + 散列跳列；EVO-058：P4.4 本能固化可达化——显著量化签名取代全参数指纹（真实数据下 11 条 outcome 产生 13 个指纹，证据永远重启）、绑定参数与签名自洽、worse 证伪须重新赢得晋级，并加固证据基座（测试隔离 + 语料缩水守卫：45 条真实 outcome 曾被测试覆盖且不可恢复）。完整逐轮记录见 skills/evolution_history.json）
+> 当前版本：BRAIN_VERSION **2.23.1** / SKILL_VERSION **3.3.0**（EVO-057：CX 持续环路确定性破解；EVO-058：P4.4 本能固化可达化 + 证据基座加固（测试隔离 + 语料缩水守卫）；EVO-059：修复导入期 NameError —— 脑在 runtime/evolution_history.json 存在时（生产恒有）无法启动，干净检出却全测试通过。完整逐轮记录见 skills/evolution_history.json）
 
 **Version**: 3.0.0
 **Status**: Active

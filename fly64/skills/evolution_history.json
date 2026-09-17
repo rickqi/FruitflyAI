@@ -1,9 +1,9 @@
 {
   "$schema": "fly64/evolution-history/1.0",
   "canonical_versions": {
-    "brain": "2.23.0",
+    "brain": "2.23.1",
     "skill": "3.3.0",
-    "as_of": "2026-09-17T18:31:05.108185+08:00"
+    "as_of": "2026-09-17T18:40:44.273487+08:00"
   },
   "records": [
     {
@@ -1144,6 +1144,24 @@
       "tests": "test_instinct_bindings 27/27（含签名不因逐集旋钮分裂、签名↔绑定参数自洽、竞争签名不共享证据、worse 证伪后须重新赢得晋级、legacy 扁平格式迁移不丢已晋级绑定）；test_coach_outcomes + test_strategy_passthrough + test_snapshot_320 合计 56 passed；test_evidence_durability 10/10（含“追加时语料被清空仍能恢复”）；活体受控端到端验证（脑 v2.23.0 运行中）：基线 instinct_scene='致命熔岩地' instinct_applied=False turn_bias=0.8 → 注入晋级绑定(turn_bias=0.33/stuck_threshold_s=7.77/mode=directional_climb) → 热加载后 instinct_applied=True 且三个特征值全部出现在行为层 coach_applied，随后清除合成绑定",
       "source": "本次会话 t3/t4/t7/t8/t9-B + brain 活体验证",
       "notes": "负结果（就地记录，勿重试）：以现有 45 条真实 outcome 复算，最粗显著签名下最佳候选为 improved=2/worse=1，mode+turn_bias 视图为 2 improved/2 worse，合格签名数 0 —— 晋级拒绝是正确行为，不是缺陷。禁止为制造晋级而降低门槛：用被证伪的两样本记录绑定脑本能，正是课程阶梯刚刚修掉的假进步。另：scene_key 目前取 '#' 前的前缀，而该前缀随飞行变化（天空·山坡/通道·山坡/山坡），绑定只在同前缀期间生效——场景身份稳定性是下一步的开放缺陷。"
+    },
+    {
+      "id": "EVO-059",
+      "date": "2026-09-17",
+      "time": "18:40:44 +0800",
+      "round": "t9-C 启动崩溃修复",
+      "kind": "brain",
+      "brain_version": "2.23.1",
+      "skill_version": "3.3.0",
+      "trigger": "脑进程在生产环境无法启动：main.py 在模块级第 64 行调用 _load_evolution_history()，而该函数写入 DashboardHTTP.evolution_json，DashboardHTTP 却定义在第 176 行 → 导入期 NameError: name 'DashboardHTTP' is not defined，且 except 子句只捕获 (OSError, ValueError, AttributeError)，不含 NameError，异常直接抛出。该缺陷只在 runtime/evolution_history.json 存在时触发（文件缺失时函数走 OSError 分支提前返回），而该文件由常驻 EVO 循环在 WSL 运行时恒常写入——因此**干净检出全部测试通过，生产每次启动必崩**。本次同步新代码后脑进程连续两次启动失败，日志见 /tmp/fly64_run.log。",
+      "changes": [
+        "main.py: 移除模块级 _load_evolution_history() 调用，改在 main() 开头调用（此时 DashboardHTTP 已定义、HTTP 服务尚未启动）",
+        "main.py: 在原调用点留下显式注释说明为何不得移回 DashboardHTTP 类定义之前",
+        "新增 tests/test_brain_startup_regression.py 5 条：AST 检查模块级禁止调用该函数（只遍历模块体，跳过函数/类体，故 main() 内的调用是被允许的修复形态）、main() 必须仍调用它（规则 9 历史恢复）、DashboardHTTP 必须定义在其后（钉住使前向引用致命的顺序）、以及在**填充了 runtime/evolution_history.json 的真实子进程**中导入成功并验证历史被恢复（复现触发条件，而非仅导入模块）、helper 幂等"
+      ],
+      "tests": "test_brain_startup_regression 5/5；WSL 实机验证：修正映射部署后 brain_version=2.23.1 且 /flow.json、/memory.json 可达，进程栈 fly64.main + plugin.service + evolution_skill + sm64 四进程齐全",
+      "source": "本次会话 t9-C；缺陷源自并行提交 2202d1e（未在 WSL 重启验证）",
+      "notes": "教训（已并入规则 19 的动机，并在此复述）：任何触及 main.py 导入期的改动必须在 WSL 实机重启脑进程验证，不能仅凭单元测试通过。本次同时暴露部署脚本的路径映射缺陷——SRC 取仓库根而 DEP 取项目目录，导致目标多一层 fly64/、真实文件未被更新却仍打印 ok；已改为复制后逐字节 md5 校验。"
     }
   ]
 }

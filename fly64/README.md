@@ -904,7 +904,7 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 ### 完整进化历史档案
 
 <!-- EVOLUTION-HISTORY-TABLE:START
-下表由 `skills/evolution_skill.py --history-md` 从权威记录 `skills/evolution_history.json` 自动生成（61 条，权威版本 Brain v2.23.0 / Skill v3.3.0）。**请勿手改本表**——更新记录后重新执行该命令再粘贴。
+下表由 `skills/evolution_skill.py --history-md` 从权威记录 `skills/evolution_history.json` 自动生成（62 条，权威版本 Brain v2.23.1 / Skill v3.3.0）。**请勿手改本表**——更新记录后重新执行该命令再粘贴。
 
 | ID | 时间 | 轮次 | Brain | Skill | 触发原因 | 关键变更 | 测试 | 来源 |
 |----|------|------|-------|-------|---------|---------|------|------|
@@ -969,6 +969,7 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 | EVO-056 | 2026-09-17 18:10 | R31-fix5 | 2.21.1 | 3.2.0 | 用户反馈 Mario 在 micro_loop 反射期间看起来不动 → 分析发现反射相位的交替纯旋转（x=±69,y=0，左右抵消），spin-in-place 的方式虽然走位但不是线性位移 | memory.py ReflexController: MICRO_LOOP 反射 turn 相位 cy=0→cy=30；tests/test_memory.py: test_reflex_micro_loop_triggers 期望值 cy | memory 114 passed（仅剩 2 个基线预存 KeyError）；fall-state/escape-rel | 用户观察 + captain 实机采样定位到 cy=0 导致的现象 |
 | EVO-057 | 2026-09-17 18:31 | t9-A P1-1 环路破解 | 2.22.0 | 3.2.0 | circle_loop 可持续数分钟不破：CX 的探索游走是 ~10s 正弦扫掠，频率远低于紧致轨道；工作树中另有一段“强制随机跳列”代码，但它从未生效——两个各自独立的死因：① 读 getattr(self,'stuck_duration | central_complex.py: update() 新增 stuck_duration 形参，CX 首次获得真实卡；新增 CX_LOOP_BREAK_STUCK_S=45.0（对齐既有 30/60s 逃逸档位；旧值 300 且注释自相矛；新增 CX_LOOP_BREAK_COOLDOWN_TICKS=1500（~30s）：判据不再依赖被合成的 goal_s（等 7 项） | test_cx_loop_break 15/15；CX/导航/memory 回归 122 passed（test_cx_ | 本次会话 t9-A；工作树 R31-fix5 死代码替换 |
 | EVO-058 | 2026-09-17 18:31 | t9-B P4.4 本能固化 + 证据基座 | 2.23.0 | 3.3.0 | P4.4 场景→策略本能固化“已实现但结构上不可能达成”。四重独立死因：① 指纹要求全参数精确一致，而教练每次咨询都重调参数——真实 45 条 outcome 里同一场景产生 13 个互不相同的指纹，证据永远重启，晋级阈值不可达；② get | fly64/instinct_bindings.py: 新增显著量化签名 SALIENT_PARAMS（fallen_r；binding_params(): 只绑定签名所区分的参数（自洽要求），且取量化后的规范值——否则 turn_bias=；晋级规则改为“自上次 worse 以来的干净 improved ≥ 2”；worse 视为证伪：既降级已晋级绑定，也清零（等 8 项） | test_instinct_bindings 27/27（含签名不因逐集旋钮分裂、签名↔绑定参数自洽、竞争签名不共享证据 | 本次会话 t3/t4/t7/t8/t9-B + brain 活体验证 |
+| EVO-059 | 2026-09-17 18:40 | t9-C 启动崩溃修复 | 2.23.1 | 3.3.0 | 脑进程在生产环境无法启动：main.py 在模块级第 64 行调用 _load_evolution_history()，而该函数写入 DashboardHTTP.evolution_json，DashboardHTTP 却定义在第 176  | main.py: 移除模块级 _load_evolution_history() 调用，改在 main() 开头调用（此；main.py: 在原调用点留下显式注释说明为何不得移回 DashboardHTTP 类定义之前；新增 tests/test_brain_startup_regression.py 5 条：AST 检查模块级禁止调用该 | test_brain_startup_regression 5/5；WSL 实机验证：修正映射部署后 brain_ver | 本次会话 t9-C；缺陷源自并行提交 2202d1e（未在 WSL 重启验证） |
 <!-- EVOLUTION-HISTORY-TABLE:END -->
 
 > **档案维护规则**：本表由 `--history-md` 从权威 JSON 再生成，新进化轮次只写 `evolution_history.json`（规则 15），然后执行 `python3 fly64/skills/evolution_skill.py --history-md` 重新生成并替换 `<!-- EVOLUTION-HISTORY-TABLE -->` 标记之间的内容，随代码一起提交。

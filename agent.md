@@ -42,6 +42,19 @@
     - 禁止以“制造晋级/达标”为目的放宽任何证据门槛。拒绝晋级是正确行为，须通过 `binding_status()` 的可观测差距来推进，而非降低门槛（对照：固定 goal 曾使课程 30 次尝试假晋级至 stage 9）
 
 
+## 2026-09-17: EVO-059 — Brain v2.23.1（修复生产启动崩溃）
+
+**脑进程在生产环境完全无法启动**，而全部单元测试通过。
+
+`main.py` 在模块级第 64 行调用 `_load_evolution_history()`，该函数写入 `DashboardHTTP.evolution_json`，但 `DashboardHTTP` 定义在第 176 行 → 导入期 `NameError: name 'DashboardHTTP' is not defined`。`except (OSError, ValueError, AttributeError)` **不包含 NameError**，异常直接抛出终止导入。
+
+为什么躲过了所有本地验证：文件 `runtime/evolution_history.json` 缺失时函数走 `OSError` 分支提前 `return`，所以**干净检出导入正常、测试全绿**；而该文件由常驻 EVO 循环在 WSL 运行时恒常写入——**每次生产启动必崩**。本次同步新代码后脑进程连续两次启动失败（`/tmp/fly64_run.log`）才暴露。
+
+修复：移除模块级调用，改在 `main()` 开头调用（此时 `DashboardHTTP` 已定义、HTTP 服务尚未启动），并在原位置留下显式注释禁止移回。新增 `tests/test_brain_startup_regression.py` **5 条**——关键是最后一条在**填充了 runtime/evolution_history.json 的真实子进程**中导入，复现触发条件而非仅导入模块（只导入模块的测试永远发现不了这个缺陷）。
+
+同时修复部署脚本的路径映射缺陷：`SRC` 取仓库根（`D:\codes\flygym`）而 `DEP` 取项目目录（`/root/fly64`），目标路径因此多出一层 `fly64/`，文件被写到 `/root/fly64/fly64/fly64/` 而真实文件从未更新——脚本却仍逐行打印 `ok`（无校验）。现改为 `SRC=/mnt/d/codes/flygym/fly64`、`DEP=/root/fly64` 的对齐映射，并在复制后逐个 **md5 逐字节校验**，任一不符即 ABORT。
+
+**教训**：任何触及 `main.py` 导入期的改动，必须**在 WSL 实机重启脑进程**验证，单元测试通过不构成证据。另需注意 `active_strategy.json` 会被其他写入方以**扁平点号键**形式覆写（`"escape.commit_ticks"`），一旦如此 `load_active_strategy()` 的段透传（EVO-054 修复）会再次静默失效——写入方审计为开放项。
 ## 2026-09-17: EVO-057 — Brain v2.22.0（CX 持续环路确定性破解）
 
 `circle_loop` 可持续数分钟不破：CX 的探索游走是 ~10s 正弦扫掠，频率远低于紧致轨道。工作树中另有一段"强制随机跳列"代码试图解决它，但**从未生效**——两个各自独立的死因，加上一个契约破坏：
