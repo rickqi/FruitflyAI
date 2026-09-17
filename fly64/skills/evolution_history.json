@@ -1,9 +1,9 @@
 {
   "$schema": "fly64/evolution-history/1.0",
   "canonical_versions": {
-    "brain": "2.23.4",
+    "brain": "2.23.5",
     "skill": "3.3.0",
-    "as_of": "2026-09-17T20:37:37.810715+08:00"
+    "as_of": "2026-09-17T20:41:57.272162+08:00"
   },
   "records": [
     {
@@ -1294,6 +1294,42 @@
       ],
       "tests": null,
       "source": "resident skill loop"
+    },
+    {
+      "id": "EVO-063",
+      "date": "2026-09-17",
+      "time": "20:39 +0800",
+      "round": "R31-fix8",
+      "kind": "brain",
+      "brain_version": "2.23.5",
+      "skill_version": "3.3.0",
+      "trigger": "教练建议的 command.turn_and_go 是死键码——prompt 要求教练输出但脑模型从未消费；y=-954 虚空场景教练不知高度",
+      "changes": [
+        "main.py: 读取 active_strategy.command 实现 P-I 转向+前冲（heading→yaw_diff→x, y 持续, 限时, 虚空让位于护栏）",
+        "plugin/runner.py: consult context +pos_y（优先 memory_json.pos_y → position.y），三次求助路径一致",
+        "main.py memory_json: +pos_y 键——教练 consulter 可读"
+      ],
+      "tests": "autonomy 17 passed; 编译全检查",
+      "deployed": true,
+      "source": "实机 fallen 虚空场景教练建议无效分析→双修复"
+    },
+    {
+      "id": "EVO-064",
+      "date": "2026-09-17",
+      "time": "20:41:57 +0800",
+      "round": "t11 场景身份实测（负结果 + 记录更正）",
+      "kind": "infra",
+      "brain_version": "2.23.4",
+      "skill_version": "3.3.0",
+      "trigger": "EVO-058 的 notes 把 scene_key 前缀漂移列为“下一步开放缺陷”，我在本轮报告里也据此宣称“场景身份稳定性是 P4.4 的真瓶颈”。这是**未测量的假设**：instinct_bindings.scene_key 的 docstring 声称哈希随光照漂移、前缀稳定，但两者都没有实测数据；而先前的观测（天空·山坡 / 通道·山坡 / 墙体·通道 / 山坡）看起来支持“前缀也在漂移”的相反结论。若不测量，后继者可能把键改成哈希，而那是**严格更差**的方案。",
+      "changes": [
+        "新增 scripts/measure_scene_identity.py：采样实时 /flow.json + /memory.json 的 (scene_label, scene_hash) 对，输出各字段取值数、label↔hash 映射基数与共享成分，给出“哪个字段足以作为绑定键”的判定",
+        "fly64/instinct_bindings.py：把 scene_key 的 docstring 从原则性断言改为**实测数字**，并显式说明残余漂移为何**故意不修**（墙体·通道→墙体·山坡 是走廊变斜坡的真实地形变化，在此切分证据是正确行为），以及“晋级未达成”的真实原因是参数碎片化而非场景身份",
+        "记录更正：撤回 EVO-058 notes 与本次会话报告中的“场景身份是瓶颈”论断（见 notes）"
+      ],
+      "tests": "test_instinct_bindings 31/31（文档改动行为中性，仅验证无回归）；实测（24 采样 / 2 分钟、同一区域飞行）：标签前缀 2 个取值（墙体·通道 x22、墙体·山坡 x1），scene_hash 10 个取值（2d989f x7、c69edb x8、其余 8 个各 1 次）；label→hash 一对多、hash→label 一对一",
+      "source": "本次会话 t11；实测脚本 scripts/measure_scene_identity.py",
+      "notes": "**负结果（就地记录）**：哈希是漂移更快的一方（2 分钟 10 个取值，约每 15s 变一次），前缀可稳定持续数分钟（22/23 样本同值）。因此 scene_key 按前缀绑定是**正确设计**，改用 scene_hash 会严格更差——每个桶在漂移前只能收到约 2 个样本，而晋级门槛要求**同一桶内 ≥2 次干净改进**，哈希键将使晋级重新变得不可达，正是 EVO-058 刚修掉的缺陷。请勿“优化”为哈希键。**晋级未达成的真实原因**：实测绑定库显示同一场景下 4 个显著签名、turn_bias 分别为 0.6/0.7/0.8 等——教练每次咨询都换参数集，故单个桶很少积累到 2 次干净改进。这是探索的固有代价，且应随“教练参数真正到达行为层”（EVO-062/t6）与课程渐进阶梯而缓解。**版本轨**：本轮为文档 + 只读工具，未改变脑行为或技能契约，故**不递增版本**（brain 沿用 2.23.4 / skill 沿用 3.3.0）。规则 17 约束的是代码/行为变更的递增；此处无递增，不构成版本复用。"
     }
   ]
 }
