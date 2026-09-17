@@ -411,6 +411,24 @@ def sanitize_strategy(strategy: dict) -> dict:
     wise = normalize_what_i_see(strategy.get("what_i_see"))
     if wise:
         clean["what_i_see"] = wise
+    # M2.1: primitives section — enabled list & scene→prefer map.
+    raw_prim = strategy.get("primitives")
+    if isinstance(raw_prim, dict):
+        clean_p = {}
+        enabled = raw_prim.get("enabled")
+        if isinstance(enabled, list):
+            valid = [str(p) for p in enabled if isinstance(p, str)
+                     and p in ("longjump","backflip","groundpound","punch","dive")]
+            if valid:
+                clean_p["enabled"] = valid
+        prefer = raw_prim.get("prefer")
+        if isinstance(prefer, dict):
+            p = {str(k): str(v) for k,v in prefer.items()
+                 if isinstance(k,str) and isinstance(v,str) and k}
+            if p:
+                clean_p["prefer"] = p
+        if clean_p:
+            clean["primitives"] = clean_p
     return clean
 
 
