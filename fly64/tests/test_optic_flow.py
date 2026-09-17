@@ -532,7 +532,16 @@ def test_memory_cliff_emergency():
 
 
 def test_memory_no_cliff_emergency_when_cliff_high():
-    """flow_cliff >= 0.3 does NOT trigger emergency escape."""
+    """flow_cliff >= 0.3 does NOT trigger emergency escape.
+
+    `pos_y` MUST be supplied.  It defaults to 0.0, which the fall detector reads
+    as "below ground", and `escape_behavior` has `self._fallen` as its FIRST
+    disjunct — so omitting the altitude made escape True for a reason that has
+    nothing to do with the cliff at all (measured: pos_y omitted/0.0 -> escape
+    True, fallen True; pos_y 100 or 500 -> escape False, fallen False).  The
+    assertion below is about the cliff path, so the fly must be airborne
+    (EVO-071 classified this test-drift, not a defect).
+    """
     mc = MemoryController()
     result = mc.update(
         temporal_energy=0.01,
@@ -540,11 +549,13 @@ def test_memory_no_cliff_emergency_when_cliff_high():
         forward_rate=20.0,
         x=100.0,
         z=200.0,
+        pos_y=500.0,      # airborne: isolates the cliff path from fall recovery
         flow_looming=0.0,
-        flow_cliff=1.0,  # normal - no cliff
+        flow_cliff=1.0,   # normal - no cliff
     )
     assert len(result) == 6, f"Expected 6-tuple, got {result}"
-    _, _, _, escape, _, _ = result
+    _, _, _, escape, fallen, _ = result
+    assert not fallen, "the fly must not be read as fallen"
     assert not escape, "Should not trigger escape without cliff"
 
 

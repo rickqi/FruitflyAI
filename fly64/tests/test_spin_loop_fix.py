@@ -12,6 +12,19 @@ from fly64.memory import SpatialMemoryMap, ReflexController, MotionStateDetector
 
 
 # ── P0-1 · loop_score sensory hygiene ────────────────────────────────
+#
+# API CONTRACT: SpatialMemoryMap.update(x, y=0.0, z=0.0) — THREE coordinates,
+# and SpatialMemoryMap._key() hashes all three.  These tests used to call
+# update(x, z), so the world coordinate landed in the *vertical* argument and z
+# stayed 0.  Every cell then collapsed onto one axis: the "200 distinct cells"
+# walk produced just 24 cells, so the last 50 window slots were all revisits and
+# loop_score read 1.0 instead of 0.0 (measured: 24 cells / 1.0 before, 200 cells
+# / 0.0 with the third argument passed — EVO-071).
+#
+# The same mistake made `test_loop_score_hits_one_on_pure_revisit` pass for the
+# wrong reason: with x and y both stepping by 10 inside a 200-unit cell, the
+# "3-cell tight loop" actually visited ONE cell.  Both now express their intent
+# and TestUpdateCoordinateContract below pins the contract that was misread.
 
 class TestLoopScoreBounded:
     def test_loop_score_stays_within_unit_after_long_alternation(self):
@@ -19,14 +32,18 @@ class TestLoopScoreBounded:
         # March forever between two cells — every step after the first is a
         # revisit.  Old code diverged unboundedly (observed 104.976).
         for i in range(3000):
-            x, z = (0.0, 0.0) if i % 2 == 0 else (50.0, 50.0)
-            m.update(x, z)
+            x, z = (0.0, 0.0) if i % 2 == 0 else (450.0, 450.0)
+            m.update(x, 0.0, z)
         assert 0.0 <= m.loop_score <= 1.0
+        assert m.loop_score == pytest.approx(1.0)
 
     def test_loop_score_hits_one_on_pure_revisit(self):
         m = SpatialMemoryMap(cell_size=200, loop_window=50)
+        # A genuine 3-cell tight loop: 250-unit steps cross 200-unit cell
+        # boundaries, so three DISTINCT cells are visited and then re-visited.
         for i in range(500):
-            m.update(10.0 * (i % 3), 10.0 * (i % 3))  # 3-cell tight loop
+            m.update(250.0 * (i % 3), 0.0, 0.0)
+        assert len(m._cells) == 3, "the loop must actually span 3 cells"
         assert m.loop_score == pytest.approx(1.0)
 
     def test_loop_score_zero_on_fresh_exploration(self):
@@ -36,8 +53,27 @@ class TestLoopScoreBounded:
         for i in range(200):
             cx = i % 24
             cz = i // 24
-            m.update(cx * 400 - 4800 + 100.0, cz * 400 - 4800 + 100.0)
+            m.update(cx * 400 - 4800 + 100.0, 0.0, cz * 400 - 4800 + 100.0)
+        assert len(m._cells) == 200, "the walk must visit 200 distinct cells"
         assert m.loop_score == 0.0
+
+
+class TestUpdateCoordinateContract:
+    """Pin the three-coordinate contract the loop-score tests depend on."""
+
+    def test_all_three_coordinates_enter_the_cell_key(self):
+        m = SpatialMemoryMap(cell_size=200, loop_window=50)
+        assert m._key(100.0, 0.0, 0.0) != m._key(100.0, 400.0, 0.0), (
+            "y (altitude) must be part of the cell key")
+        assert m._key(100.0, 0.0, 0.0) != m._key(100.0, 0.0, 400.0), (
+            "z must be part of the cell key — passing the world coordinate as "
+            "the y argument silently collapses the map onto one axis")
+
+    def test_update_accepts_three_coordinates(self):
+        import inspect
+        sig = inspect.signature(SpatialMemoryMap.update)
+        assert list(sig.parameters)[:4] == ["self", "x", "y", "z"], (
+            "update's signature changed; the loop-score tests pass (x, 0, z)")
 
 
 # ── P0-2 · micro_loop reflex progress gate + mirror alternation ──────

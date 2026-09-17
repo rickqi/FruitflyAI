@@ -1,0 +1,29 @@
+{
+  "advice": "advice 4",
+  "model": "glm-5.3-flash",
+  "ts": 1789652828.5,
+  "strategy": {},
+  "history": [
+    {
+      "advice": "advice 2",
+      "context": {},
+      "strategy": {},
+      "model": "glm-5.3-flash",
+      "ts": 1789652828.48
+    },
+    {
+      "advice": "advice 3",
+      "context": {},
+      "strategy": {},
+      "model": "glm-5.3-flash",
+      "ts": 1789652828.49
+    },
+    {
+      "advice": "advice 4",
+      "context": {},
+      "strategy": {},
+      "model": "glm-5.3-flash",
+      "ts": 1789652828.5
+    }
+  ]
+}

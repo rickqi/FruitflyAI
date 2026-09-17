@@ -1,0 +1,34 @@
+{
+  "$schema": "fly64/evolution-history/1.0",
+  "canonical_versions": {},
+  "records": [
+    {
+      "id": "AUTO-0001",
+      "recorded_at": "2026-09-17T13:46:09.028427+00:00",
+      "kind": "skill_fix",
+      "round": null,
+      "brain_version": null,
+      "skill_version": "3.4.1",
+      "fix_id": "fix_0042",
+      "pattern_id": "p",
+      "severity": "high",
+      "trigger": "d",
+      "changes": [
+        "x"
+      ],
+      "current_values": {},
+      "baseline": {
+        "stuck": 1.0,
+        "coverage": 0.0
+      },
+      "source": "resident skill loop (auto_fix)",
+      "verification": {
+        "passed": true,
+        "effectiveness_score": 0.55,
+        "stuck_reduction_pct": 40.0,
+        "observed_seconds": 60.0,
+        "verified_at": "2026-09-17T13:46:09.039964+00:00"
+      }
+    }
+  ]
+}

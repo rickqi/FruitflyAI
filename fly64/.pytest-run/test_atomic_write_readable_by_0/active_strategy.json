@@ -1,0 +1,10 @@
+{
+  "fallen_recovery": {
+    "mode": "directional_climb",
+    "climb_period": 3.5,
+    "persist_seconds": 1.5
+  },
+  "coach_advice": "test",
+  "advice_ts": 1789652828.39,
+  "source": "glm-5.3-flash"
+}

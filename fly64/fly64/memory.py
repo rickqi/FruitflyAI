@@ -406,9 +406,18 @@ class SpatialMemoryMap:
 
     # -- public API -------------------------------------------------------
 
-    def update(self, x: float, y: float = 0.0, z: float = 0.0) -> float:
+    def update(self, x: float, y: float = 0.0, z: float = 0.0,
+               disp_60s: float | None = None) -> float:
         """Record a visit at (x, y, z); returns the novelty of the visited cell (0–1)."""
         self._total_ticks += 1
+        # R31-fix10: when there is sustained displacement, decay the loop
+        # revisit counts every 30 ticks so that "progress while circling" is
+        # gradually recognised as exploration rather than stuck looping.
+        if (disp_60s is not None and disp_60s > 500.0
+                and self._total_ticks % 30 == 0):
+            for k in list(self._window_counts.keys()):
+                self._window_counts[k] = max(0, self._window_counts[k] - 1)
+            self._revisit_count = max(0, self._revisit_count - 1)
         key = self._key(x, y, z)
         prev_cell = self._current_cell
         self._current_cell = key
@@ -1782,7 +1791,8 @@ class MemoryController:
         # two-arg call landed the real z in the y-slot and recorded every
         # visit at z-cell 0, which desynchronised the memory grid from the
         # true trajectory by thousands of units.
-        self._novelty = self.spatial.update(x, pos_y, z)
+        self._novelty = self.spatial.update(x, pos_y, z,
+                                             disp_60s=getattr(self, "disp_60s", None))
 
         # Update cliff detector with multi-frame confirmation
         self._cliff_state = self.cliff.update(flow_cliff)

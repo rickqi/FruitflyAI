@@ -247,13 +247,123 @@ def measure_p44(out):
             "above a few dozen usable outcomes")
 
 
+def append_trend_snapshot(report) -> Path:
+    """Append one timestamped row so the loops become a TIME SERIES.
+
+    Recommendation #1 from the EVO-067 round was "observe whether `promoted`
+    keeps growing and whether signature_reuse_rate rises".  A single reading
+    cannot answer that, and eyeballing telemetry is not evidence.  This appends a
+    compact row per invocation to skills/evolution_health_trend.jsonl, so the
+    trend is a file that can be diffed, plotted and cited.
+    """
+    path = ROOT / "skills" / "evolution_health_trend.jsonl"
+    p44 = report.get("p44", {})
+    ph6 = report.get("phase6", {})
+    row = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "scenes": p44.get("scenes"),
+        "signatures": p44.get("signatures"),
+        "promoted": p44.get("promoted"),
+        "qualifying": p44.get("qualifying"),
+        "by_improved": p44.get("by_improved"),
+        "usable_outcomes": p44.get("usable_for_signature"),
+        "signature_reuse_rate": p44.get("signature_reuse_rate"),
+        "outcomes_total": p44.get("outcomes_total_lines"),
+        "phase6_trials": ph6.get("trials_unique"),
+        "phase6_commits": ph6.get("commits"),
+        "phase6_delta_exact_zero": ph6.get("delta_exactly_zero"),
+        "phase6_instrumented": report.get("phase6_instrumented_trials"),
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+    return path
+
+
+def show_trend():
+    path = ROOT / "skills" / "evolution_health_trend.jsonl"
+    if not path.exists():
+        print("no trend yet — run with --snapshot")
+        return
+    rows = []
+    for line in path.open(encoding="utf-8"):
+        line = line.strip()
+        if line:
+            try:
+                rows.append(json.loads(line))
+            except Exception:
+                pass
+    print("=" * 78)
+    print("SELF-EVOLUTION TREND (%d snapshots)" % len(rows))
+    print("=" * 78)
+    print("  %-20s %-6s %-6s %-8s %-8s %-7s %s"
+          % ("when", "scenes", "sigs", "promoted", "usable", "reuse", "phase6 trials/commits"))
+    for r in rows[-20:]:
+        print("  %-20s %-6s %-6s %-8s %-8s %-7s %s/%s"
+              % (str(r.get("ts"))[:19], r.get("scenes"), r.get("signatures"),
+                 r.get("promoted"), r.get("usable_outcomes"),
+                 r.get("signature_reuse_rate"), r.get("phase6_trials"),
+                 r.get("phase6_commits")))
+    if len(rows) >= 2:
+        a, b = rows[0], rows[-1]
+        print()
+        print("  change over the series:")
+        for k in ("promoted", "signatures", "scenes", "usable_outcomes",
+                  "signature_reuse_rate", "phase6_trials", "phase6_commits"):
+            va, vb = a.get(k), b.get(k)
+            if isinstance(va, (int, float)) and isinstance(vb, (int, float)):
+                print("    %-22s %s -> %s  (%+g)" % (k, va, vb, vb - va))
+
+
+def count_instrumented_trials() -> int:
+    """UNIQUE trials recorded with the EVO-067 component diagnostics.
+
+    Must dedupe exactly like `load_unique_evolutions`: the resident loop appends
+    the LAST evolution result to every iteration line, so a single instrumented
+    trial appears in hundreds of consecutive records (raw counting reported 2709
+    for what is really a handful of trials — a false "ready to decide").
+    """
+    if not EVO_LOG.exists():
+        return 0
+    seen = set()
+    with EVO_LOG.open(encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or "baseline_components" not in line:
+                continue
+            try:
+                rec = json.loads(line)
+            except Exception:
+                continue
+            ev = rec.get("evolution")
+            if not isinstance(ev, dict) or not ev.get("params"):
+                continue
+            key = (ev.get("passed"), ev.get("delta"), ev.get("baseline"),
+                   ev.get("current"),
+                   tuple(sorted((k, round(float(v), 6))
+                                for k, v in ev["params"].items()
+                                if isinstance(v, (int, float)))))
+            seen.add(key)
+    return len(seen)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--phase6", action="store_true")
     ap.add_argument("--p44", action="store_true")
+    ap.add_argument("--snapshot", action="store_true",
+                    help="append a trend row (implies both sections)")
+    ap.add_argument("--trend", action="store_true",
+                    help="print the accumulated trend and exit")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
-    if not (args.phase6 or args.p44):
+
+    if args.trend:
+        show_trend()
+        return 0
+    if not (args.phase6 or args.p44 or args.snapshot):
+        args.phase6 = args.p44 = True
+    if args.snapshot:
         args.phase6 = args.p44 = True
 
     schema = load_schema()
@@ -261,9 +371,14 @@ def main():
     if args.phase6:
         report["phase6"] = {}
         measure_phase6(schema, report["phase6"])
+        report["phase6_instrumented_trials"] = count_instrumented_trials()
     if args.p44:
         report["p44"] = {}
         measure_p44(report["p44"])
+
+    if args.snapshot:
+        p = append_trend_snapshot(report)
+        print("trend row appended -> %s" % p)
 
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=1))
