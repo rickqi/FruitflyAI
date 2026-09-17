@@ -36,7 +36,7 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.20.1"  # t25 P0: LIF competition first — CPG primitive demoted to zero-output fallback
+BRAIN_VERSION = "2.20.2"  # t26 P1: MIN_ESCAPE_DURATION 1.5s - no flash releases; per-episode activation re-arm
 SKILL_VERSION = "3.2.0"   # primitive scoring + history isolation + Phase-6 Evolve (must mirror evolution_skill)
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)

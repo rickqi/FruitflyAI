@@ -117,6 +117,21 @@ setsid nohup env FLY64_BRIDGE=/tmp/f64b_traj \
 
 # 变更日志
 
+## 2026-09-15: t26 P1 最小逃逸持续时间 1.5s — Brain v2.20.2（防 0.02s 瞬放）
+
+**触发**：逃逸平均 0.02s 即被释放（effectiveness_rate=1.4%）——根因是 `_escape_activated_at` "set once, never resets"：首次逃逸的时间戳永久保留，任何后续重触发都继承巨大 `_escape_s`，释放逻辑下一 tick 即闪放。
+
+**修复**（memory.py）：
+1. **每次新逃逸激活重新武装激活时钟**（False→True 上升沿 `_escape_activated_at=_now`），`_escape_s` 变为真实 episode 时长；
+2. **`MIN_ESCAPE_DURATION=1.5s` 类常量**：`_release_escape` 增加 `_min_dur_ok` guard——不足 1.5s 禁止任何释放（60s 超时/30s+异常清除两条路都被挡）；期间 fallen 走 t23 旁路保持逃脱，不因 stuck_score 波动中断；
+3. 正常 resolve（逃逸真正结束后的 outcome 标记）不受影响。
+
+**回归**：test_escape_release.py 新增 TestMinEscapeDuration 4 用例（<1s 释放被锁、released_at 保持 0；>60s 窗口下 min-dur 满足后正常释放且 fallen 旁路保持；长间隔重触发不再瞬放且连续 tick 不释放；常量=1.5），11/11；全量与 HEAD worktree 基线失败集一致（差异均为 3D 网格 WIP 抖动，零真实新增）。
+
+**版本**：Brain 2.20.1→**2.20.2**（SKILL 3.2.0 镜像不变）。
+
+---
+
 ## 2026-09-15: t25 P0 LIF 竞争优先 — Brain v2.20.1（CPG 原语降级为零输出 fallback）
 
 **触发**：decision_source=cpg_primitive 无条件覆盖 LIF 网络竞争输出——CPG 阶段激活时 `cpg_apply_phase` 直接改写 stick，所有运动决策走硬编码原语，网络变摆设。

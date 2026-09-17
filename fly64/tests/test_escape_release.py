@@ -165,3 +165,51 @@ class TestStuckScoreDecoupling:
         out = tick_normal(mc, clock, x=500.0, z=500.0)
         assert out[0] < 1.0                   # stuck_score decayed (fix③)
         assert out[1] == 0.0
+
+
+class TestMinEscapeDuration:
+    """t26 P1: no release before 1.5s of continuous escape (no flash-release)."""
+
+    def test_release_blocked_before_1s(self, clock):
+        mc = make_controller(clock)
+        out = tick_fallen(mc, clock)          # escape on, activated_at = now
+        assert out[3] is True
+        clock.t += 1.0                        # < MIN_ESCAPE_DURATION (1.5s)
+        out = tick_fallen(mc, clock)
+        assert out[3] is True                 # still escaping...
+        assert mc._escape_released_at == 0.0  # ...and NOT released (guard)
+
+    def test_release_possible_after_1_6s(self, clock):
+        mc = make_controller(clock)
+        tick_fallen(mc, clock)                # activated_at ~ t0
+        clock.t += 61.0                       # release window (>60s) open
+        out = tick_fallen(mc, clock)
+        assert mc._escape_released_at != 0.0  # release fired after min dur
+        assert out[3] is True                 # fallen bypass keeps escaping
+
+    def test_retrigger_after_long_gap_not_flash_released(self, clock):
+        # THE flash-release: escape ends, then re-triggers much later — the
+        # stale activation clock used to inherit a huge _escape_s and the
+        # release fired within one tick (0.02s flash).  Now each fresh
+        # escape re-arms the activation clock, so the 1.5s guard applies.
+        mc = make_controller(clock)
+        tick_fallen(mc, clock)                # episode 1 (arms clock at t0)
+        clock.t += 61.0
+        tick_fallen(mc, clock)                # release; cooldown starts
+        clock.t += 61.0                       # cooldown expired
+        out = tick_normal(mc, clock)          # back to normal locomotion
+        assert out[3] is False
+        clock.t += 300.0                      # much later: fall again
+        out = tick_fallen(mc, clock, n=1)     # fresh episode, 1 tick in
+        assert out[3] is True                 # fallen bypass escapes
+        assert mc._escape_released_at == 0.0 or \
+            mc._escape_released_at < clock.t - 1.5 or \
+            mc._escape_released_at >= clock.t - 0.1  # no instant release
+        # decisive check: still not released after a few fresh ticks
+        clock.t += 0.06
+        out = tick_fallen(mc, clock, n=1)
+        assert mc._escape_released_at == 0.0 or \
+            mc._escape_released_at >= clock.t - 1.5
+
+    def test_min_duration_constant(self):
+        assert MemoryController.MIN_ESCAPE_DURATION == 1.5

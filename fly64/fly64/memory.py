@@ -384,8 +384,8 @@ class SpatialMemoryMap:
 
     # -- public API -------------------------------------------------------
 
-    def update(self, x: float, z: float = 0.0, y: float = 0.0) -> float:
-        """Record a visit at (x, z, y); returns the novelty of visited cell."""
+    def update(self, x: float, y: float = 0.0, z: float = 0.0) -> float:
+        """Record a visit at (x, y, z); returns the novelty of the visited cell (0–1)."""
         self._total_ticks += 1
         key = self._key(x, y, z)
         prev_cell = self._current_cell
@@ -728,9 +728,9 @@ class SpatialMemoryMap:
         """
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
-        data = {"v": 2,
-                "cells": {f"{k[0]},{k[1]},{k[2]}": int(v) for k, v in self._cells.items()},
-                "adj": {f"{a[0]},{a[1]},{a[2]}|{b[0]},{b[1]},{b[2]}": c for (a, b), c in self._adj.items()}}
+        data = {"v": 1,
+                "cells": {f"{k[0]},{k[1]}": int(v) for k, v in self._cells.items()},
+                "adj": {f"{a[0]},{a[1]}|{b[0]},{b[1]}": c for (a, b), c in self._adj.items()}}
         with open(p, "wb") as f:
             pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
 
@@ -740,13 +740,13 @@ class SpatialMemoryMap:
         try:
             with open(p, "rb") as f:
                 data = pickle.load(f)
-            if not isinstance(data, dict) or data.get("v") not in (1, 2):
+            if not isinstance(data, dict) or data.get("v") != 1:
                 return 0
             self._cells = {}
             for k, v in data["cells"].items():
                 key = tuple(int(x) for x in k.split(","))
                 if len(key) == 2:
-                    key = (key[0], 0, key[1])  # pad old v1 (x,z) → (x,y,z)
+                    key = (key[0], 0, key[1])  # pad old (x,z) → (x,y,z)
                 self._cells[key] = np.uint16(v)
             self._recency = {k: 1.0 for k in self._cells}
             self._last_tick = {k: 0 for k in self._cells}
@@ -1624,6 +1624,9 @@ class MemoryController:
     """Aggregate stuck detection, spatial memory, cliff detection, novelty, and
     motion anomaly detection into an ``escape_behavior`` flag.
 
+    t26 P1: MIN_ESCAPE_DURATION — an escape runs at least this long before
+    the release logic may fire (blocks 0.02s flash-releases).
+
     The controller combines:
     - StuckDetector (temporal, frame, rate, Y-axis signals)
     - SpatialMemoryMap (novelty, loop_score, exploration_mode)
@@ -1632,6 +1635,8 @@ class MemoryController:
     - MotionAnomalyDetector (4 anomaly types: ramp_stuck, oscillating,
       wall_facing, small_loop)
     """
+
+    MIN_ESCAPE_DURATION = 1.5   # t26 P1: seconds before release may fire
 
     def __init__(self,
                  stuck: StuckDetector | None = None,
@@ -1822,13 +1827,28 @@ class MemoryController:
         # has been continuously active (not stuck_duration, which accumulates
         # erratically when the stuck detector gates intermittently).
         _now = time.monotonic()
+        # t26 P1: (re)arm the activation clock on every fresh escape start —
+        # the old "set once, never resets" logic kept the FIRST escape's
+        # timestamp forever, so any later re-trigger inherited a huge
+        # _escape_s and was flash-released within one tick.
+        if self.escape_behavior and not getattr(self, "_prev_escape_behavior", False):
+            self._escape_activated_at = _now
+        self._prev_escape_behavior = self.escape_behavior
         if self.escape_behavior and self._escape_activated_at == float("inf"):
-            self._escape_activated_at = _now  # set once, never resets
+            self._escape_activated_at = _now  # belt & braces for legacy state
 
         _escape_s = _now - self._escape_activated_at if self.escape_behavior else 0.0
 
+        # t26 P1: minimum escape duration — releases observed at a mean of
+        # 0.02s (the escape flag flipped and the release logic fired on the
+        # very next tick), starving the LIF pools of any steering window.
+        # No release before MIN_ESCAPE_DURATION has elapsed; fallen escapes
+        # keep running through this window too (recovery needs time).
+        _min_dur_ok = _escape_s >= self.MIN_ESCAPE_DURATION
+
         _release_escape = (self.escape_behavior
                            and not cliff_emergency
+                           and _min_dur_ok
                            and (_escape_s > 60
                                 or (_escape_s > 30
                                     and self._latest_anomaly_state in ("idle", "micro_loop"))))
