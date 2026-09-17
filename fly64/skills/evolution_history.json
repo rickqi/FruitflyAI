@@ -1,9 +1,9 @@
 {
  "$schema": "fly64/evolution-history/1.0",
  "canonical_versions": {
-  "brain": "2.20.3",
+  "brain": "2.21.0",
   "skill": "3.2.0",
-  "as_of": "2026-09-17T15:02:33.945694+08:00"
+  "as_of": "2026-09-17T16:03:05.465672+08:00"
  },
  "records": [
   {
@@ -1045,6 +1045,26 @@
    "tests": "新用例 6/6 全过；设计原则：所有机制保持单规则简单有效，coach 保持兜底不前置",
    "deployed": true,
    "source": "用户提问'如何用脑模型强化学习机制解决移动型困境'→ R31-fix3 脑机制修复（非教官层规则）"
+  },
+  {
+   "id": "EVO-053",
+   "date": "2026-09-17",
+   "time": "16:03 +0800",
+   "round": "R31-fix4",
+   "kind": "brain",
+   "brain_version": "2.20.4",
+   "skill_version": "3.2.0",
+   "trigger": "用户指出 fall 状态判定不准确：旧谓词 pos_y<50 or pos_y>500 把合法高处（塔/平台 y 可达 600~2000+）误判为坠落、无垂直速度项、无去抖（_fall_recovery_ticks 是死代码）、单 tick 翻转——'fall' 实际语义只是高度越界",
+   "changes": [
+    "memory.py StuckDetector: y 历史环形缓冲（16 tick）计算垂直速度 vz",
+    "状态三分：FALLING（vz<-120u/s 去抖 3 tick）/ OFF_MAP（y<50 持续 10 tick）/ 高处静止永不为 fallen",
+    "fallen 标志语义修正为'真坠落/已掉出地图'；下游 BACKFLIP 触发与 escape_jump_drive 自动受益",
+    "tests/test_fall_state_accuracy.py: 6 用例（高台静止/持续下坠/单 tick 去抖/持续越界/高处微动/落地恢复）",
+    "tests/test_memory.py: 3 个 stuck 测试显式传 pos_y=120（新契约；顺带修复 P0-3 遗留的 4 个 pos_y=0 默认破损）"
+   ],
+   "tests": "fall-state 6/6；memory 87 passed（仅剩 2 个基线预存 KeyError）",
+   "deployed": true,
+   "source": "用户报告 fall 判定不准确 → 准确状态模型（速度+去抖+区分高处）"
   }
  ]
 }

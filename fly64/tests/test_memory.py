@@ -114,7 +114,7 @@ def test_cliff_properties():
 def test_stuck_initial():
     """Fresh detector returns score=0, duration=0."""
     sd = StuckDetector()
-    score, dur, fallen = sd.update(0.5, 0, 20.0)
+    score, dur, fallen = sd.update(0.5, 0, 20.0, pos_y=120.0)
     assert score == 0.0
     assert dur == 0.0
     assert not fallen
@@ -125,7 +125,7 @@ def test_stuck_temporal_energy_collapse():
     """Low temporal_energy for >2 s → stuck."""
     sd = StuckDetector(temporal_stuck_s=2.0)
     for _ in range(250):      # 250 * 0.020 = 5 s
-        score, dur, fallen = sd.update(0.01, 0, 20.0)
+        score, dur, fallen = sd.update(0.01, 0, 20.0, pos_y=120.0)
     assert score >= 0.5
     assert dur >= 2.0
     assert not fallen
@@ -135,7 +135,7 @@ def test_stuck_frame_freeze():
     """Unchanging frame_seq for >5 s → stuck."""
     sd = StuckDetector(frame_stuck_s=5.0)
     for _ in range(520):      # 520 * 0.020 = 10.4 s → dur ≈ 5.4 s
-        score, dur, fallen = sd.update(0.5, 42, 20.0)
+        score, dur, fallen = sd.update(0.5, 42, 20.0, pos_y=120.0)
     assert score >= 0.5
     assert dur > 5.0
     assert not fallen
@@ -145,7 +145,7 @@ def test_stuck_forward_rate_low():
     """Low forward_rate (< threshold) for >3 s → stuck."""
     sd = StuckDetector(rate_threshold=5.0, rate_stuck_s=3.0)
     for _ in range(400):      # 400 * 0.020 = 8 s
-        score, dur, fallen = sd.update(0.5, 0, 1.0)
+        score, dur, fallen = sd.update(0.5, 0, 1.0, pos_y=120.0)
     assert score >= 0.5
     assert dur >= 3.0
     assert not fallen
@@ -169,7 +169,7 @@ def test_stuck_reset():
     """reset() clears all timers."""
     sd = StuckDetector(temporal_stuck_s=0.5)
     for _ in range(100):
-        sd.update(0.01, 0, 20.0)
+        sd.update(0.01, 0, 20.0, pos_y=120.0)
     sd.reset()
     assert sd.stuck_score == 0.0
     assert sd.stuck_duration == 0.0
@@ -280,7 +280,8 @@ def test_controller_update():
     """update() returns (stuck_score, stuck_duration, novelty, escape_bool, fallen,
     forced_bold_explore)."""
     mc = MemoryController()
-    score, dur, nv, escape, fallen, bold = mc.update(0.5, 0, 20.0, 100.0, 200.0)
+    score, dur, nv, escape, fallen, bold = mc.update(0.5, 0, 20.0, 100.0, 200.0,
+                                                     pos_y=120.0)
     assert 0.0 <= score <= 1.0
     assert dur == 0.0
     assert 0 < nv <= 1.0

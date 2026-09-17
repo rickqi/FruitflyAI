@@ -336,13 +336,16 @@ class SpatialMemoryMap:
                             radius: int = 6) -> tuple[float, float] | None:
         """EVO R20 (CX-3): unit vector toward the centroid of UNVISITED
         cells within *radius* grid steps of (x, z) — the exploration goal
-        direction.  None when the neighbourhood is fully covered."""
-        cxk = self._key(x, 0, z)
+        direction.  None when the neighbourhood is fully covered.
+
+        EVO L2: keys are unbounded now (no modulo wrap — the old wrap-around
+        fabricated unvisited cells beyond the map edge), and the key axis
+        order follows the 3D (x, y_layer, z) grid."""
+        cxk = self._key(x, 0.0, z)
         sx = sz = n = 0
         for dx in range(-radius, radius + 1):
             for dz in range(-radius, radius + 1):
-                k = ((cxk[0] + dx) % self.grid_cells - half,
-                     (cxk[1] + dz) % self.grid_cells - half)
+                k = (cxk[0] + dx, cxk[1], cxk[2] + dz)
                 if k not in self._cells:
                     sx += dx
                     sz += dz
