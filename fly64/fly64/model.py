@@ -1341,7 +1341,17 @@ class FlyModel:
                                              self.stuck_duration / 50.0))
         # Negative: fallen
         if getattr(self, "fallen", False):
-            punishment = max(punishment, self.DAN_PUNISH_FALLEN)
+            _fallen_punish = self.DAN_PUNISH_FALLEN
+            # New scene exploration: reduce fallen punishment — falling
+            # while exploring a novel environment is expected exploratory
+            # behaviour, not a signal to suppress forward.
+            if self.scene_change_rate > 0.1:
+                _fallen_punish *= 0.3
+            # Stuck too long: fallen punishment decays — after 120s of
+            # being stuck, further punishment is just learned helplessness.
+            if getattr(self, "stuck_duration", 0.0) > 120:
+                _fallen_punish *= 0.5
+            punishment = max(punishment, _fallen_punish)
         # Negative: cliff
         if getattr(self, "cliff_confirmed", False):
             punishment = max(punishment, self.DAN_PUNISH_CLIFF)

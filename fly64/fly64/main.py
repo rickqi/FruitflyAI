@@ -1445,6 +1445,32 @@ async def run(args) -> None:
             if not bridge.stale and pose_ev[1] < -200:
                 control.y = max(control.y, 70)
                 control.jump = True
+            # Deep pit bailout: when pose_y stays below -700 for >5s,
+            # stop fighting and let Mario fall to SM64 death plane (-1000)
+            # so the game respawns him at the last safe position.
+            if not bridge.stale and pose_ev[1] < -700:
+                _now_bail = time.monotonic()
+                if getattr(control, "_bail_start", 0) == 0:
+                    control._bail_start = _now_bail
+                if _now_bail - control._bail_start > 5.0:
+                    control.jump = False
+                    control.y = 0
+            elif hasattr(control, "_bail_start"):
+                control._bail_start = 0
+            # Periodically populate help.json for the coach service
+            # (every ~15s at 20 fps).  The service reads help.json to
+            # get the forward face for GLM consult when no dialogue
+            # blocking event is active.
+            if model.step_count % 300 == 5 and not bridge.stale:
+                try:
+                    scr = bridge.read_screen()
+                    DashboardHTTP.help_json = json.dumps(build_help_snapshot(
+                        memory_ctrl.scene_name,
+                        {"x": pose_ev[0], "y": pose_ev[1], "z": pose_ev[2]},
+                        "", None, help_reason="stuck_no_progress",
+                        screen_bytes=scr))
+                except Exception:
+                    pass
             # ---- Phase 2 · CPG motor primitives (cascade priority 4.5,
             # between escape and jump).  Gates reuse existing memory/model
             # signals; deterministic phase scripts own the Z→A button timing
