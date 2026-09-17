@@ -903,7 +903,7 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 
 <!-- EVOLUTION-HISTORY-TABLE:START
 
-下表由 `skills/evolution_skill.py --history-md` 从权威记录 `skills/evolution_history.json` 自动生成（51 条，权威版本 Brain v2.19.2 / Skill v3.0.0）。**请勿手改本表**——更新记录后重新执行该命令再粘贴。
+下表由 `skills/evolution_skill.py --history-md` 从权威记录 `skills/evolution_history.json` 自动生成（51 条，权威版本 Brain v2.19.3 / Skill v3.0.0）。**请勿手改本表**——更新记录后重新执行该命令再粘贴。
 
 | ID | 时间 | 轮次 | Brain | Skill | 触发原因 | 关键变更 | 测试 | 来源 |
 |----|------|------|-------|-------|---------|---------|------|------|
@@ -945,8 +945,7 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 | EVO-037 | 2026-09-16 17:59 | Motor-P3 | 2.16.0 | 3.0.0 | 打击/下蹲动作需要独立运动池；蘑菇体输出通道需扩展 | strike/crouch 运动池；MBON 扩至 9 列（原 5 通道） | — | commit 01364b4 |
 | EVO-038 | 2026-09-16 18:30 | Motor-P4/P5+M1 | 2.17.0 | 3.0.0 | Phase 4 仪表板可视化 + Phase 5 EVO pattern + M1 优化层（债务清理 + 新动作原语 PUNCH/DIVE） | Phase 4 电机扩展仪表板；Phase 5 EVO patterns + R21 patch backport；M1.1 既有债务清理（BRAIN_VERSION 2.17.0）（等 4 项） | — | commits e664bd5/1736cac/f1021bf |
 | EVO-039 | 2026-09-16 20:50 | P1-2 perf | 2.17.0 | 3.0.0 | P1-2 CSC 传播 8-15ms/step 制约 tick 频率与进化验证吞吐；尝试选择路径微优化（布尔掩码/fancy/gather+bincount） | 三变体在真实 25.6M 连接组上交错基准（9 次中位数）：0.95–1.38×，全部落在负载噪声内——负结果；synaptic_current() 自适应选择保留为等价基线 + 传播点注释留档负结果；test_propagation_perf.py 7 用例等价性 PIN（全分数段 allclose） | test_propagation_perf 7/7 | 本次会话（负结果留档，防重复尝试） |
-| EVO-046 | 2026-09-16 | P0 反事实#2 | 2.19.0 | 3.1.0 | 归因修正：报告#1 把转向压制归于 fallen forward 振幅——0.20/0.50 振幅输出完全一致（LIF 饱和），真正的引入点是 escape_jump_drive 本身 | 分解实验：跳跃爆发关闭仅恢复 \|x\| 至 0.676（baseline 4.194）——压制是多源叠加、剂量依赖；修正修复方向：对 fallen 期间全部逃逸电流族做统一占空比（结构化分时调度），而非调单一电流振幅 | docs/counterfactual-fallen-marathon.md 第二轮实验节 | replay.counterfactual 分解实验（本次会话） |
-| EVO-047 | 2026-09-17 08:36 | Coach 修复 | 2.19.0 | 3.1.0 | 教练快照不截屏/建议链路缺失排查：①ServiceRunner.run_cycle 重写了周期流程，缺 t21 快照调用与 P1 归因/课程挂钩（守护进程跑的是旧副本）；②save_consult_frame 用默认 384×256 调 P | service.py run_cycle 补齐：save_consult_frame 快照留存 + P1 outcome；runner.py save_consult_frame：复用 frame_to_data_uri 尺寸检测（320×2；resolve_outcome 拒绝残缺 memory 快照（不再产出全零垃圾记录）；清除 4 条既有垃圾（等 4 项） | test_snapshot_320 4/4（320×240/384×256/空/PNG 直存）+ coach_outco | commit 本次（实况验证：coach_frames 出现 3 张真实快照，help_reason 各异） |
+| EVO-048 | 2026-09-17 10:28 | 运维收敛 | 2.19.3 | 3.1.0 | 双循环并发：Windows 循环（09-16 22:00 启动，pwsh 会话）+ WSL 循环（并行 agent 启动，旧代码无锁）——跨文件系统锁互不可见，双写致 AUTO id 撞号、catalog 覆盖、log 交错 | Windows 循环停止；WSL 单循环收敛（新代码含锁，pid 13420，锁文件 .evo_loop.lock 生效；agent.md 规则 16 固化：resident 循环只能在 WSL 运行，Windows 禁止启动；FAQ 双循环条目更新（跨文件系统根因 + 现行规则指引） | 锁三态 PIN（test_evolution_ops）+ 循环存活/日志验证 | 本次运维（EVO-048） |
 | AUTO-0001 | 2026-09-15 11:14 | — | 2.13.3 | 3.0.0 | Patterns skipped because their condition fields are absent from telemetry: ['mb_mbon_forward'] (patterns: ['mbon_saturat | # Expose missing condition keys in main.py flow_json/memory_json | — | resident skill loop (auto_fix) |
 | AUTO-0002 | 2026-09-15 11:39 | — | 2.13.3 | 3.0.0 | forward MBON saturated at ceiling while behaviour still loops. The built-in homeostatic synaptic scaling should shrink t | # Verify homeostatic scaling in mushroom_body.py saturation guard | — | resident skill loop (auto_fix) |
 | AUTO-0003 | 2026-09-15 13:10 | — | 2.13.3 | 3.0.0 | Fallen detection threshold (Y<-100) is too permissive. SM64 normal ground is Y=120. Y<50 already indicates below-ground  | # Fix: Lower fallen detection threshold from -100 to 50 | — | resident skill loop (auto_fix) |
@@ -958,12 +957,7 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 | AUTO-0008 | 2026-09-16 16:44 | — | 2.19.0 | 3.0.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
 | AUTO-0009 | 2026-09-16 17:19 | — | 2.19.1 | 3.0.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
 | AUTO-0010 | 2026-09-16 18:03 | — | 2.19.2 | 3.0.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
-| NAV-01 | 2026-09-07 | — | 2.19.0 | 3.0.0 | 探索方向无惯性导致局部徘徊严重 | model.py: 探索方向提交机制(5s保持), CX注入偏置±0.10 | 8 nav tests | captain |
-| NAV-02 | 2026-09-07 | — | 2.19.0 | 3.0.0 | 局部探索完成后无远距引导 | memory.py: frontier_direction()前沿探索, 半径15格 | 8 nav tests | captain |
-| NAV-03 | 2026-09-07 | — | 2.19.0 | 3.0.0 | 新颖性衰减过慢/回访惩罚太弱 | memory.py: fast_decay=0.995双时间尺度; revisit_penalty 0→0.7 | 8 nav tests | captain |
-| P0-FALLEN | 2026-09-07 | — | 2.19.0 | 3.0.0 | fallen_recovery_stuck连续检出20/20轮 | model.py: fallen时forward注入0.20+CPG原语3s交替; test 3项 | test_fallen_recovery 3/3 | captain |
-| P0-EVO | 2026-09-07 | — | 2.19.0 | 3.0.0 | fix_catalog 0 effective, 参数未热加载 | brain_tunable_params.json 21参数; BrainMutator分组路由(escape/reflex); main.py热加载 | test_evo_tunable 3/3 | captain |
-| P0-CTRL | 2026-09-07 | — | 2.19.0 | 3.0.0 | 31处control.x Python旁路 | dialogue/reflex→model桥梁; control.x 31→22处 | 66/67 tests pass | captain |
+| AUTO-0011 | 2026-09-17 01:07 | — | 2.19.3 | 3.0.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
 
 <!-- EVOLUTION-HISTORY-TABLE:END -->
 
@@ -1191,9 +1185,9 @@ python fly64/skills/evolution_skill.py --history-check
 **仍需注意**: 若 fix 的生效本身要求重启（brain 侧代码改动），应在重启后确认 `flow.json` 版本已更新再解读 verdict；确认不需要的旧 fix 以 `reverted=true` + notes 标记。
 
 #### Q: 两个 EVO 循环并发写坏 `fix_catalog.json` / `evolution_history.json`
-**原因**: 重复启动——两个进程各自持有内存态并覆盖落盘，`evolution_log.jsonl` 迭代号交错跳变；`evolution_history.json` 还有 AUTO id 撞号与记录丢失风险。
-**排查**: Windows 下 `Get-CimInstance Win32_Process -Filter "Name like 'python%'" | ? { $_.CommandLine -match 'evolution_skill' }` 计数应为 **2**（venv launcher + 真实解释器成对出现 = 一个逻辑循环）；4 = 两个循环，异常。
-**修复**: 只保留一个循环再重启。**演进方向**：给循环加单实例锁（参照 `scripts/locked_launcher.py`）。
+**根因**（EVO-048）：Windows 与 WSL 各自能启动循环，且锁文件位于**各自文件系统互不可见**——双环境各持内存态覆盖落盘，`evolution_log.jsonl` 迭代号交错、AUTO id 撞号、catalog 覆盖。
+**现行规则**（agent.md 规则 16）：resident 循环**只能在 WSL 运行**（`skills/.evo_loop.lock` 跨平台 pid 活性锁，死锁自动破解，只防同环境重复）；Windows 会话**禁止**启动循环。
+**排查**: WSL `pgrep -af evolution_skill` 应恰有一个；Windows 侧出现即为违规，立即停止。
 
 #### Q: 仪表板 `EVO #0` 是不是 EVO 没在跑？
 **不一定**。`evo_iter` 只统计**游戏内按需 EVO 路径**（escape 触发且间隔 >10s 才 +1）；外部常驻循环不写该字段。看真实进度：`skills/evolution_log.jsonl` 迭代号 + `/flow.json` 的 `evo_findings` + `evolution_history.json` 的 AUTO 记录。

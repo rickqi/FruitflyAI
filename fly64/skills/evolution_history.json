@@ -3,7 +3,7 @@
   "canonical_versions": {
     "brain": "2.19.3",
     "skill": "3.0.0",
-    "as_of": "2026-09-17T01:07:56.810507+00:00"
+    "as_of": "2026-09-17T10:28:30.224988+08:00"
   },
   "records": [
     {
@@ -667,6 +667,23 @@
       "tests": "test_propagation_perf 7/7",
       "source": "本次会话（负结果留档，防重复尝试）",
       "notes": "正解方向=稠密核心拆分/GPU 批处理/降边数；选择路径微调不要再试"
+    },
+    {
+      "id": "EVO-048",
+      "date": "2026-09-17",
+      "time": "10:28:30 +0800",
+      "round": "运维收敛",
+      "kind": "infra",
+      "brain_version": "2.19.3",
+      "skill_version": "3.1.0",
+      "trigger": "双循环并发：Windows 循环（09-16 22:00 启动，pwsh 会话）+ WSL 循环（并行 agent 启动，旧代码无锁）——跨文件系统锁互不可见，双写致 AUTO id 撞号、catalog 覆盖、log 交错",
+      "changes": [
+        "Windows 循环停止；WSL 单循环收敛（新代码含锁，pid 13420，锁文件 .evo_loop.lock 生效）",
+        "agent.md 规则 16 固化：resident 循环只能在 WSL 运行，Windows 禁止启动",
+        "FAQ 双循环条目更新（跨文件系统根因 + 现行规则指引）"
+      ],
+      "tests": "锁三态 PIN（test_evolution_ops）+ 循环存活/日志验证",
+      "source": "本次运维（EVO-048）"
     },
     {
       "id": "AUTO-0001",
