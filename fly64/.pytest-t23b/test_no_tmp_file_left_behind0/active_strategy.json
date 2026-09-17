@@ -1,9 +1,0 @@
-{
-  "dialogue_decision": {
-    "action": "none",
-    "reason": "等待",
-    "source": "glm-5.3-flash",
-    "timed_out": false,
-    "ts": 1789581317.06
-  }
-}
