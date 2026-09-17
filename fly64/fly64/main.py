@@ -36,7 +36,7 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.20.0"  # v2.20.0: micro_loop_weave自适应breakout + CPG零位移切换 + telemetry_gap补齐
+BRAIN_VERSION = "2.20.1"  # t25 P0: LIF competition first — CPG primitive demoted to zero-output fallback
 SKILL_VERSION = "3.2.0"   # primitive scoring + history isolation + Phase-6 Evolve (must mirror evolution_skill)
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
@@ -598,6 +598,36 @@ def build_help_snapshot(scene_name, position, diagnosis, frame,
 # minutes, then fall back to the autonomous A-press reflex.
 DIALOGUE_LLM_WAIT_S = 600.0
 DIALOGUE_PRESS_TICKS = 12   # ~0.2s of held button per executed press
+
+# t25: LIF-output threshold below which the CPG primitive may take the stick
+LIF_MOTION_MIN = 8
+
+
+def resolve_decision_source(*, dlg_now: bool, cliff_triggered: bool,
+                            reflex_override: bool, escape_behavior: bool,
+                            cpg_active: bool, lif_motion: bool,
+                            cpg_primitive: str = "", jump: bool = False) -> str:
+    """Decision attribution with LIF-competition priority (t25 P0).
+
+    Order: dialogue > cliff_reflex > anomaly_reflex > lf_escape (escape +
+    moving LIF pools) > lf_steering (moving LIF pools) > cpg_primitive (ONLY
+    on ~zero LIF output) > jump > steering.
+    """
+    if dlg_now:
+        return "dialogue"
+    if cliff_triggered:
+        return "cliff_reflex"
+    if reflex_override:
+        return "anomaly_reflex"
+    if escape_behavior:
+        return "lf_escape" if lif_motion else "escape"
+    if cpg_active and not lif_motion:
+        return f"cpg_primitive:{cpg_primitive}"
+    if lif_motion:
+        return "lf_steering"
+    if jump:
+        return "jump"
+    return "steering"
 
 
 def frame_to_b64(frame) -> str:
@@ -1519,7 +1549,8 @@ async def run(args) -> None:
             # influence flows through current injection, not field writes).
             # The hardcoded primitive takes the stick ONLY on ~zero LIF
             # output.  decision_source records lf_steering / lf_escape.
-            _lif_motion = abs(control.x) > 8 or abs(control.y) > 8
+            _lif_motion = (abs(control.x) > LIF_MOTION_MIN
+                           or abs(control.y) > LIF_MOTION_MIN)
             if cpg_phase is not None:
                 _strike_gates = ("punch", "dive")
                 _crouch_gates = ("longjump", "backflip", "groundpound", "crawl")
@@ -1553,22 +1584,18 @@ async def run(args) -> None:
                                  b=getattr(control, "b", False),
                                  z=getattr(control, "z", False))
             # ---- Decision attribution audit (read-only, telemetry only) ----
-            # Priority mirrors the control cascade.  P1: bold_explore and
-            # collision branches retired with their bypass code paths.
-            if dlg_now:
-                decision_source = "dialogue"
-            elif cliff_triggered:
-                decision_source = "cliff_reflex"
-            elif reflex_override:
-                decision_source = "anomaly_reflex"
-            elif memory_ctrl.escape_behavior:
-                decision_source = "escape"
-            elif cpg_phase is not None:
-                decision_source = f"cpg_primitive:{cpg_phase.primitive.value}"
-            elif control.jump:
-                decision_source = "jump"
-            else:
-                decision_source = "steering"
+            # t25 P0: LIF competition first — see resolve_decision_source().
+            # _lif_motion was sampled BEFORE any phase application above.
+            decision_source = resolve_decision_source(
+                dlg_now=dlg_now,
+                cliff_triggered=cliff_triggered,
+                reflex_override=reflex_override,
+                escape_behavior=memory_ctrl.escape_behavior,
+                cpg_active=cpg_phase is not None,
+                lif_motion=_lif_motion,
+                cpg_primitive=(cpg_phase.primitive.value
+                               if cpg_phase is not None else ""),
+                jump=control.jump)
             replay.add((model.step_count - 1) * model.dt, frame, control, spikes, bridge.frame_metadata)
             observatory.observe(frame, seq, control, spikes, bridge.game_status(),
                                 causal=dict(cliff_conf=round(memory_ctrl.cliff_confidence, 3),

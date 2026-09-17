@@ -117,6 +117,21 @@ setsid nohup env FLY64_BRIDGE=/tmp/f64b_traj \
 
 # 变更日志
 
+## 2026-09-15: t25 P0 LIF 竞争优先 — Brain v2.20.1（CPG 原语降级为零输出 fallback）
+
+**触发**：decision_source=cpg_primitive 无条件覆盖 LIF 网络竞争输出——CPG 阶段激活时 `cpg_apply_phase` 直接改写 stick，所有运动决策走硬编码原语，网络变摆设。
+
+**修复**（main.py）：
+- 决策分相：LIF 运动池实际驱动时（`|x|>8 or |y|>8`，`LIF_MOTION_MIN=8`）**网络保留 stick 所有权**——phase 仅经 strike/crouch 神经门（电流注入）影响网络，不写字段；decision_source=`lf_escape`（escape+驱动）/`lf_steering`（驱动）
+- CPG 原语**仅在 LIF 输出≈零时**接管 stick（`cpg_apply_phase`），decision_source=`cpg_primitive:*`；CPG gate 两条路径都保持（合并不静音）
+- 归因逻辑抽为纯函数 `resolve_decision_source()`（main.py 模块级，Node/py 均可单测）；`_lif_motion` 在 phase 应用前采样（顺序断言防回归）
+
+**回归**：`tests/test_cpg_priority.py` 9 用例——LIF 驱动胜过 CPG/lf_escape 优先/零输出 CPG 接管/零输出且无 CPG 落 jump/steering/安全反射最高级/阈值=8/相位块保 stick 采样顺序断言；test_dashboard_protocol 枚举加入 lf_steering/lf_escape；全量与 HEAD worktree 基线失败集一致（差异为 3D 网格 WIP 测试污染抖动，零真实新增）。
+
+**版本**：Brain 2.20.0→**2.20.1**（SKILL 3.2.0 镜像不变）。
+
+---
+
 ## 2026-09-15: t24 Escape Events 五态 outcome + 复合快照 + 效率着色 — Brain v2.19.3
 
 **变更**：

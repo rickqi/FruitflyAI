@@ -91,6 +91,8 @@ CAUSAL_SOURCES = {"steering", "jump", "escape", "anomaly_reflex", "cliff_reflex"
 # Phase 2 motor expansion: CPG primitive cascade layer (priority 4.5)
 CAUSAL_SOURCES |= {f"cpg_primitive:{p}" for p in (
     "longjump", "backflip", "groundpound", "punch", "dive", "swim", "crawl")}
+# t25: LIF-competition-first — the network's own decision attribution
+CAUSAL_SOURCES |= {"lf_steering", "lf_escape"}
 
 
 def test_causal_fields_present_json_safe_and_degrade():
