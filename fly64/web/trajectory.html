@@ -30,7 +30,7 @@ input[type=range]{flex:1;min-width:100px;accent-color:#6cdaed;height:4px}
 <label>File:<select id="fileSelect"><option>Loading...</option></select></label>
 <input type="range" id="slider" min="0" max="0" value="0">
 </div>
-<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+<script type="importmap">{"imports":{"three":"/vendor/three.module.js","three/addons/":"/vendor/addons/"}}</script>
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -47,6 +47,8 @@ let pts=[],playing=0,pos=0,spd=0.5,anim=null,mini=true,gridOn=true;
 // without the poller yanking the cursor back to the head every 2 s (the
 // flicker + "can't play" bug); ⟲ reset restores it.
 let follow=true;
+// memory-map plane height (flat base under the whole path) — updated by pushPts
+let mapY=120;
 // diagnostics hook (module scope is otherwise closed to external tooling)
 window.__liveState=()=>({n:pts.length,pos:Math.round(pos),playing,lastT:pts.length?pts[pts.length-1].t:null});
 window.__gridState=()=>({carpetVisible:carpet.visible,carpetCount:carpet.count,gridOn,
@@ -74,10 +76,11 @@ const grid=new THREE.GridHelper(30000,30,0x354250,0x1a2430);scene.add(grid);
 // t22 #3: grid plane rides the auto-detected ground height (first trajectory
 // point, falling back to the SM64 ground baseline 120) instead of hard y=0.
 grid.position.y=autoGroundY(pts);
-const pathMat=new THREE.LineBasicMaterial({vertexColors:true});pathMat.linewidth=1;
-// Preallocated position buffer (matches backend retention cap): the poller
-// writes points in place + setDrawRange — no GPU buffer reallocation per
-// poll (the flicker/stutter source). Line and point cloud share one buffer.
+const pathMat=new THREE.LineBasicMaterial({vertexColors:true,transparent:true,opacity:.16});
+pathMat.linewidth=1;
+// Raw layer = unsmoothed telemetry (faint, toggleable "detail" underlay).
+// Main layer = decimated+Chaikin-smoothed path drawn with Line2 (real 2.5px
+// width via LineMaterial).  Both share height-gradient vertex colours.
 const MAXP=6000;
 const pathArr=new Float32Array(MAXP*3);
 // t22 #1: per-vertex height colour attribute — blue(low Y) → red(high Y).
@@ -86,9 +89,25 @@ const pathGeo=new THREE.BufferGeometry();
 pathGeo.setAttribute('position',new THREE.BufferAttribute(pathArr,3));
 pathGeo.setAttribute('color',new THREE.BufferAttribute(pathColArr,3));
 pathGeo.setDrawRange(0,0);
-const pathLine=new THREE.Line(pathGeo,pathMat);scene.add(pathLine);
+const pathLine=new THREE.Line(pathGeo,pathMat);pathLine.visible=false;scene.add(pathLine);
 const dotMat=new THREE.PointsMaterial({vertexColors:true,sizeAttenuation:true,transparent:true,opacity:.25});
-const dots=new THREE.Points(pathGeo,dotMat);scene.add(dots);
+const dots=new THREE.Points(pathGeo,dotMat);dots.visible=false;scene.add(dots);
+// Main smoothed path (thick, always visible)
+// Main smoothed path (thick Line2) — lazy-loaded with graceful fallback:
+// if the addons module can't load (offline CDN etc.), pushPts skips the
+// main layer and the thin raw line still renders (never crashes the page).
+let mainGeo=null,mainMat=null,mainPath=null;
+(async()=>{try{
+  const [{Line2},{LineMaterial},{LineGeometry}]=await Promise.all([
+    import('three/addons/lines/Line2.js'),
+    import('three/addons/lines/LineMaterial.js'),
+    import('three/addons/lines/LineGeometry.js')]);
+  mainGeo=new LineGeometry();
+  mainMat=new LineMaterial({vertexColors:true,linewidth:2.5});
+  mainMat.resolution.set(innerWidth,innerHeight);
+  mainPath=new Line2(mainGeo,mainMat);scene.add(mainPath);
+  if(typeof pushPts==='function')pushPts();
+}catch(e){console.warn('[fly64] Line2 unavailable — main path falls back to thin line',e);}})();
 // t22 #2: vertical reference lines — every Nth path point drops a segment to
 // the SM64 ground baseline (y=120).  Preallocated LineSegments (GPU-cheap:
 // one draw call, in-place writes + drawRange).
@@ -121,7 +140,7 @@ const mk=(t,c)=>{const d=document.createElement('div');d.textContent=t;d.style.c
 const sL=mk('🏁 Start','#4caf50'),eL=mk('🏁 End','#ff6b6b');scene.add(sL);scene.add(eL);
 const sel=$('fileSelect');
 
-function resize(){const r=wrap.getBoundingClientRect();const w=r.width||400,h=r.height||280;camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h);lr.setSize(w,h);}
+function resize(){const r=wrap.getBoundingClientRect();const w=r.width||400,h=r.height||280;camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h);lr.setSize(w,h);if(mainMat)mainMat.resolution.set(w,h);}
 
 function fitView(){
   if(pts.length<2)return;
@@ -136,6 +155,7 @@ function fitView(){
   sphere.geometry.dispose();sphere.geometry=new THREE.SphereGeometry(Math.max(30,60*s),12,12);
   arrow.setLength(Math.max(150,350*s),Math.max(100,250*s)*.3,Math.max(50,150*s)*.15);
   dotMat.size=Math.max(8,25*s);dotMat.needsUpdate=true;
+  try{lastFitDiag=pathDiag();}catch(_){}
 }
 
 // Reuse the preallocated buffer: write in place + needsUpdate + drawRange.
@@ -193,33 +213,38 @@ function pushPts(){
   if(!isFinite(ymin)){ymin=0;ymax=0;}
   heightRange={min:ymin,max:ymax};
   const span=Math.max(1e-6,ymax-ymin);
+  // memory-map plane: flat base under the whole path — carpet, topology edges
+  // and memory dots all sit here, so the grid aligns horizontally with the
+  // trajectory footprint exactly (the old per-tile nearest-y scatter is gone).
+  mapY=(pts.length?ymin:120)-12;
   const colAttr=pathGeo.attributes.color;
-  const sm=smoothPts();
-  const m=Math.min(sm.length,MAXP);
-  // t23: time fade — vertices older than FADE_S blend toward the background
-  // colour so long sessions keep the recent behaviour visually dominant.
-  const FADE_S=600, BG=[0.043,0.063,0.09];
-  const tMax=pts.length?pts[pts.length-1].t:0;
-  for(let i=0;i<m;i++){
-    const p=sm[i];
-    pathArr[i*3]=p.x;pathArr[i*3+1]=p.y;pathArr[i*3+2]=p.z;
-    const rgb=heightColor((p.y-ymin)/span);
-    const age=tMax-(p.t||tMax);
-    const f=Math.max(0.22,Math.min(1,1-Math.max(0,age)/FADE_S));
-    pathColArr[i*3]  =BG[0]+(rgb[0]-BG[0])*f;
-    pathColArr[i*3+1]=BG[1]+(rgb[1]-BG[1])*f;
-    pathColArr[i*3+2]=BG[2]+(rgb[2]-BG[2])*f;
+  // ── raw detail layer (thin, faint): every telemetry point ──
+  for(let i=0;i<n;i++){
+    pathArr[i*3]=pts[i].x;pathArr[i*3+1]=pts[i].y;pathArr[i*3+2]=pts[i].z;
+    const rgb=heightColor((pts[i].y-ymin)/span);
+    pathColArr[i*3]=rgb[0];pathColArr[i*3+1]=rgb[1];pathColArr[i*3+2]=rgb[2];
   }
   pathGeo.attributes.position.needsUpdate=true;
   colAttr.needsUpdate=true;
-  pathGeo.setDrawRange(0,m);
-  // vertical drop-lines: every Nth point → ground baseline (y=120)
+  pathGeo.setDrawRange(0,n);
+  // ── main smoothed layer (Line2, 2.5px) ──
+  const sm=smoothPts();
+  const flat=[],cols=[];
+  for(const p of sm){
+    flat.push(p.x,p.y,p.z);
+    const rgb=heightColor((p.y-ymin)/span);
+    cols.push(rgb[0],rgb[1],rgb[2]);
+  }
+  if(mainPath&&mainGeo&&sm.length>=2){
+    mainGeo.setPositions(flat);mainGeo.setColors(cols);
+  }
+  // vertical drop-lines: every Nth point → memory-map plane
   const seg=verticalSegmentCount(n),step=verticalStep(n);
   let v=0;
   for(let i=0;i<n&&v<seg;i+=step){
     const p=pts[i];
     vertArr[v*6]=p.x;vertArr[v*6+1]=p.y;vertArr[v*6+2]=p.z;
-    vertArr[v*6+3]=p.x;vertArr[v*6+4]=GROUND_Y;vertArr[v*6+5]=p.z;
+    vertArr[v*6+3]=p.x;vertArr[v*6+4]=mapY;vertArr[v*6+5]=p.z;
     v++;
   }
   vertGeo.attributes.position.needsUpdate=true;
@@ -301,16 +326,15 @@ async function refreshLive(){
 }
 async function refreshMemoryOverlay(traj){
   try{const m=await fetch('/memory.json');if(!m.ok)return;const mem=await m.json();
-    // ground sample for tile height: y of nearest trajectory point (coarse)
-    const samp=traj&&traj.length?traj.filter((_,i)=>i%5===0):[];
-    const yAt=(x,z)=>{let best=0,bd=1e18;
-      for(let i=0;i<samp.length;i++){const dx=samp[i].x-x,dz=samp[i].z-z,d2=dx*dx+dz*dz;
-        if(d2<bd){bd=d2;best=samp[i].y;}}return bd<1e17?best-8:((traj[0]||{y:0}).y-8);};
+    // The memory grid is a TOP-DOWN occupancy map: carpet tiles, adjacency
+    // edges and memory dots all sit on ONE flat plane (mapY) directly under
+    // the trajectory footprint — horizontal (x,z) alignment with the path is
+    // exact; height is conveyed by the path line + drop-lines instead.
+    const my=mapY;
     if(Array.isArray(mem.heat_cells)&&mem.heat_cells.length){
       const n=Math.min(mem.heat_cells.length,2600);
-      let vy=0;for(const c of mem.heat_cells.slice(0,n))vy=yAt(c[0],c[1]);
       for(let i=0;i<n;i++){const c=mem.heat_cells[i];
-        _m4.makeTranslation(c[0],yAt(c[0],c[1]),c[1]);
+        _m4.makeTranslation(c[0],my,c[1]);
         carpet.setMatrixAt(i,_m4);
         carpet.setColorAt(i,heatColor(c[2]));}
       carpet.count=n;carpet.instanceMatrix.needsUpdate=true;
@@ -319,16 +343,13 @@ async function refreshMemoryOverlay(traj){
     }
     if(Array.isArray(mem.adjacency)&&mem.adjacency.length){
       const flat=[];
-      for(const e of mem.adjacency){const y1=yAt(e[0],e[1])+6,y2=yAt(e[2],e[3])+6;
-        flat.push(e[0],y1,e[1],e[2],y2,e[3]);}
+      for(const e of mem.adjacency){flat.push(e[0],my+4,e[1],e[2],my+4,e[3]);}
       adjGeo.setAttribute('position',new THREE.Float32BufferAttribute(flat,3));
       adjLines.visible=gridOn;
     }
     if(Array.isArray(mem.recent_path)&&mem.recent_path.length){
-      // t22 #4: sample the real ground height per cell (yAt) instead of
-      // pinning the memory path to the first trajectory point's height.
       memGeo.setAttribute('position',new THREE.Float32BufferAttribute(
-        mem.recent_path.flatMap(c=>[c.x,yAt(c.x,c.z)+4,c.z]),3));
+        mem.recent_path.flatMap(c=>[c.x,my+7,c.z]),3));
       memDots.visible=true;
       $('memInfo').textContent='🧠 memory: '+mem.recent_path.length+' path cells · '
         +(mem.adjacency_edges??'?')+' edges · '+(mem.heat_cells?mem.heat_cells.length:0)+' grid tiles'
@@ -348,7 +369,10 @@ function update(){
   arrow.setDirection(new THREE.Vector3(Math.sin(hd),0,Math.cos(hd)).normalize());
   $('frameInfo').textContent=pos+'/'+(pts.length-1);
   $('slider').value=pos;
-  ctrl.target.copy(sphTarget);
+  // Camera target: chase the cursor only during replay — in live-follow the
+  // periodic zoom-to-path keeps the WHOLE path framed (chasing the head here
+  // would immediately defeat fitView).
+  if(playing) ctrl.target.copy(sphTarget);
   // HUD is expensive (innerHTML + DOM) — throttle to ~6 Hz; the 3D scene
   // still updates every frame for smooth motion.
   const now=performance.now();
@@ -377,7 +401,26 @@ $('playBtn').onclick=function(){
     pos=Math.min(pos+spd*dt/16.7,pts.length-1);update();anim=requestAnimationFrame(step);};
   anim=requestAnimationFrame(step);
 };
-$('gridBtn').onclick=function(){gridOn=!gridOn;carpet.visible=gridOn&&carpet.count>0;adjLines.visible=gridOn&&adjGeo.getAttribute('position')!=null;this.textContent='🧠 Grid: '+(gridOn?'ON':'OFF');};
+$('gridBtn').onclick=function(){gridOn=!gridOn;carpet.visible=gridOn&&carpet.count>0;adjLines.visible=gridOn&&adjGeo.getAttribute('position')!=null;memDots.visible=gridOn&&memDots.geometry.getAttribute('position')!=null;this.textContent='🧠 Grid: '+(gridOn?'ON':'OFF');};
+// Raw detail layer: faint unsmoothed telemetry line + dots under the main path
+let rawOn=false;
+const rawBtn=document.createElement('button');rawBtn.textContent='Raw: OFF';rawBtn.className='mini';
+rawBtn.onclick=function(){rawOn=!rawOn;pathLine.visible=rawOn&&pathGeo.drawRange.count>1;dots.visible=rawOn;this.textContent='Raw: '+(rawOn?'ON':'OFF');};
+$('gridBtn').parentNode.insertBefore(rawBtn,$('gridBtn').nextSibling);
+// Follow-camera zoom-to-path: when following the live head, periodically
+// re-frame the WHOLE path (the old behaviour chased Mario out of frame)
+let lastFitDiag=0;
+function pathDiag(){
+  if(pts.length<2)return 0;
+  let mnx=1e18,mxx=-1e18,mny=1e18,mxy=-1e18,mnz=1e18,mxz=-1e18;
+  for(const p of pts){if(p.x<mnx)mnx=p.x;if(p.x>mxx)mxx=p.x;if(p.y<mny)mny=p.y;if(p.y>mxy)mxy=p.y;if(p.z<mnz)mnz=p.z;if(p.z>mxz)mxz=p.z;}
+  return Math.hypot(mxx-mnx,mxy-mny,mxz-mnz);
+}
+setInterval(()=>{
+  if(sel.value!=='__live__'||!follow||playing||pts.length<2)return;
+  const d=pathDiag();
+  if(d>lastFitDiag*1.25){fitView();lastFitDiag=d;}
+},8000);
 $('resetBtn').onclick=function(){playing=0;cancelAnimationFrame(anim);$('playBtn').textContent='▶';if(sel.value==='__live__'){follow=true;pos=pts.length-1;}else pos=0;update();};
 function animate(){
   requestAnimationFrame(animate);

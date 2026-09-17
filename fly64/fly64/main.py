@@ -320,6 +320,19 @@ class DashboardHTTP(BaseHTTPRequestHandler):
                     body, mime = json.dumps({"error": "file not found"}).encode(), "application/json"
             else:
                 body, mime = json.dumps({"error": "no file specified"}).encode(), "application/json"
+        elif path.startswith("/vendor/") and ".." not in path:
+            # Self-hosted three.js vendor tree (web/vendor/) — removes the
+            # CDN dependency entirely (works offline / flaky networks).
+            _vp = Path(__file__).resolve().parent.parent / "web" / path.lstrip("/")
+            _vmimes = {".js": "text/javascript", ".mjs": "text/javascript",
+                       ".css": "text/css", ".json": "application/json"}
+            try:
+                body = _vp.read_bytes()
+                mime = _vmimes.get(_vp.suffix, "application/octet-stream")
+            except OSError:
+                body, mime = b"vendor file not found", "text/plain"
+                self.send_error(404)
+                return
         else:
             self.send_error(404)
             return
