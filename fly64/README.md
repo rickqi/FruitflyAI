@@ -904,7 +904,7 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 ### 完整进化历史档案
 
 <!-- EVOLUTION-HISTORY-TABLE:START
-下表由 `skills/evolution_skill.py --history-md` 从权威记录 `skills/evolution_history.json` 自动生成（76 条，权威版本 Brain v2.23.5 / Skill v3.4.1）。**请勿手改本表**——更新记录后重新执行该命令再粘贴。
+下表由 `skills/evolution_skill.py --history-md` 从权威记录 `skills/evolution_history.json` 自动生成（78 条，权威版本 Brain v2.23.6 / Skill v3.4.1）。**请勿手改本表**——更新记录后重新执行该命令再粘贴。
 
 | ID | 时间 | 轮次 | Brain | Skill | 触发原因 | 关键变更 | 测试 | 来源 |
 |----|------|------|-------|-------|---------|---------|------|------|
@@ -984,6 +984,8 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 | EVO-066 | 2026-09-17 20:54 | t13 契约审计：死旋钮清理 | 2.23.5 | 3.4.0 | 把本次会话反复手工发现的“机制存在、报告成功、无法生效”缺陷族**系统化审计**：新增 scripts/audit_contract_pairs.py，对每个跨组件 JSON 工件的每个键（含嵌套路径）在其管线模块内做 AST 级写入点/读 | 新增 scripts/audit_contract_pairs.py：AST 级写入/读取点分类（含 .get/[]/i；plugin/llm_consult.py: SECTION_SPECS 移除 escape.reverse_secon；skills/brain_tunable_params.json → v1.1.0：为全部 21 个参数增加 wired（等 9 项） | test_coach_contract 8/8 + test_tunable_wiring 12/12；coach/st | 本次会话 t13；审计工具 scripts/audit_contract_pairs.py |
 | EVO-067 | 2026-09-17 21:04 | t14 双环度量 + Phase 6 归因仪表 | 2.23.5 | 3.4.1 | 执行上一轮给出的建议“度量 Phase 6 收益、跟踪 P4.4 晋级”。新增只读度量工具 scripts/measure_evolution_health.py，从既有运行时数据（skills/evolution_log.jsonl 15 | 新增 scripts/measure_evolution_health.py（只读，--phase6 / --p44 /；skills/evolution_skill.py: fitness() 重构为 fitness_components(；新增 tests/test_phase6_attribution.py 13 条：以**重构前的表达式为等价基准**逐例（等 4 项） | test_phase6_attribution 13/13 + test_tunable_wiring 12 + tes | 本次会话 t14；度量工具 scripts/measure_evolution_health.py |
 | EVO-068 | 2026-09-17 21:20 | t15 验证基线（回归可探测） | 2.23.5 | 3.4.1 | 项目无法把进展与噪声分开：Windows 套件长期带约 40 个未分类失败，真实回归会被淹没——本轮为回答“我是否弄坏了什么”，不得不派子代理做一次基线归属（对照 pristine HEAD 副本），代价高且不可复用；且同一套件多次运行的失 | 新增 tests/known_failures.json：36 条基线，**每条标注 cause 与证据 note**。；新增 scripts/check_regressions.py：跑 pytest（或解析既有 --report），与基线；新增 tests/test_regression_detector.py 6 条：基线必须存在且每条都有 cause 与（等 5 项） | test_regression_detector 6/6（含注入探针后 NEW≥1 且非零退出的实证）；Windows  | 本次会话 t15；基线归属对照 pristine HEAD 见子代理报告 |
+| EVO-069 | 2026-09-17 21:36 | R31-fix9 | 2.23.6 | 3.4.1 | 教练建议完全无法影响多巴胺系统——coach 看见虚空跳冲无效但无法传入奖惩信号 | main.py: load_active_strategy 透传 dopamine 键；主循环将 dopamine.bi；model.py: init _coach_dopamine_bias；dopamine 求和时加 bias（clamp；tests/test_coach_dopamine.py: 7 用例（解析/模型/接线契约） | coach_dopamine 7/7 + autonomy 17/17 | 用户要求教练建议影响训练 → R31-fix9 |
+| EVO-070 | 2026-09-17 21:53 | t16 里程碑：首个本能晋级 + 课程阶梯晋级 | 2.23.6 | 3.4.1 | 对 EVO-058（P4.4 本能固化可达化 + 课程渐进阶梯）与 EVO-065（课程三态判定）的端到端验证：此前两者都只有单元测试与受控注入证据，本轮在**不加任何人为干预**的真实运行中观察到它们按设计产生结果。 | （无代码改动）本条为运行观测记录，用于闭合 EVO-058/065 的端到端验证义务 | 实测（brain 2.23.6 / skill 3.4.1，运行中）：① **首个本能晋级**：场景 '山坡·天空'，显 | 本次会话 t16 运行时观测；证据库 51 条 outcome / 18 签名 / 8 场景 |
 <!-- EVOLUTION-HISTORY-TABLE:END -->
 
 > **档案维护规则**：本表由 `--history-md` 从权威 JSON 再生成，新进化轮次只写 `evolution_history.json`（规则 15），然后执行 `python3 fly64/skills/evolution_skill.py --history-md` 重新生成并替换 `<!-- EVOLUTION-HISTORY-TABLE -->` 标记之间的内容，随代码一起提交。
