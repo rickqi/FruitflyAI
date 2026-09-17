@@ -6,9 +6,9 @@
   "op": "gt",
   "target": 30
  },
- "attempts": 5,
+ "attempts": 20,
  "consecutive_ok": 0,
- "consecutive_fail": 5,
+ "consecutive_fail": 20,
  "history": [
   {
    "at": 1789606802.4,
@@ -36,6 +36,96 @@
   },
   {
    "at": 1789614100.2,
+   "verdict": "unchanged",
+   "met": false,
+   "stage": 1
+  },
+  {
+   "at": 1789616237.9,
+   "verdict": "unchanged",
+   "met": false,
+   "stage": 1
+  },
+  {
+   "at": 1789616338.9,
+   "verdict": "improved",
+   "met": false,
+   "stage": 1
+  },
+  {
+   "at": 1789617192.3,
+   "verdict": "improved",
+   "met": false,
+   "stage": 1
+  },
+  {
+   "at": 1789617335.8,
+   "verdict": "improved",
+   "met": false,
+   "stage": 1
+  },
+  {
+   "at": 1789618392.3,
+   "verdict": "improved",
+   "met": false,
+   "stage": 1
+  },
+  {
+   "at": 1789618478.0,
+   "verdict": "improved",
+   "met": false,
+   "stage": 1
+  },
+  {
+   "at": 1789628021.7,
+   "verdict": "unchanged",
+   "met": false,
+   "stage": 1
+  },
+  {
+   "at": 1789628052.5,
+   "verdict": "unchanged",
+   "met": false,
+   "stage": 1
+  },
+  {
+   "at": 1789628639.2,
+   "verdict": "unchanged",
+   "met": false,
+   "stage": 1
+  },
+  {
+   "at": 1789628683.5,
+   "verdict": "unchanged",
+   "met": false,
+   "stage": 1
+  },
+  {
+   "at": 1789628836.3,
+   "verdict": "unchanged",
+   "met": false,
+   "stage": 1
+  },
+  {
+   "at": 1789628950.2,
+   "verdict": "unchanged",
+   "met": false,
+   "stage": 1
+  },
+  {
+   "at": 1789632204.4,
+   "verdict": "improved",
+   "met": false,
+   "stage": 1
+  },
+  {
+   "at": 1789632239.1,
+   "verdict": "unchanged",
+   "met": false,
+   "stage": 1
+  },
+  {
+   "at": 1789632361.5,
    "verdict": "unchanged",
    "met": false,
    "stage": 1

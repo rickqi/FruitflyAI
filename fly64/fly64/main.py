@@ -712,6 +712,15 @@ def load_active_strategy(path) -> dict:
                 prefer[tag] = name
         if prefer:
             strategy["primitives_prefer"] = prefer
+    # P0-2 (t6 root fix): pass through the sibling sections the behavior
+    # pipeline consumes.  Without this the caller's
+    # _active_strategy.get("exploration"/"escape"/"command") ALWAYS returned
+    # {} and every coach-tuned parameter silently fell back to a hardcoded
+    # default — GLM advice reached the file but never reached behavior.
+    for key in ("exploration", "escape", "command"):
+        section_value = data.get(key)
+        if isinstance(section_value, dict):
+            strategy[key] = section_value
     return strategy
 
 
@@ -1946,6 +1955,25 @@ async def run(args) -> None:
                         "ts": (llm_decision or {}).get("ts"),
                     },
                     "interactive_near": getattr(model, "interactive_near", False),
+                    # P0-2 (t6): live view of the coach parameters actually
+                    # APPLIED to behavior (post hot-reload).  Before the
+                    # pass-through fix these always equalled the hardcoded
+                    # defaults regardless of what GLM wrote.
+                    "coach_applied": {
+                        "strategy_mode": _active_strategy.get("mode", "?"),
+                        "bold_explore_stuck_s": round(float(getattr(
+                            memory_ctrl, "bold_explore_stuck_s", 60.0)), 2),
+                        "escape_stuck_threshold_s": round(float(getattr(
+                            memory_ctrl, "escape_stuck_threshold_s", 2.0)), 2),
+                        "turn_bias": round(float(getattr(
+                            memory_ctrl, "bold_turn_bias", 69.0)), 3),
+                        "fallen_forward": round(float(getattr(
+                            model, "_fallen_forward", 0.20)), 3),
+                        "fallen_jump_boost": round(float(getattr(
+                            model, "_fallen_jump_boost", 0.60)), 3),
+                        "command_type": (_active_strategy.get("command") or {}).get("type"),
+                        "command_ts": (_active_strategy.get("command") or {}).get("ts"),
+                    },
                     "evo_findings": _evo_findings,
                     "brain_version": BRAIN_VERSION,
                     "evo_iter": _evo_iter_counter,
