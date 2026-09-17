@@ -51,6 +51,8 @@ let follow=true;
 window.__liveState=()=>({n:pts.length,pos:Math.round(pos),playing,lastT:pts.length?pts[pts.length-1].t:null});
 window.__gridState=()=>({carpetVisible:carpet.visible,carpetCount:carpet.count,gridOn,
   adjVisible:adjLines.visible,adjVerts:(adjGeo.getAttribute('position')?adjGeo.getAttribute('position').count/2:0)});
+window.__drawState=()=>({raw:pts.length,drawn:(pathGeo.drawRange?pathGeo.drawRange.count:-1),
+  smooth:typeof smoothPts==='function'?smoothPts().length:0});
 // t22 diagnostics: height gradient + vertical reference line state
 window.__heightState=()=>({minY:heightRange.min,maxY:heightRange.max,
   colored:(pathGeo.getAttribute('color')?pathGeo.attributes.color.count:0),
@@ -146,8 +148,44 @@ function extendCum(){
 }
 // t22 #1/#2: height-gradient colours + vertical reference lines, written
 // in place alongside the position buffer (single pass, O(n)).
+// t22 #4: raw telemetry contains physics jitter — rendering all 6000 points
+// as a polyline turns the path into a scribble.  The render path now runs
+// distance-decimation (adaptive threshold) + one Chaikin corner-cutting pass
+// over the raw points; playback still uses the raw points for accuracy.
 const GROUND_Y=120;                 // SM64 ground baseline
 let heightRange={min:0,max:0};
+function decimThr(){
+  if(pts.length<3)return 10;
+  let mnx=1e18,mxx=-1e18,mnz=1e18,mxz=-1e18;
+  for(const p of pts){if(p.x<mnx)mnx=p.x;if(p.x>mxx)mxx=p.x;if(p.z<mnz)mnz=p.z;if(p.z>mxz)mxz=p.z;}
+  return Math.max(10, Math.hypot(mxx-mnx, mxz-mnz)*0.004);
+}
+function smoothPts(){
+  const n=Math.min(pts.length,MAXP);
+  if(n<3)return pts.slice(0,n);
+  let mnx=1e18,mxx=-1e18,mnz=1e18,mxz=-1e18;
+  for(const p of pts){if(p.x<mnx)mnx=p.x;if(p.x>mxx)mxx=p.x;if(p.z<mnz)mnz=p.z;if(p.z>mxz)mxz=p.z;}
+  const diag=Math.hypot(mxx-mnx, mxz-mnz);
+  // iterative threshold: guarantee ≤ ~3000 kept points so the Chaikin pass
+  // (×2-1) stays inside the 6000-point GPU buffer (no tail truncation)
+  let thr=Math.max(10, diag*0.004), keep=[];
+  for(let iter=0;iter<6;iter++){
+    keep=[pts[0]];
+    let lx=pts[0].x,ly=pts[0].y,lz=pts[0].z;
+    for(let i=1;i<n-1;i++){const p=pts[i];
+      if(Math.hypot(p.x-lx,p.y-ly,p.z-lz)>=thr){keep.push(p);lx=p.x;ly=p.y;lz=p.z;}}
+    keep.push(pts[n-1]);
+    if(keep.length<=3000)break;
+    thr*=1.6;
+  }
+  if(keep.length<3)return keep;
+  const sm=[keep[0]];
+  for(let i=0;i<keep.length-1;i++){const a=keep[i],b=keep[i+1];
+    sm.push({x:a.x*.75+b.x*.25,y:a.y*.75+b.y*.25,z:a.z*.75+b.z*.25},
+            {x:a.x*.25+b.x*.75,y:a.y*.25+b.y*.75,z:a.z*.25+b.z*.75});}
+  sm.push(keep[keep.length-1]);
+  return sm;
+}
 function pushPts(){
   const n=Math.min(pts.length,MAXP);
   let ymin=Infinity,ymax=-Infinity;
@@ -156,14 +194,17 @@ function pushPts(){
   heightRange={min:ymin,max:ymax};
   const span=Math.max(1e-6,ymax-ymin);
   const colAttr=pathGeo.attributes.color;
-  for(let i=0;i<n;i++){
-    pathArr[i*3]=pts[i].x;pathArr[i*3+1]=pts[i].y;pathArr[i*3+2]=pts[i].z;
-    const rgb=heightColor((pts[i].y-ymin)/span);
+  const sm=smoothPts();
+  const m=Math.min(sm.length,MAXP);
+  for(let i=0;i<m;i++){
+    const p=sm[i];
+    pathArr[i*3]=p.x;pathArr[i*3+1]=p.y;pathArr[i*3+2]=p.z;
+    const rgb=heightColor((p.y-ymin)/span);
     pathColArr[i*3]=rgb[0];pathColArr[i*3+1]=rgb[1];pathColArr[i*3+2]=rgb[2];
   }
   pathGeo.attributes.position.needsUpdate=true;
   colAttr.needsUpdate=true;
-  pathGeo.setDrawRange(0,n);
+  pathGeo.setDrawRange(0,m);
   // vertical drop-lines: every Nth point → ground baseline (y=120)
   const seg=verticalSegmentCount(n),step=verticalStep(n);
   let v=0;
@@ -288,16 +329,18 @@ async function refreshMemoryOverlay(traj){
 
 
 let lastHud=0;
+const sphTarget=new THREE.Vector3();   // playback cursor goal — animate() lerps
+                                       // the sphere toward it (smooth motion
+                                       // between sparse raw points)
 function update(){
   if(!pts||!pts.length)return;
   const p=pts[pos]||pts[0];
-  sphere.position.set(p.x,p.y,p.z);
+  sphTarget.set(p.x,p.y,p.z);
   const hd=p.heading;
-  arrow.position.copy(sphere.position);
   arrow.setDirection(new THREE.Vector3(Math.sin(hd),0,Math.cos(hd)).normalize());
   $('frameInfo').textContent=pos+'/'+(pts.length-1);
   $('slider').value=pos;
-  ctrl.target.copy(sphere.position);
+  ctrl.target.copy(sphTarget);
   // HUD is expensive (innerHTML + DOM) — throttle to ~6 Hz; the 3D scene
   // still updates every frame for smooth motion.
   const now=performance.now();
@@ -328,7 +371,14 @@ $('playBtn').onclick=function(){
 };
 $('gridBtn').onclick=function(){gridOn=!gridOn;carpet.visible=gridOn&&carpet.count>0;adjLines.visible=gridOn&&adjGeo.getAttribute('position')!=null;this.textContent='🧠 Grid: '+(gridOn?'ON':'OFF');};
 $('resetBtn').onclick=function(){playing=0;cancelAnimationFrame(anim);$('playBtn').textContent='▶';if(sel.value==='__live__'){follow=true;pos=pts.length-1;}else pos=0;update();};
-function animate(){requestAnimationFrame(animate);ctrl.update();renderer.render(scene,camera);lr.render(scene,camera);}
+function animate(){
+  requestAnimationFrame(animate);
+  // smooth playback: the sphere glides toward the cursor goal instead of
+  // teleporting between raw telemetry points
+  sphere.position.lerp(sphTarget, 0.18);
+  arrow.position.copy(sphere.position);
+  ctrl.update();renderer.render(scene,camera);lr.render(scene,camera);
+}
 animate();
 window.addEventListener('resize',resize);
 wrap.classList.add('mini');$('toggleView').textContent='🗖';
