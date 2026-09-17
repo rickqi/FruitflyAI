@@ -1758,7 +1758,7 @@ class FlyModel:
             _phase = (self.step_count % 10) / 10.0  # 0-1 saw at ~5Hz
             _hop = abs(_phase - 0.5) * 2.0           # triangle wave
             self.v[self.forward] += 0.40 * _hop
-            self.v[self.jump] += 0.80 * (1.0 - _hop)  # 0.80 > LIF decay, guarantees spike
+            self.v[self.jump_nodes] += 0.80 * (1.0 - _hop)  # 0.80 > LIF decay, guarantees spike
             self.v[self.turn_left] += 0.05 * np.sin(self.step_count * 0.5)
 
         # EVO R21 · recognition → behaviour closure: a recognised DANGEROUS

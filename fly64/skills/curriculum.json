@@ -6,9 +6,9 @@
   "op": "gt",
   "target": 30
  },
- "attempts": 2,
+ "attempts": 5,
  "consecutive_ok": 0,
- "consecutive_fail": 2,
+ "consecutive_fail": 5,
  "history": [
   {
    "at": 1789606802.4,
@@ -19,6 +19,24 @@
   {
    "at": 1789606924.7,
    "verdict": "improved",
+   "met": false,
+   "stage": 1
+  },
+  {
+   "at": 1789613857.1,
+   "verdict": "unchanged",
+   "met": false,
+   "stage": 1
+  },
+  {
+   "at": 1789614007.8,
+   "verdict": "unchanged",
+   "met": false,
+   "stage": 1
+  },
+  {
+   "at": 1789614100.2,
+   "verdict": "unchanged",
    "met": false,
    "stage": 1
   }

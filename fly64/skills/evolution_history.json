@@ -988,7 +988,7 @@
       "time": "11:20:00 +0800",
       "round": "L2 导航质量与自我进化闭环",
       "kind": "skill",
-      "brain_version": "2.19.3",
+      "brain_version": "2.20.0",
       "skill_version": "3.2.0",
       "trigger": "SOS 缩略图空白（raw RGB 误作 PNG 解码）；L2 求助触发仅覆盖对话习惯化，高速绕圈类（loop>0.9/coverage_rate=0/stuck 200s）永不升级；health 公式粘性 0.5 地板无恢复梯度；EVO 五阶段缺脑参数进化能力；轨迹回放原始点直连杂乱不平滑",
       "changes": [

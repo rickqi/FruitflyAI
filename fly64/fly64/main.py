@@ -37,7 +37,7 @@ from .scene_recognition import SceneRecognizer
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
 BRAIN_VERSION = "2.20.0"  # v2.20.0: micro_loop_weave自适应breakout + CPG零位移切换 + telemetry_gap补齐
-SKILL_VERSION = "3.1.1"   # primitive scoring + history isolation (must mirror evolution_skill)
+SKILL_VERSION = "3.2.0"   # primitive scoring + history isolation + Phase-6 Evolve (must mirror evolution_skill)
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
 _evo_iter_counter = 0

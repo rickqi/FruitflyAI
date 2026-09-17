@@ -220,7 +220,7 @@ def test_memory_different_cell():
     """Different grid keys produce separate cells."""
     sm = SpatialMemoryMap(cell_size=200.0)
     sm.update(0.0, 0.0)
-    sm.update(500.0, 0.0)   # cell (2,0) vs (0,0)
+    sm.update(500.0, 0.0)   # cell (2,0) vs (0, 1, 0)
     assert sm.visited_cells == 2
 
 
@@ -893,13 +893,13 @@ def test_repulsion_zero_when_few_revisits():
     sm = SpatialMemoryMap()
     local_rc = sm._scene_db.revisit_count
     # Freshly created map has no revisits
-    assert sm._get_repulsion((0, 0)) == 0.0
+    assert sm._get_repulsion((0, 1, 0)) == 0.0
 
 
 def test_repulsion_positive_with_many_revisits():
     """_get_repulsion > 0 when high-revisit cells are nearby."""
     sm = SpatialMemoryMap()
-    cell_key = (0, 0)
+    cell_key = (0, 1, 0)
     # Manually fill a cell with high visit count
     sm._cells[cell_key] = np.uint16(12)  # > 10 threshold
     # Set revisit count > 10 by adding matching signatures
@@ -917,7 +917,7 @@ def test_novelty_reduced_by_repulsion():
     """_novelty is further reduced when repulsion is active."""
     sm = SpatialMemoryMap(recency_decay=1.0)
     # Fill the query cell
-    cell_key = (0, 0)
+    cell_key = (0, 1, 0)
     sm._cells[cell_key] = np.uint16(5)
     sm._recency[cell_key] = 1.0
     novelty_before = sm.novelty_at(0.0, 0.0)
@@ -998,7 +998,7 @@ def test_map_persistence_roundtrip(tmp_path):
     assert restored == 3                          # cells restored
     assert sm2.adjacency_count == 2               # A-B, B-C edges restored
     assert sm2.visited_cells == 3
-    assert int(sm2._cells[(0, 0)]) == 2           # visit counts preserved
+    assert int(sm2._cells[(0, 1, 0)]) == 2           # visit counts preserved
     # restored map keeps answering novelty queries (recency reset to 1.0)
     assert 0.0 < sm2.novelty_at(900.0, 0.0) <= 1.0
 

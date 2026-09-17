@@ -1,5 +1,7 @@
 # EvolutionSkill — Self-Evolving Motion Diagnosis
 
+> 当前版本：BRAIN_VERSION **2.20.0** / SKILL_VERSION **3.2.0**（EVO-049：L2 导航质量——health v2 停滞/新颖项、L2a stuck_no_progress 求助触发、SOS 缩略图修复、六阶段 Evolve 脑参数进化。完整逐轮记录见 skills/evolution_history.json）
+
 **Version**: 3.0.0
 **Status**: Active
 **Category**: Autonomous Agent / Self-Improvement + Causal Diagnostics + Social Capability
@@ -65,7 +67,7 @@ skill 具备**自我更新迭代**能力，通过受控进化循环固定能力�
 
 进化迭代历史在仪表板实时可见（`/evolution.json`：Brain 版本徽章、EVO 计数、每轮能力列表）。
 
-> 当前版本：BRAIN_VERSION **2.19.2** / SKILL_VERSION **3.1.1**（… → 2.19.1 R31-fix：成功 tick 多巴胺保底 → 2.19.2 t23 逃逸释放锁死三合一修复：释放冷却 1800s→60s + 新异常立即清冷却 + fallen 越过冷却闸门 + stuck_score 去 fallen 钉死。完整逐轮记录见 **skills/evolution_history.json**）。
+> 当前版本：BRAIN_VERSION **2.19.2** / SKILL_VERSION **3.2.0**（… → 2.19.1 R31-fix：成功 tick 多巴胺保底 → 2.19.2 t23 逃逸释放锁死三合一修复：释放冷却 1800s→60s + 新异常立即清冷却 + fallen 越过冷却闸门 + stuck_score 去 fallen 钉死。完整逐轮记录见 **skills/evolution_history.json**）。
 
 ## 二期门禁：12 小时稳定自动聘雇（2026-09-14 决策）
 

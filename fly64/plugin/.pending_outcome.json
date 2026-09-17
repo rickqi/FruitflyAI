@@ -1,18 +1,14 @@
 {
- "ts": 1789606951.0040612,
- "cycle": 1,
+ "ts": 1789614100.3848717,
+ "cycle": 3,
  "window_s": 30.0,
- "keys": {
-  "escape": {
-   "stuck_threshold_s": 25.0
-  }
- },
+ "keys": {},
  "scene_id": "",
  "scene_label": "",
  "anomaly": "?",
  "help_reason": "test_stuck",
  "baseline": {
-  "stuck_duration": 200.0,
+  "stuck_duration": 100.0,
   "health_score": 0.0,
   "disp_60s": 0.0,
   "loop_score": 0.0

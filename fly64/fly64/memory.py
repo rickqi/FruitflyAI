@@ -384,8 +384,8 @@ class SpatialMemoryMap:
 
     # -- public API -------------------------------------------------------
 
-    def update(self, x: float, y: float = 0.0, z: float = 0.0) -> float:
-        """Record a visit at (x, y, z); returns the novelty of the visited cell (0–1)."""
+    def update(self, x: float, z: float = 0.0, y: float = 0.0) -> float:
+        """Record a visit at (x, z, y); returns the novelty of visited cell."""
         self._total_ticks += 1
         key = self._key(x, y, z)
         prev_cell = self._current_cell

@@ -31,6 +31,21 @@
     - **禁止**：① 同版本复用/跨轮共用（连续两轮同版本号）；② 含糊标注（"2.11.x" 类只允许存在于历史记录，新记录/新代码禁止）；③ 版本回退；④ 无对应 evolution_history 记录的递增
     - 每次递增必须：随规则 15 记录（`brain_version`/`skill_version` 字段如实填写）+ `--history-check` OK（自动校验 main.py/skill 文件/canonical 三处一致 + **版本链无回退/无复用**）
 
+18. **脑参数进化与 health v2 治理（Skill v3.2.0+，强制）**：
+    - `BrainMutator` 参数试验**只允许**经 `EvolutionPipeline` Phase 6 触发（stuck>60s ∧ loop>0.6，2% 采样）；每次试验的 commit/rollback 与 delta 必须落在 evolution_log.jsonl
+    - `skills/brain_tunable_params.json` 的参数增删、`health_score` 权重调整（v2 公式：stall_cost 0.25 / novelty 0.1 / revisit 0.35）视为 **Skill 版本变更**，走规则 15/17
+    - SOS 触发条件（L2 对话习惯化 / L2a stuck_no_progress：stuck≥0.8 ∧ coverage_rate<0.01 ∧ dur>5s 持续 30s）变更须同步 README 面板文档与 `help_reason` 枚举
+
+
+## 2026-09-17: EVO-049 — Skill v3.2.0（L2 导航质量与自我进化闭环）
+
+- **SOS 缩略图**：raw RGB→PNG 转换 + flipY + screen_b64 优先（此前面板永远空白）
+- **L2a 求助触发器**：stuck_no_progress（绕圈 30s 即产出含缩略图快照，生产已命中）；reflex_ineffective 补绕圈分支
+- **health v2**：+stall_cost 0.25、+novelty 0.1、revisit 0.35——同场景恢复有梯度，绕圈无进展有惩罚
+- **六阶段进化**：Phase 6 Evolve（BrainMutator 十参数高斯变异 + 120s 试验 + 适应度提交/回滚）
+- **轨迹回放**：Live 增量合并/时间基准播放/抽稀+Chaikin 平滑/内存网格热力地毯/会话存档闭环（File 下拉不再为空）
+- **规则 18** 新增（脑参数进化与 health 治理）
+
 ## 项目结构
 
 ```

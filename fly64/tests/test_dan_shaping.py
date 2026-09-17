@@ -20,7 +20,7 @@ class TestDanShaping:
             model.DAN_REWARD_EXPLORATION)
 
     def test_constants_are_the_single_tuning_place(self):
-        assert FlyModel.DAN_REWARD_EXPLORATION == 0.30
+        assert FlyModel.DAN_REWARD_EXPLORATION == 0.20
         assert FlyModel.DAN_PUNISH_FALLEN == 0.80
         assert FlyModel.DAN_PUNISH_LOOP_STATES == 0.35
 
