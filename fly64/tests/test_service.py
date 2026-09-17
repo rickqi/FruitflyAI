@@ -105,7 +105,10 @@ class TestDegradedConsult(unittest.TestCase):
         diag = local_diagnosis({"stuck_duration": 150.0,
                                 "anomaly_state": "circling", "scene_name": "bob"})
         self.assertIn("local", diag["advice"])
-        self.assertEqual(diag["strategy"], {})
+        # P0-2: local_diagnosis now preserves previous strategy keys from
+        # active_strategy.json - the dict may be non-empty in a deployed
+        # environment.  Assert structural validity instead of emptiness.
+        self.assertIsInstance(diag["strategy"], dict)
 
     def test_fallback_on_consult_error(self):
         with tempfile.TemporaryDirectory() as d:
