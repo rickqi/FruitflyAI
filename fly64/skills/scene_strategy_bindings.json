@@ -1,0 +1,68 @@
+{
+ "致命熔岩地": {
+  "scene": "致命熔岩地",
+  "buckets": {
+   "fallen_recovery.mode=directional_climb|exploration.turn_bias=0.7|escape.stuck_threshold_s=20.0": {
+    "signature": "fallen_recovery.mode=directional_climb|exploration.turn_bias=0.7|escape.stuck_threshold_s=20.0",
+    "params": {
+     "fallen_recovery": {
+      "mode": "directional_climb"
+     },
+     "exploration": {
+      "turn_bias": 0.7
+     },
+     "escape": {
+      "stuck_threshold_s": 20.0
+     }
+    },
+    "improved": 1,
+    "unchanged": 0,
+    "worse": 0,
+    "total_improved": 1,
+    "total_worse": 0,
+    "promoted": false,
+    "first_seen": 1789641096.706584,
+    "last_verdict": "improved",
+    "last_deltas": {
+     "stuck_duration": 14.56,
+     "health_score": -0.048,
+     "disp_60s": 4186.4,
+     "loop_score": -0.022
+    },
+    "last_seen": 1789641096.7065861
+   },
+   "fallen_recovery.mode=directional_climb|exploration.turn_bias=0.6|escape.stuck_threshold_s=10.0": {
+    "signature": "fallen_recovery.mode=directional_climb|exploration.turn_bias=0.6|escape.stuck_threshold_s=10.0",
+    "params": {
+     "fallen_recovery": {
+      "mode": "directional_climb"
+     },
+     "exploration": {
+      "turn_bias": 0.6
+     },
+     "escape": {
+      "stuck_threshold_s": 10.0
+     }
+    },
+    "improved": 1,
+    "unchanged": 0,
+    "worse": 0,
+    "total_improved": 1,
+    "total_worse": 0,
+    "promoted": false,
+    "first_seen": 1789641318.090608,
+    "last_verdict": "improved",
+    "last_deltas": {
+     "stuck_duration": 12.08,
+     "health_score": -0.04,
+     "disp_60s": 1276.3,
+     "loop_score": -0.052
+    },
+    "last_seen": 1789641318.0906105
+   }
+  },
+  "promoted": false,
+  "promoted_signature": null,
+  "updated_at": 1789641318.0906107
+ }
+}

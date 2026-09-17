@@ -904,8 +904,7 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 ### 完整进化历史档案
 
 <!-- EVOLUTION-HISTORY-TABLE:START
-
-下表由 `skills/evolution_skill.py --history-md` 从权威记录 `skills/evolution_history.json` 自动生成（58 条，权威版本 Brain v2.21.0 / Skill v3.2.0）。**请勿手改本表**——更新记录后重新执行该命令再粘贴。
+下表由 `skills/evolution_skill.py --history-md` 从权威记录 `skills/evolution_history.json` 自动生成（61 条，权威版本 Brain v2.23.0 / Skill v3.3.0）。**请勿手改本表**——更新记录后重新执行该命令再粘贴。
 
 | ID | 时间 | 轮次 | Brain | Skill | 触发原因 | 关键变更 | 测试 | 来源 |
 |----|------|------|-------|-------|---------|---------|------|------|
@@ -967,7 +966,9 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 | EVO-051 | 2026-09-17 12:17 | R31-fix2 | — | 3.1.1 | 教练截屏与实际游戏画面长期不一致：snapshot 只是游戏屏幕一部分——R21 截图点落在复眼观察者通道尾部（时机=帧中段、视口=观察者残留、FBO 绑定错误），且原审计只验证感官隔离不验证内容保真（测试盲区） | fly64_vision.c: 移除观察者通道尾部的错误捕获块；新增 fly64_vision_capture_scre；fly64_vision.h: 声明 fly64_vision_capture_screen；gfx_pc.c: gfx_run() 在 gfx_rapi->end_frame() 之后、swap 之前调用捕获（游（等 6 项） | 保真度 3/3 PASS（零占比 1.8%→27.9% 自然天空、活流 delta 0.51、与 cubemap 直方图 | 用户报告 coach 截屏不一致 → captain 根因定位（渲染管线钩子时机/视口/FBO 三重错位）→ 数据驱动修 |
 | EVO-052 | 2026-09-17 15:02 | R31-fix3 | 2.20.3 | 3.1.1 | 熔岩地移动型困境分析：位移奖励误指定（493u/60s 高速绕圈拿正奖励、coverage 4.1% 纹丝不动、掉血无负 RPE、受击格不在失败记忆）——教练求助门被位移口径正确关闭，但脑模型自身必须学会自治解决；设计原则：运动动作终极目标 | A: main.py 掉血检测（health 斜率>0 累积>0.02、2s 限速）→ model.add_setbac；B: 受击格写入 FailureMemory.record_failure——自动接入 CX 反失败目标向量与切向绕行；C: report_movement 增加 coverage_rate 进展门控——无新探索的位移奖励 ×0.25（修正（等 4 项） | 新用例 6/6 全过；设计原则：所有机制保持单规则简单有效，coach 保持兜底不前置 | 用户提问'如何用脑模型强化学习机制解决移动型困境'→ R31-fix3 脑机制修复（非教官层规则） |
 | EVO-053 | 2026-09-17 16:03 | R31-fix4 | 2.20.4 | 3.2.0 | 用户指出 fall 状态判定不准确：旧谓词 pos_y<50 or pos_y>500 把合法高处（塔/平台 y 可达 600~2000+）误判为坠落、无垂直速度项、无去抖（_fall_recovery_ticks 是死代码）、单 tick | memory.py StuckDetector: y 历史环形缓冲（16 tick）计算垂直速度 vz；状态三分：FALLING（vz<-120u/s 去抖 3 tick）/ OFF_MAP（y<50 持续 10 tick）；fallen 标志语义修正为'真坠落/已掉出地图'；下游 BACKFLIP 触发与 escape_jump_drive （等 5 项） | fall-state 6/6；memory 87 passed（仅剩 2 个基线预存 KeyError） | 用户报告 fall 判定不准确 → 准确状态模型（速度+去抖+区分高处） |
-
+| EVO-056 | 2026-09-17 18:10 | R31-fix5 | 2.21.1 | 3.2.0 | 用户反馈 Mario 在 micro_loop 反射期间看起来不动 → 分析发现反射相位的交替纯旋转（x=±69,y=0，左右抵消），spin-in-place 的方式虽然走位但不是线性位移 | memory.py ReflexController: MICRO_LOOP 反射 turn 相位 cy=0→cy=30；tests/test_memory.py: test_reflex_micro_loop_triggers 期望值 cy | memory 114 passed（仅剩 2 个基线预存 KeyError）；fall-state/escape-rel | 用户观察 + captain 实机采样定位到 cy=0 导致的现象 |
+| EVO-057 | 2026-09-17 18:31 | t9-A P1-1 环路破解 | 2.22.0 | 3.2.0 | circle_loop 可持续数分钟不破：CX 的探索游走是 ~10s 正弦扫掠，频率远低于紧致轨道；工作树中另有一段“强制随机跳列”代码，但它从未生效——两个各自独立的死因：① 读 getattr(self,'stuck_duration | central_complex.py: update() 新增 stuck_duration 形参，CX 首次获得真实卡；新增 CX_LOOP_BREAK_STUCK_S=45.0（对齐既有 30/60s 逃逸档位；旧值 300 且注释自相矛；新增 CX_LOOP_BREAK_COOLDOWN_TICKS=1500（~30s）：判据不再依赖被合成的 goal_s（等 7 项） | test_cx_loop_break 15/15；CX/导航/memory 回归 122 passed（test_cx_ | 本次会话 t9-A；工作树 R31-fix5 死代码替换 |
+| EVO-058 | 2026-09-17 18:31 | t9-B P4.4 本能固化 + 证据基座 | 2.23.0 | 3.3.0 | P4.4 场景→策略本能固化“已实现但结构上不可能达成”。四重独立死因：① 指纹要求全参数精确一致，而教练每次咨询都重调参数——真实 45 条 outcome 里同一场景产生 13 个互不相同的指纹，证据永远重启，晋级阈值不可达；② get | fly64/instinct_bindings.py: 新增显著量化签名 SALIENT_PARAMS（fallen_r；binding_params(): 只绑定签名所区分的参数（自洽要求），且取量化后的规范值——否则 turn_bias=；晋级规则改为“自上次 worse 以来的干净 improved ≥ 2”；worse 视为证伪：既降级已晋级绑定，也清零（等 8 项） | test_instinct_bindings 27/27（含签名不因逐集旋钮分裂、签名↔绑定参数自洽、竞争签名不共享证据 | 本次会话 t3/t4/t7/t8/t9-B + brain 活体验证 |
 <!-- EVOLUTION-HISTORY-TABLE:END -->
 
 > **档案维护规则**：本表由 `--history-md` 从权威 JSON 再生成，新进化轮次只写 `evolution_history.json`（规则 15），然后执行 `python3 fly64/skills/evolution_skill.py --history-md` 重新生成并替换 `<!-- EVOLUTION-HISTORY-TABLE -->` 标记之间的内容，随代码一起提交。

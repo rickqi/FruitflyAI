@@ -6,40 +6,10 @@
   "op": "gt",
   "target": 30
  },
- "attempts": 20,
- "consecutive_ok": 0,
- "consecutive_fail": 20,
+ "attempts": 1,
+ "consecutive_ok": 1,
+ "consecutive_fail": 0,
  "history": [
-  {
-   "at": 1789606802.4,
-   "verdict": "worse",
-   "met": false,
-   "stage": 1
-  },
-  {
-   "at": 1789606924.7,
-   "verdict": "improved",
-   "met": false,
-   "stage": 1
-  },
-  {
-   "at": 1789613857.1,
-   "verdict": "unchanged",
-   "met": false,
-   "stage": 1
-  },
-  {
-   "at": 1789614007.8,
-   "verdict": "unchanged",
-   "met": false,
-   "stage": 1
-  },
-  {
-   "at": 1789614100.2,
-   "verdict": "unchanged",
-   "met": false,
-   "stage": 1
-  },
   {
    "at": 1789616237.9,
    "verdict": "unchanged",
@@ -129,6 +99,38 @@
    "verdict": "unchanged",
    "met": false,
    "stage": 1
+  },
+  {
+   "at": 1789639876.9,
+   "verdict": "improved",
+   "met": false,
+   "stage": 1
+  },
+  {
+   "at": 1789640061.3,
+   "verdict": "unchanged",
+   "met": false,
+   "stage": 1
+  },
+  {
+   "at": 1789640854.7,
+   "verdict": "improved",
+   "met": false,
+   "stage": 1
+  },
+  {
+   "at": 1789641096.7,
+   "verdict": "improved",
+   "met": true,
+   "stage": 1
+  },
+  {
+   "at": 1789641318.1,
+   "verdict": "improved",
+   "met": true,
+   "stage": 1
   }
- ]
+ ],
+ "reset_at": "2026-09-17T18:35:10.751421+08:00",
+ "reset_reason": "计数器被脑进程不可达窗口污染：memory.json 不可达 → 目标指标解析为 0 → 连续 23 次 met=false，属伪失败而非真实课程失败。同时固定 goal 曾造成假晋级（30 次尝试冲到 stage 9），已改为 STAGE_GOALS 渐进阶梯。"
 }

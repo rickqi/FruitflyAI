@@ -19,15 +19,29 @@ supplies snapshots).  All failures are contained by callers.
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 from typing import Optional
 
 PLUGIN_DIR = Path(__file__).resolve().parent
 SKILLS_DIR = PLUGIN_DIR.parent / "skills"
-PENDING_PATH = PLUGIN_DIR / ".pending_outcome.json"
-OUTCOMES_PATH = SKILLS_DIR / "coach_outcomes.jsonl"
-CURRICULUM_PATH = SKILLS_DIR / "curriculum.json"
+
+#: Evidence paths are redirectable so a TEST session can never write into the
+#: live corpus.  This is not cosmetic: a test run once clobbered
+#: ``skills/coach_outcomes.jsonl``, destroying the only evidence base the
+#: instinct-consolidation and curriculum machinery had.  ``tests/conftest.py``
+#: sets FLY64_EVIDENCE_DIR for the whole pytest process.
+_EVIDENCE_DIR = os.environ.get("FLY64_EVIDENCE_DIR")
+if _EVIDENCE_DIR:
+    Path(_EVIDENCE_DIR).mkdir(parents=True, exist_ok=True)
+
+PENDING_PATH = (Path(_EVIDENCE_DIR) / ".pending_outcome.json" if _EVIDENCE_DIR
+                else PLUGIN_DIR / ".pending_outcome.json")
+OUTCOMES_PATH = (Path(_EVIDENCE_DIR) / "coach_outcomes.jsonl" if _EVIDENCE_DIR
+                 else SKILLS_DIR / "coach_outcomes.jsonl")
+CURRICULUM_PATH = (Path(_EVIDENCE_DIR) / "curriculum.json" if _EVIDENCE_DIR
+                   else SKILLS_DIR / "curriculum.json")
 DEFAULT_WINDOW_S = 30.0
 
 _BASELINE_KEYS = ("stuck_duration", "health_score", "disp_60s", "loop_score")
@@ -88,10 +102,81 @@ def resolve_outcome(pending: dict, memory: dict) -> Optional[dict]:
     }
 
 
+def _line_count(path: Path) -> int:
+    try:
+        with path.open("rb") as f:
+            return sum(1 for line in f if line.strip())
+    except Exception:
+        return 0
+
+
+def _evidence_sidecar(path: Path, suffix: str) -> Path:
+    return path.with_name(path.name + suffix)
+
+
+def guard_outcomes(path: Path = OUTCOMES_PATH) -> dict:
+    """Detect a shrunk corpus and restore it from the snapshot.
+
+    The live corpus is append-only evidence that only grows in the runtime.
+    It is nonetheless overwritten in practice: ``*.jsonl`` is git-ignored, and a
+    Windows↔WSL sync copied a STALE mirror of this file over the richer runtime
+    copy, silently discarding 15 real coach outcomes.  The file shrank
+    (45 rows -> 30) with no code path that truncates it.
+
+    So: track a high-water mark and a periodic snapshot.  If the file is ever
+    found smaller than the mark, restore the snapshot before appending.
+    Returns a small report so the caller can log the event.
+    """
+    hwm_path = _evidence_sidecar(path, ".hwm")
+    snap_path = _evidence_sidecar(path, ".snap")
+    try:
+        hwm = int(hwm_path.read_text(encoding="utf-8").strip() or 0)
+    except Exception:
+        hwm = 0
+    current = _line_count(path)
+    report = {"hwm": hwm, "current": current, "restored": False}
+    if hwm and current < hwm and snap_path.exists():
+        if _line_count(snap_path) >= hwm:
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                tmp = path.with_name(path.name + ".tmp")
+                tmp.write_text(snap_path.read_text(encoding="utf-8"),
+                               encoding="utf-8")
+                tmp.replace(path)
+                report["restored"] = True
+                report["current"] = _line_count(path)
+            except Exception:
+                pass
+    return report
+
+
 def append_outcome(record: dict, path: Path = OUTCOMES_PATH) -> None:
+    report = guard_outcomes(path)
+    if report.get("restored"):
+        import sys
+        print("[coach_outcomes] corpus had shrunk to %d rows (high-water %d)"
+              " — restored from snapshot" % (report["hwm"], report["current"]),
+              file=sys.stderr)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    try:
+        total = _line_count(path)
+        hwm_path = _evidence_sidecar(path, ".hwm")
+        snap_path = _evidence_sidecar(path, ".snap")
+        prev = 0
+        try:
+            prev = int(hwm_path.read_text(encoding="utf-8").strip() or 0)
+        except Exception:
+            prev = 0
+        if total > prev:
+            hwm_path.write_text(str(total), encoding="utf-8")
+            # snapshot every 10 rows and on the first row (cheap, small file)
+            if total % 10 == 1 or total % 10 == 0:
+                snap_path.write_text(path.read_text(encoding="utf-8"),
+                                     encoding="utf-8")
+    except Exception:
+        pass  # durability bookkeeping must never break the analysis loop
 
 
 def load_outcomes(path: Path = OUTCOMES_PATH) -> list[dict]:
@@ -170,6 +255,26 @@ DEFAULT_CURRICULUM = {
     "goal": {"metric": "disp_60s", "op": "gt", "target": 30},
 }
 
+#: P4.3 (t4): progressive lesson ladder.  A fixed goal made advancement
+#: trivially easy (observed: stage raced to 9 in 30 attempts because
+#: disp_60s > 30u is common whenever the fly is not stuck).  Each stage now
+#: demands a strictly harder displacement, so a stage promotion means a real
+#: capability step.
+STAGE_GOALS = (
+    {"metric": "disp_60s", "op": "gt", "target": 30},
+    {"metric": "disp_60s", "op": "gt", "target": 60},
+    {"metric": "disp_60s", "op": "gt", "target": 120},
+    {"metric": "disp_60s", "op": "gt", "target": 250},
+    {"metric": "disp_60s", "op": "gt", "target": 500},
+    {"metric": "disp_60s", "op": "gt", "target": 900},
+)
+
+
+def goal_for_stage(stage: int) -> dict:
+    """Goal for a given stage (clamped to the hardest rung)."""
+    idx = max(0, min(int(stage or 1) - 1, len(STAGE_GOALS) - 1))
+    return dict(STAGE_GOALS[idx])
+
 
 def update_curriculum(curriculum: Optional[dict], outcome: dict,
                       memory: dict, ok_streak: int = 2,
@@ -203,10 +308,13 @@ def update_curriculum(curriculum: Optional[dict], outcome: dict,
         curriculum["stage"] = int(curriculum.get("stage", 1)) + 1
         curriculum["consecutive_ok"] = 0
         curriculum["stage_advanced_at"] = round(time.time(), 1)
+        # P4.3 (t4): each promotion raises the bar (progressive ladder)
+        curriculum["goal"] = goal_for_stage(curriculum["stage"])
     elif curriculum["consecutive_fail"] >= fail_streak and curriculum.get("stage", 1) > 1:
         curriculum["stage"] = int(curriculum.get("stage", 1)) - 1
         curriculum["consecutive_fail"] = 0
         curriculum["stage_retreated_at"] = round(time.time(), 1)
+        curriculum["goal"] = goal_for_stage(curriculum["stage"])
     return curriculum
 
 

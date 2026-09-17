@@ -35,8 +35,41 @@
     - `BrainMutator` 参数试验**只允许**经 `EvolutionPipeline` Phase 6 触发（stuck>60s ∧ loop>0.6，2% 采样）；每次试验的 commit/rollback 与 delta 必须落在 evolution_log.jsonl
     - `skills/brain_tunable_params.json` 的参数增删、`health_score` 权重调整（v2 公式：stall_cost 0.25 / novelty 0.1 / revisit 0.35）视为 **Skill 版本变更**，走规则 15/17
     - SOS 触发条件（L2 对话习惯化 / L2a stuck_no_progress：stuck≥0.8 ∧ coverage_rate<0.01 ∧ dur>5s 持续 30s）变更须同步 README 面板文档与 `help_reason` 枚举
+19. **演化证据基座不可破坏（强制）**：`skills/coach_outcomes.jsonl` / `scene_strategy_bindings.json` / `curriculum.json` 是本能固化（P4.4）、课程阶梯（P4.3）与社会指标闭环（P4.6）的**唯一证据来源**，只允许增长，必须按下列三条保护——
+    - **测试隔离**：测试会话禁止写入上述生产路径。`tests/conftest.py` 在 pytest 导入期设置 `FLY64_EVIDENCE_DIR`，`plugin/coach_outcomes.py` 与 `fly64/instinct_bindings.py` 据此重定向 `PENDING_PATH`/`OUTCOMES_PATH`/`CURRICULUM_PATH`/`BINDINGS_PATH`。已发生事故：一次测试把 45 条真实 outcome 覆盖为 30 条合成行，且 `*.jsonl` 被 gitignore、无任何备份，**证据不可恢复**
+    - **禁止用陈旧镜像反向覆盖**：证据只在 WSL 运行时增长，Windows 侧副本永远是陈旧镜像。跨环境同步（规则 12）**只允许 WSL→Windows** 拉取证据，禁止 Windows→WSL 推送证据文件；违反即静默丢弃运行期证据（已发生：语料 45 条→30 条，两侧 mtime 与字节数完全相同，无任何截断代码路径）
+    - **缩水自动检测**：`append_outcome()` 维护高水位标记（`.hwm`）与周期快照（`.snap`），发现语料行数低于高水位即从快照恢复并告警；守卫本身必须永不抛出（耐久性记账不得打断分析循环）
+    - 禁止以“制造晋级/达标”为目的放宽任何证据门槛。拒绝晋级是正确行为，须通过 `binding_status()` 的可观测差距来推进，而非降低门槛（对照：固定 goal 曾使课程 30 次尝试假晋级至 stage 9）
 
 
+## 2026-09-17: EVO-057 — Brain v2.22.0（CX 持续环路确定性破解）
+
+`circle_loop` 可持续数分钟不破：CX 的探索游走是 ~10s 正弦扫掠，频率远低于紧致轨道。工作树中另有一段"强制随机跳列"代码试图解决它，但**从未生效**——两个各自独立的死因，加上一个契约破坏：
+
+1. 它读 `getattr(self, "stuck_duration", 0.0)`，而该属性属于 `StuckDetector`/`FlyModel`，`CentralComplex` **从未拥有**，判据恒为 `0.0 > 300`；
+2. 它的守卫 `goal_strength < 0.10` 求值于游走块**之后**，而游走块恰好把 `goal_strength` 抬到 `0.30`——"需要它成立时它必不成立"；该类以 `goal_strength` 表述的守卫会被一切合成写入（游走、破环自身）自我毒化；
+3. 它调用未播种的 `np.random.default_rng()`，即便生效也会破坏 `replay.py` 的精确回放契约。
+
+修复：`cx.update()` 新增 `stuck_duration` 形参并由 `model.py` 传入真实信号；新增 `_ext_goal_strength`（**仅**由 goal_vectors/novelty 分支写入的"真实目标"信号）取代一切 `goal_strength` 守卫；`CX_LOOP_BREAK_STUCK_S = 45.0` 对齐既有 30/60s 逃逸档位；`CX_LOOP_BREAK_COOLDOWN_TICKS = 1500` 防止每 tick 重瞄；跳列下标改用 `_jump_seq` 乘法散列，确定性可回放；`compass_stats` 暴露 `loop_breaks`/`stuck_time`。PIN 套件 `tests/test_cx_loop_break.py` 15 条逐条钉住每个死因（含"源码中禁止出现未播种 RNG"）。回归：CX/导航/memory **122 passed**。
+
+## 2026-09-17: EVO-058 — Brain v2.23.0 / Skill v3.3.0（P4.4 本能固化可达化 + 证据基座加固）
+
+P4.4"场景→策略本能固化"此前是**已实现但结构上不可能达成**，四重独立死因：
+
+1. 指纹要求**全参数精确一致**，而教练每次咨询都重调参数——真实 45 条 outcome 里同一场景产生 **13 个互不相同**的指纹，证据永远重启，晋级阈值不可达；
+2. `get_binding` 返回整段参数，其中多数字段签名并不区分 → 签名与"被绑定行为"**不自洽**（两个 outcome 可同签名却隐含不同行为）；
+3. 记录侧 `scene_label` 依赖 `memory.json`，而**脑进程当时已死**，30 条新记录场景全为空；
+4. 测试直接写生产证据路径，把 45 条真实 outcome 覆盖为 30 条合成行，且 `*.jsonl` 被 gitignore、Windows 侧为陈旧镜像且反向同步过一次——**不可恢复**。
+
+课程侧同族问题：固定 goal 使晋级形同虚设（曾 30 次尝试冲到 stage 9）。
+
+修复：显著**量化**签名（`mode` 类别 + `turn_bias` 量化 0.1 + `stuck_threshold_s` 分桶 5.0），刻意排除逐集变化且无因果内容的旋钮；`binding_params()` 只绑定签名所区分的参数并取量化规范值（自洽）；晋级改为"自上次 worse 以来的干净 improved ≥ 2"，`worse` 视为**证伪**（既降级也清零，须凭新证据重新赢得晋级）；`binding_status()` 把"拒绝晋级"从沉默变为可观测；`main.py` 热加载接入 `get_binding(scene_key(scene))`，`coach_applied` 暴露 `instinct_scene`/`instinct_applied`；课程改用 `STAGE_GOALS` 渐进阶梯。
+
+**活体受控端到端验证**（脑 v2.23.0 运行中）：基线 `instinct_scene='致命熔岩地'` / `instinct_applied=False` / `turn_bias=0.8` → 注入晋级绑定（`turn_bias=0.33`、`stuck_threshold_s=7.77`、`mode=directional_climb`）→ 热加载后 `instinct_applied=True` 且三个特征值**全部出现在行为层** `coach_applied`，随后清除合成绑定。
+
+**负结果（就地记录，勿重试）**：以现有 45 条真实 outcome 复算，最粗显著签名下最佳候选为 `improved=2/worse=1`，`mode+turn_bias` 视图为 `2 improved/2 worse`，**合格签名数 0**——晋级拒绝是正确行为而非缺陷。禁止为制造晋级而降低门槛。
+
+**开放缺陷**：`scene_key` 取 `#` 前的前缀，而该前缀随飞行变化（天空·山坡/通道·山坡/山坡），绑定只在同前缀期间生效——场景身份稳定性待解决。
 ## 2026-09-17: EVO-049 — Skill v3.2.0（L2 导航质量与自我进化闭环）
 
 - **SOS 缩略图**：raw RGB→PNG 转换 + flipY + screen_b64 优先（此前面板永远空白）

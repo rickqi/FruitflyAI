@@ -87,6 +87,26 @@ class TestCurriculum:
         assert c is not None and c["course"] == "general-escape"
         assert c["stage"] == 1
 
+    def test_progressive_goal_ladder(self):
+        """P4.3 (t4): a fixed goal let the stage race to 9 in 30 attempts —
+        every promotion must now demand a harder displacement."""
+        assert co.goal_for_stage(1)["target"] == 30
+        assert co.goal_for_stage(2)["target"] == 60
+        assert co.goal_for_stage(3)["target"] == 120
+        assert co.goal_for_stage(99)["target"] == 900   # clamped to hardest rung
+
+    def test_promotion_raises_the_goal(self):
+        c = {"course": "x", "stage": 1, "attempts": 0,
+             "goal": co.goal_for_stage(1)}
+        mem = {"disp_60s": 45.0}                        # meets stage-1 (30)
+        c = co.update_curriculum(c, {"verdict": "improved"}, mem)
+        c = co.update_curriculum(c, {"verdict": "improved"}, mem)
+        assert c["stage"] == 2
+        assert c["goal"]["target"] == 60, "advanced stage must carry a harder goal"
+        # the same 45u displacement no longer satisfies stage 2
+        c = co.update_curriculum(c, {"verdict": "unchanged"}, mem)
+        assert c["consecutive_fail"] == 1 and c["consecutive_ok"] == 0
+
     def _curriculum(self, **goal):
         return {"course": "escape-lava", "stage": 1, "attempts": 0,
                 "goal": {"metric": "disp_60s", "op": "gt", "target": 30}, **goal}

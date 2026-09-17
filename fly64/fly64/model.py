@@ -1724,6 +1724,11 @@ class FlyModel:
             visual_azimuth=getattr(self, "visual_azimuth", None),
             forward_speed=getattr(self, "forward_units_per_tick", 0.0),
             goal_vectors=getattr(self, "cx_goal_vectors", None),
+            # EVO-057 · P1-1: hand the CX a real stuck signal.  It was
+            # previously read as getattr(cx, "stuck_duration") — an attribute
+            # that lives on StuckDetector/FlyModel, never on CentralComplex,
+            # so the loop-break test always saw 0.0 and could never fire.
+            stuck_duration=getattr(self, "stuck_duration", 0.0),
         )
         self.cx_bias = cx_bias  # EVO R28: mirror for reflex turn mix
         self.anchor_distance = self.cx.anchor_distance

@@ -36,8 +36,8 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.21.1"  # R31-fix5: micro_loop reflex forward component (no more spin-in-place)
-SKILL_VERSION = "3.2.0"   # primitive scoring + history isolation + Phase-6 Evolve (must mirror evolution_skill)
+BRAIN_VERSION = "2.23.0"  # EVO-058: P4.4 instinct consolidation reaches behaviour (incl. EVO-057 CX loop break)
+SKILL_VERSION = "3.3.0"   # progressive lesson ladder + evidence-base hardening (must mirror evolution_skill)
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
 _evo_iter_counter = 0

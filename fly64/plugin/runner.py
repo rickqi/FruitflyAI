@@ -382,6 +382,21 @@ class PluginRunner:
                                           snapshot.get("memory") or {})
         if curriculum:
             co.save_curriculum(curriculum)
+        # P4.4 (t7): feed the scene->strategy instinct binding.  Repeated
+        # improvements for one scene promote the parameter set to an instinct
+        # that the brain applies directly (no further consult for that scene).
+        try:
+            from fly64.instinct_bindings import record_outcome as _record_binding
+            row = _record_binding(outcome.get("scene_label"),
+                                  outcome.get("keys") or {},
+                                  outcome.get("verdict", "unchanged"),
+                                  outcome.get("deltas"))
+            if row:
+                result["binding"] = {"scene": row.get("scene"),
+                                     "improved": row.get("improved"),
+                                     "promoted": row.get("promoted")}
+        except Exception:
+            pass  # binding is best-effort
         co.clear_pending()
         self._pending_outcome = None
         result["outcome"] = {"verdict": outcome.get("verdict"),

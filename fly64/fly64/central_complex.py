@@ -32,6 +32,16 @@ OPTIC_FLOW_GAIN = 0.08          # flow_asymmetry → turn bias
 GOAL_UPDATE_RATE = 0.2          # how fast goal tracks novelty direction
 MAX_STEERING = 0.15             # maximum turn-bias magnitude
 GOAL_MEMORY_DECAY = 0.999       # per-frame decay of goal strength
+#: EVO-057 · P1-1: continuous stuck time (seconds) after which, with no active
+#: goal, the CX goal column is jumped to break a persistent circular orbit.
+#: Aligned with the 30-60 s rungs already used by the escape/recall machinery;
+#: the previous block used 300 with a self-contradictory "300 ticks ~6s" note
+#: and could never fire anyway (see update()).
+CX_LOOP_BREAK_STUCK_S = 45.0
+#: Minimum ticks between two loop breaks (~30 s at 50 Hz).  Without it the
+#: guard, which no longer depends on the synthetically raised goal_strength,
+#: would re-aim the heading on every single tick while stuck.
+CX_LOOP_BREAK_COOLDOWN_TICKS = 1500
 
 
 class CentralComplex:
@@ -101,6 +111,26 @@ class CentralComplex:
         # is present (avoids CX steering collapsing to zero).
         self._idle_wander_phase = 0.0
         self._idle_wander_rate = 0.006     # ~530 frames (10s) per full cycle
+
+        # EVO-057 · P1-1 circle_loop break: the sinusoidal wander above is a
+        # ~10 s sweep, far too slow to break a tight circular orbit that the
+        # fly can hold for minutes.  After CX_LOOP_BREAK_STUCK_S of continuous
+        # stuck time with NO active goal, the goal column is jumped to a
+        # distant column outright.  The jump index comes from a multiplicative
+        # hash of _jump_seq — NOT from an unseeded RNG, because the exact
+        # replay contract (replay.py) requires the same input sequence to
+        # reproduce the same trajectory bit for bit.
+        self._jump_seq = 0
+        self.stuck_time = 0.0
+        # First loop break needs no cooldown wait — a fly already minutes into
+        # an orbit should be re-aimed on the next tick.
+        self._ticks_since_jump = CX_LOOP_BREAK_COOLDOWN_TICKS
+        # "Has the brain been given a REAL target?"  Tracked separately from
+        # goal_strength because goal_strength is also written by the synthetic
+        # wander / loop-break blocks; reading it back to decide whether a real
+        # goal exists is exactly the self-poisoning bug that made the original
+        # block unreachable.
+        self._ext_goal_strength = 0.0
 
         # P3-2: Visual relocalization — corrects path integration drift
         # by matching scene signatures against remembered positions.
@@ -226,7 +256,8 @@ class CentralComplex:
                goal_vectors: list[tuple[float, float, float]] | None = None,
                scene_id: int | None = None,
                scene_confidence: float = 0.0,
-               scene_total: int = 0) -> float:
+               scene_total: int = 0,
+               stuck_duration: float = 0.0) -> float:
         """One timestep of CX processing.
 
         EVO R20 (CX-1): the ring attractor integrates SELF-MOTION — the
@@ -329,6 +360,7 @@ class CentralComplex:
                 self._goal_float = goal_angle / (2 * np.pi) * n
                 self.goal_column = (int(round(self._goal_float)) % n + n) % n
                 self.goal_strength = min(1.0, norm / 1.5)
+                self._ext_goal_strength = self.goal_strength   # real target
         elif abs(novelty_direction) > 0.1 or abs(novelty - 0.5) > 0.3:
             # Legacy fallback: novelty-only goal (when no goal vectors given).
             # novelty_direction > 0 → want to steer right
@@ -345,9 +377,12 @@ class CentralComplex:
             self._goal_float = desired_goal_float
             self.goal_column = int(round(desired_goal_float)) % n
             self.goal_strength = min(1.0, self.goal_strength + GOAL_UPDATE_RATE)
+            self._ext_goal_strength = min(
+                1.0, self._ext_goal_strength + GOAL_UPDATE_RATE)
         else:
             # Decay goal strength when no strong signal
             self.goal_strength *= GOAL_MEMORY_DECAY
+            self._ext_goal_strength *= GOAL_MEMORY_DECAY
 
         # ---- EVO R23 · idle exploration wander ----
         # When goal strength is negligible (no target available), a slow
@@ -355,12 +390,35 @@ class CentralComplex:
         # that prevents CX steering from collapsing to zero in explored
         # areas.  The drift gradually sweeps the heading across the
         # environment, breaking position loops over time.
+        #
+        # EVO-057: "no real target" is deliberately read from
+        # _ext_goal_strength, NOT from goal_strength.  The block below writes
+        # goal_strength = 0.30, and the loop-break below writes 0.60, so any
+        # guard phrased as `goal_strength < 0.10` is False precisely when it
+        # is needed — the defect that made the original block unreachable.
+        _no_goal = self._ext_goal_strength < 0.05
         if self.goal_strength < 0.05:
             self._idle_wander_phase += self._idle_wander_rate
-            wander = np.sin(self._idle_wander_phase) * 4.0
+            wander = np.sin(self._idle_wander_phase) * 8.0
             self._goal_float = (self._goal_float + wander * 0.05 + 0.002) % n
             self.goal_column = int(round(self._goal_float)) % n
             self.goal_strength = 0.30
+
+        # EVO-057 · P1-1 circle_loop break (see __init__ for rationale).
+        # Guarded on _no_goal: an actively pursued goal must never be
+        # overridden, otherwise the brain would abandon a real target.
+        self.stuck_time = float(stuck_duration or 0.0)
+        self._ticks_since_jump += 1
+        if (self.stuck_time > CX_LOOP_BREAK_STUCK_S and _no_goal
+                and self._ticks_since_jump >= CX_LOOP_BREAK_COOLDOWN_TICKS):
+            self._jump_seq += 1
+            _h = (self._jump_seq * 2654435761) & 0xFFFFFFFF   # Knuth mix
+            jump = _h % n
+            self._goal_float = float(jump)
+            self.goal_column = jump
+            self.goal_strength = 0.60
+            self._ticks_since_jump = 0
+            self._loop_break_at = self._jump_seq
 
         # ---- 3. Steering signal ----
         # Compare current heading column against goal column.
@@ -396,6 +454,9 @@ class CentralComplex:
         self._goal_float = 0.0
         self.steering_bias = 0.0
         self._compass_history.clear()
+        self._jump_seq = 0
+        self.stuck_time = 0.0
+        self._loop_break_at = None
 
     # -- Diagnostics ---------------------------------------------------
 
@@ -424,4 +485,7 @@ class CentralComplex:
                 -np.sum(self.compass * np.log(self.compass + EPS))
             ),
             "compass_peak": float(self.compass.max()),
+            # EVO-057 · P1-1 loop-break telemetry (flow.json surface)
+            "loop_breaks": self._jump_seq,
+            "stuck_time": round(self.stuck_time, 2),
         }
