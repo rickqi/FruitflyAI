@@ -43,6 +43,51 @@ VERIFY_STATE_PATH = SKILL_DIR / "verify_state.json"
 LOOP_LOCK_PATH = SKILL_DIR / ".evo_loop.lock"
 
 
+def _semver(v):
+    """Parse a strict semver string; None for legacy/ambiguous labels."""
+    try:
+        parts = [int(x) for x in str(v).split(".")]
+        if len(parts) != 3 or any(x < 0 for x in parts):
+            return None
+        return tuple(parts)
+    except Exception:
+        return None
+
+
+def version_chain_audit(records, canonical, main_brain, main_skill):
+    """agent.md rule 17 enforcement: versions must STRICTLY advance.
+
+    - canonical must equal main.py versions (no drift)
+    - canonical must be >= the maximum version seen in any record
+      (no reuse, no downgrade, no falling behind)
+    - legacy non-semver labels ("2.11.x", "1.0.x") are tolerated in history
+      records but must never appear in new records
+    Returns a list of issue strings (empty = OK).
+    """
+    issues = []
+    max_b = max_s = None
+    for r in records:
+        bv = _semver(r.get("brain_version"))
+        sv = _semver(r.get("skill_version"))
+        if bv and (max_b is None or bv > max_b):
+            max_b = bv
+        if sv and (max_s is None or sv > max_s):
+            max_s = sv
+    cb, cs = _semver(canonical.get("brain")), _semver(canonical.get("skill"))
+    mb, ms = _semver(main_brain), _semver(main_skill)
+    if cb and max_b and cb < max_b:
+        issues.append(f"canonical.brain {canonical.get('brain')} 落后于历史最大记录 "
+                      f"{'.'.join(map(str, max_b))} — 版本被复用或回退")
+    if mb and cb and mb != cb:
+        issues.append(f"main.py BRAIN_VERSION {main_brain} != canonical {canonical.get('brain')}")
+    if cs and max_s and cs < max_s:
+        issues.append(f"canonical.skill {canonical.get('skill')} 落后于历史最大记录 "
+                      f"{'.'.join(map(str, max_s))}")
+    if ms and cs and ms != cs:
+        issues.append(f"SKILL_VERSION {main_skill} != canonical {canonical.get('skill')}")
+    return issues
+
+
 def _pid_alive(pid: int) -> bool:
     """Cross-platform process liveness probe (no third-party deps)."""
     if not pid or pid <= 0:
@@ -1772,11 +1817,18 @@ def main():
                                "trigger")}, ensure_ascii=False))
         brain = re.search(r'BRAIN_VERSION\s*=\s*"([^"]+)"',
                           (SKILL_DIR.parent / "fly64" / "main.py").read_text(encoding="utf-8"))
-        live = brain.group(1) if brain else None
-        canon = hist.canonical.get("brain")
-        ok = (live == canon)
-        print(f"BRAIN_VERSION(main.py)={live}  history.canonical.brain={canon}  "
-              f"{'OK' if ok else 'MISMATCH — append a record to evolution_history.json (agent.md rule 15)'}")
+        live_brain = brain.group(1) if brain else None
+        skill = re.search(r'^SKILL_VERSION\s*=\s*"([^"]+)"',
+                          (SKILL_DIR.parent / "skills" / "evolution_skill.py").read_text(encoding="utf-8"),
+                          re.MULTILINE)
+        live_skill = skill.group(1) if skill else None
+        # 规则 17: version chain must strictly advance (no reuse/downgrade)
+        issues = version_chain_audit(hist.records, hist.canonical, live_brain, live_skill)
+        ok = (live_brain == hist.canonical.get("brain")
+              and live_skill == hist.canonical.get("skill") and not issues)
+        print(f"BRAIN_VERSION(main.py)={live_brain}  SKILL_VERSION={live_skill}  "
+              f"canonical=({hist.canonical.get('brain')}/{hist.canonical.get('skill')})  "
+              f"{'OK' if ok else 'FAIL — ' + '; '.join(issues) + ' (agent.md rules 15/17)'}")
         sys.exit(0 if ok else 1)
 
     resident = args.max_iterations <= 0

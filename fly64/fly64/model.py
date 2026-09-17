@@ -374,17 +374,22 @@ class TurnAdaptation:
         nr = min(1.0, self.right / max(self.saturation, 1e-6))
         return nl * self.gain, nr * self.gain
 
-    def breakout_drive(self) -> float:
+    def breakout_drive(self, stuck_duration: float = 0.0) -> float:
         """Oscillation-in-place detector → forward breakthrough current.
 
         BOTH circuits fatigued ≈ left/right alternation with no net heading —
-        the weavi-in-place signature.  Returns a forward-pool current that
-        scales with the balanced fatigue level, so the network breaks out of
-        the weave with straight displacement instead of turning.
+        the weave-in-place signature.  Returns a forward-pool current that
+        scales with the balanced fatigue level and adapts to stuck duration.
+        Longer stuck → higher gain (max at 120s+).
         """
         nl = min(1.0, self.left / max(self.saturation, 1e-6))
         nr = min(1.0, self.right / max(self.saturation, 1e-6))
-        return self.breakout_gain * min(nl, nr)
+        base = self.breakout_gain * min(nl, nr)
+        # Adaptive boost: stuck longer → more aggressive breakout
+        if stuck_duration > 30:
+            boost = min(0.50, self.breakout_gain * (stuck_duration / 120.0))
+            return base + boost
+        return base
 
     def reset(self) -> None:
         """Clear both fatigue states (scene change / new exploration)."""
@@ -1711,11 +1716,15 @@ class FlyModel:
         # fatigued = the weave-in-place signature (alternation with no net
         # heading).  A forward-pool current plus mild bilateral turn
         # inhibition converts the weave into straight displacement.
-        _brk = self._turn_adapt.breakout_drive()
+        _brk = self._turn_adapt.breakout_drive(
+            stuck_duration=getattr(self, "stuck_duration", 0.0))
         if _brk > 0.0:
             self.v[self.forward] += _brk
             self.v[self.turn_left] -= _brk * 0.5
             self.v[self.turn_right] -= _brk * 0.5
+            # Jump injection during strong breakout to help clear obstacles
+            if _brk > 0.25:
+                self.v[self.jump_nodes] += (_brk - 0.25) * 0.5
 
         # EVO R15 · cliff-edge tangential detour (FailureMemory → CX pathway).
         # When parked at a CONFIRMED cliff edge and FailureMemory knows a

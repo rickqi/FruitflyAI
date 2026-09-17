@@ -958,6 +958,7 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 | AUTO-0009 | 2026-09-16 17:19 | — | 2.19.1 | 3.0.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
 | AUTO-0010 | 2026-09-16 18:03 | — | 2.19.2 | 3.0.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
 | AUTO-0011 | 2026-09-17 01:07 | — | 2.19.3 | 3.0.0 | dashboard brain_version change | (auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, a | — | resident skill loop |
+| R23 | 2026-09-17 | R23 | 2.20.0 | 3.0.0 | micro_loop_weave持续30/30轮检出; CPG原语零位移22/30; telemetry_gap 30/30 | breakout_gain自适应(stuck→0.5)+突破跳跃注入; CPG位移检测零位移自动切换原语(SIDE_FLIP); flow.json补齐anomaly_state/reflex_active等8字段 | 67/67 tests | captain |
 
 <!-- EVOLUTION-HISTORY-TABLE:END -->
 

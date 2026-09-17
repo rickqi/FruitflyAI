@@ -36,7 +36,7 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.19.3"  # t24: escape events five-state outcome + composite snapshot + efficiency colouring
+BRAIN_VERSION = "2.20.0"  # v2.20.0: micro_loop_weave自适应breakout + CPG零位移切换 + telemetry_gap补齐
 SKILL_VERSION = "3.1.1"   # primitive scoring + history isolation (must mirror evolution_skill)
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
@@ -1466,7 +1466,13 @@ async def run(args) -> None:
                 if not _requested and ("longjump" in _wl and _cpg_ramp
                         and memory_ctrl.stuck_duration > _lj_stuck_need
                         and control.y > 40):
-                    cpg.request(tick_start, Primitive.LONG_JUMP)
+                    # Check if last primitive was ineffective - rotate
+                    _last_disp = getattr(memory_ctrl, "disp_60s", 0) or 0
+                    if _last_disp < 30 and memory_ctrl.stuck_duration > 60:
+                        _alt_prim = Primitive.SIDE_FLIP if "sideflip" in _wl else Primitive.LONG_JUMP
+                        cpg.request(tick_start, _alt_prim)
+                    else:
+                        cpg.request(tick_start, Primitive.LONG_JUMP)
                 elif memory_ctrl.fallen:
                     # Fallen recovery with alternating primitives
                     global _CPG_FALLEN_TOGGLE
@@ -1877,6 +1883,15 @@ async def run(args) -> None:
                     "reward_trend": round(_plasticity_metrics["reward_trend"], 4),
                     "error_gradient_mean": round(_plasticity_metrics["error_gradient_mean"], 4),
                     "gain_update_count": _plasticity_metrics["gain_update_count"],
+                    # EVO telemetry_gap fix: expose all pattern-required fields
+                    "anomaly_state": memory_ctrl.anomaly_state_name or "idle",
+                    "reflex_active": memory_ctrl.reflex_active,
+                    "escape_behavior": memory_ctrl.escape_behavior,
+                    "pos_y": round(pose_ev[1], 1) if len(pose_ev) > 1 else 0.0,
+                    "cpg_completed": cpg.completed if hasattr(cpg, 'completed') else 0,
+                    "cpg_aborted": cpg.aborted if hasattr(cpg, 'aborted') else 0,
+                    "visited_cells": memory_ctrl.spatial.visited_cells,
+                    "jump_not_active": getattr(control, "jump_rate", 0.0) < 0.04,
                 }, separators=(",", ":")).encode()
                 # Log anomaly state transitions to events buffer
                 current_anomaly = memory_ctrl.anomaly_state_name

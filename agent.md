@@ -25,6 +25,11 @@
 14. **stuck_ramp 高发地形（熔岩/斜坡）调参通道**：教官经 `escape.stuck_threshold_s` 热重载（active_strategy.json）调低 escape 触发秒数，无需改代码
 15. **进化记录强制契约（evolution_history.json，强制）**：每次脑模型/Skill 进化（版本递增、能力变更、结构性修复）**必须**向 `fly64/skills/evolution_history.json` 追加一条完整记录——`round`（轮次）、`date`/`time`（时间）、`kind`（brain/skill/infra）、`brain_version`/`skill_version`（版本）、`trigger`（触发原因）、`changes`（变更清单）、`tests`（回归结果）、`source`（commit 或文档出处）——并与 agent.md 变更日志、skills.md 轮次表三处同步。EvolutionSkill 常驻循环会自动检测仪表板 `brain_version` 变化并补录 `brain_update_auto` 记录，但**自动记录只含版本变化，不豁免完整记录义务**（原因/变更/测试必须由执行进化的 agent 人工补全）。校验：`python fly64/skills/evolution_skill.py --history-check` 必须 OK（比对 main.py `BRAIN_VERSION` 与 history canonical 版本，不一致即失败）。禁止无记录的版本递增。**提交硬约束**：进化相关 `git commit` 必须包含 `evolution_history.json` 的更新（记录与代码同 commit，不允许"代码先提交、记录后补"）；README「完整进化历史档案」表通过 `python fly64/skills/evolution_skill.py --history-md` 再生成后更新（只替换 `<!-- EVOLUTION-HISTORY-TABLE -->` 标记间内容，禁止手改表格）
 16. **常驻 EVO 循环单实例（跨环境，强制）**：resident 循环**只能在 WSL 运行**（贴着脑模型，规则 12 的运行时真实来源）；Windows 会话/后台任务**禁止**启动 `skills/evolution_skill.py` 循环——双环境各持文件系统锁互不可见，双写会损坏 fix_catalog/evolution_history（已发生：AUTO id 撞号、catalog 覆盖、log 交错，见 EVO-048）。锁文件 `skills/.evo_loop.lock`（跨平台 pid 活性探测、死锁自动破解）只防**同环境**重复启动；跨环境靠本规则。循环启动/重启统一走 WSL；发现 Windows 侧循环立即停止并记录
+17. **版本号严格递增契约（brain/skill 双轨，强制）**：任何代码/行为变更必须严格递增对应版本号——
+    - **脑模型**：`main.py` 的 `BRAIN_VERSION` —— 缺陷修复/参数调优 → **patch**（z+1）；新增能力/行为变更/新 pattern → **minor**（y+1，z 归零）；破坏性/协议/架构变更 → **major**（x+1）
+    - **EVO Skill**：`skills/evolution_skill.py` 的 `SKILL_VERSION` —— 同规则独立递增。仅 brain 侧变更时 skill 不动，仅 skill 变更时 brain 不动
+    - **禁止**：① 同版本复用/跨轮共用（连续两轮同版本号）；② 含糊标注（"2.11.x" 类只允许存在于历史记录，新记录/新代码禁止）；③ 版本回退；④ 无对应 evolution_history 记录的递增
+    - 每次递增必须：随规则 15 记录（`brain_version`/`skill_version` 字段如实填写）+ `--history-check` OK（自动校验 main.py/skill 文件/canonical 三处一致 + **版本链无回退/无复用**）
 
 ## 项目结构
 

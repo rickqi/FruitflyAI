@@ -113,8 +113,9 @@ def local_diagnosis(context: dict) -> dict:
 
     Keeps autonomy alive when both LLM transports are unavailable (no
     FLY64_LLM_* env and no live DSH session for the file handshake).
-    EVO T1: advice now includes concrete, actionable suggestions derived
-    from the context instead of a bare "LLM unavailable" note.
+    Preserves the previous strategy from active_strategy.json so that
+    strategy parameters (fallen_recovery, exploration, escape) survive
+    a temporary GLM outage.
     """
     stuck = float(context.get("stuck_duration", 0.0))
     anomaly = context.get("anomaly_state", "?")
@@ -133,7 +134,15 @@ def local_diagnosis(context: dict) -> dict:
     advice = (f"[local] scene={scene} stuck={stuck:.0f}s anomaly={anomaly}"
               + (f" disp60={disp}u" if disp is not None else "")
               + f"; LLM 不可用，本地处置建议: " + "；".join(actions) + ".")
-    return {"advice": advice, "strategy": {}}
+    # Preserve the previous strategy so valid GLM-derived parameters
+    # survive a temporary GLM outage.
+    try:
+        active = json.loads(Path(PLUGIN_DIR.parent / "skills" / "active_strategy.json").read_text())
+        prev_strategy = {k: v for k, v in active.items()
+                         if k not in ("coach_advice", "advice_ts", "source")}
+    except Exception:
+        prev_strategy = {}
+    return {"advice": advice, "strategy": prev_strategy}
 
 
 class ServiceRunner:

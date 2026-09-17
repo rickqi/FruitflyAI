@@ -193,6 +193,8 @@ def frame_to_data_uri(frame_b64: Optional[str]) -> Optional[str]:
         w, h = 320, 240
     elif raw_len == 294912:
         w, h = 384, 256
+    elif raw_len == 49152:
+        w, h = 128, 128  # forward face of cubemap
     else:
         return "data:image/png;base64," + frame_b64  # assume already encoded
     png_b64 = raw_rgb_b64_to_png_b64(frame_b64, w, h)
