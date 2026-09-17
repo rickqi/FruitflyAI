@@ -1838,6 +1838,10 @@ class FlyModel:
         recent = np.stack(tuple(self.history), axis=0).mean(axis=0)
         forward_rate, left_rate, right_rate, jump_rate, strike_rate, crouch_rate = [
             float(pool.mean()) for pool in np.split(recent, self.motor_splits)]
+        # Phase 3: CPG gates modulate strike/crouch — when gate=0 the pool
+        # output is zeroed so the decode never produces spurious B/Z pulses.
+        strike_rate *= self._cpg_gate_strike
+        crouch_rate *= self._cpg_gate_crouch
         # EVO R30 · direct forward boost when stuck below ground with
         # suppressed MBON — bypass learned helplessness, feeds through
         # the normal decode path (smoothing, clamping, filtering).
