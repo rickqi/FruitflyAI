@@ -1254,9 +1254,12 @@ async def run(args) -> None:
                         "loop_score": round(memory_ctrl.spatial.loop_score, 4),
                         "novelty": round(memory_ctrl.novelty, 4),
                         "coach_keys": {
-                            "bold_explore_stuck_s": getattr(memory_ctrl, "bold_explore_stuck_s"),
-                            "turn_bias": getattr(memory_ctrl, "bold_turn_bias"),
-                            "escape_stuck_threshold_s": getattr(memory_ctrl, "escape_stuck_threshold_s"),
+                            "bold_explore_stuck_s": getattr(
+                                memory_ctrl, "bold_explore_stuck_s", 60.0),
+                            "turn_bias": getattr(
+                                memory_ctrl, "bold_turn_bias", 0.5),
+                            "escape_stuck_threshold_s": getattr(
+                                memory_ctrl, "escape_stuck_threshold_s", 2.0),
                         },
                     })
                 # t24: a resolved event followed by immediate re-escape means
