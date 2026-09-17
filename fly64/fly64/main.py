@@ -36,7 +36,7 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.23.2"  # R31-fix6: micro_loop disp_60s gate (progress prevents false stuck)
+BRAIN_VERSION = "2.23.3"  # R31-fix7: adaptive below-ground escape (depth+stuck escalation)
 SKILL_VERSION = "3.3.0"   # progressive lesson ladder + evidence-base hardening (must mirror evolution_skill)
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
@@ -721,6 +721,7 @@ ACTIVE_STRATEGY_DEFAULTS = {
 _CPG_PREV_XSIGN = 0
 _CPG_FALLEN_TOGGLE = 0    # alternates between LONG_JUMP and BACKFLIP
 _CPG_FALLEN_SWITCH_S = 3.0  # switch primitive every 3 seconds when fallen
+_DEEP_BAIL_START: float = 0.0  # monotonic timestamp for deep-pit bailout
 
 
 def load_active_strategy(path) -> dict:
@@ -1543,9 +1544,16 @@ async def run(args) -> None:
                     control._below_ground_jump_start = time.monotonic()
                     control._below_ground_jumping = True
                 _jump_elapsed = time.monotonic() - control._below_ground_jump_start
-                if _jump_elapsed < 1.5:
+                # R31-fix7: adaptive escape burst — deeper = longer, longer trapped = stronger
+                _depth_factor = max(0.0, (-_py - 200) / 500.0 * 3.0)   # +3s per 500u below -200
+                _stuck_aggression = min(30, memory_ctrl.stuck_duration / 20.0)
+                _burst_duration = 1.5 + _depth_factor + _stuck_aggression
+                _burst_duration = min(_burst_duration, 12.0)            # cap at 12s total
+                if _jump_elapsed < _burst_duration:
                     control.jump = True
-                    control.x = 0
+                    # Oscillate x slightly to find terrain edge
+                    _phase = (time.monotonic() * 2.0) % (2.0 * 3.14159)
+                    control.x = int(30.0 * (_phase / 3.14159 - 1.0))
                     control.y = 70
                 else:
                     control._below_ground_jumping = False
@@ -1558,18 +1566,6 @@ async def run(args) -> None:
             if not bridge.stale and pose_ev[1] < -200:
                 control.y = max(control.y, 70)
                 control.jump = True
-            # Deep pit bailout: when pose_y stays below -700 for >5s,
-            # stop fighting and let Mario fall to SM64 death plane (-1000)
-            # so the game respawns him at the last safe position.
-            if not bridge.stale and pose_ev[1] < -700:
-                _now_bail = time.monotonic()
-                if getattr(control, "_bail_start", 0) == 0:
-                    control._bail_start = _now_bail
-                if _now_bail - control._bail_start > 5.0:
-                    control.jump = False
-                    control.y = 0
-            elif hasattr(control, "_bail_start"):
-                control._bail_start = 0
             # Periodically populate help.json for the coach service
             # (every ~15s at 20 fps).  The service reads help.json to
             # get the forward face for GLM consult when no dialogue
@@ -1736,6 +1732,20 @@ async def run(args) -> None:
                     escape_buffer.resolve_current(
                         float(getattr(memory_ctrl, "disp_60s", 0) or 0))
             _cpg_last_completed, _cpg_last_aborted = cpg.completed, cpg.aborted
+            # Deep pit bailout (P0): final override — never fight to stay alive
+            # below -700; let Mario fall to the SM64 death plane (-1000) and
+            # respawn.  Placed here, AFTER CPG/reflex/escape, so no upstream
+            # override can re-arm jump.
+            if not bridge.stale and _py < -700:
+                _bail = getattr(model, "_deep_bail_start", 0.0)
+                if _bail == 0.0:
+                    model._deep_bail_start = time.monotonic()
+                elif time.monotonic() - model._deep_bail_start > 5.0:
+                    control.jump = False
+                    control.y = 0
+                    print(f"[bailout] t={time.monotonic():.1f} fired")
+            elif pose_ev[1] >= 0 and getattr(model, "_deep_bail_start", 0.0) != 0.0:
+                model._deep_bail_start = 0.0
             bridge.write_control(control.x, control.y, control.jump,
                                  b=getattr(control, "b", False),
                                  z=getattr(control, "z", False))

@@ -1,6 +1,6 @@
 # EvolutionSkill — Self-Evolving Motion Diagnosis
 
-> 当前版本：BRAIN_VERSION **2.23.2** / SKILL_VERSION **3.3.0**（EVO-057 CX 确定性破解 → EVO-060 R31-fix6：micro_loop disp_60s 门控——有进展的交替不再判为 stuck。完整逐轮记录见 skills/evolution_history.json）
+> 当前版本：BRAIN_VERSION **2.23.3** / SKILL_VERSION **3.3.0**（EVO-057 CX 确定性破解 → EVO-061 R31-fix7：自适应深度逃逸——深度因子+stuck 累计因子扩大跳冲时长，x 摇摆找地形边缘。完整逐轮记录见 skills/evolution_history.json）
 
 **Version**: 3.0.0
 **Status**: Active
