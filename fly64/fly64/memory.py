@@ -1784,9 +1784,14 @@ class MemoryController:
         self._stuck_score, self._stuck_duration, self._fallen = self.stuck.update(
             temporal_energy, frame_seq, forward_rate, pos_y
         )
-        self._stuck_score, self._stuck_duration, self._fallen = self.stuck.update(
-            temporal_energy, frame_seq, forward_rate, pos_y
-        )
+        # R31-fix11: stuck_duration must measure *unproductive* time, not
+        # continuous anomaly wall-clock.  When there is sustained displacement
+        # (disp_60s > 500) the stuck counter gradually drains — progress,
+        # even while an anomaly classifier is still active, should not inflate
+        # the stuck metric that drives help-escalation and reflex cooldowns.
+        _disp_60s = getattr(self, "disp_60s", None)
+        if _disp_60s is not None and _disp_60s > 500.0 and self._stuck_duration > 0.0:
+            self._stuck_duration = max(0.0, self._stuck_duration - 1.0)
         # EVO L2 fix: the 3D grid signature is update(x, y, z) — the old
         # two-arg call landed the real z in the y-slot and recorded every
         # visit at z-cell 0, which desynchronised the memory grid from the
@@ -2306,7 +2311,12 @@ class MemoryController:
             pass
 
     def load_scene_db(self, path: str | Path | None = None) -> int:
-        """Load previously saved scene signatures + spatial map. Returns count loaded."""
+        """Load previously saved scene signatures only (NOT the spatial map).
+
+        The spatial map is NOT loaded here — it would bring back OLD session
+        cells that don't match the current trajectory (restart = fresh grid).
+        Call ``restore_spatial_map()`` explicitly to reload it.
+        """
         p = Path(path) if path else self.SCENE_DB_PATH
         n = 0
         try:
@@ -2315,5 +2325,8 @@ class MemoryController:
             n = db.size
         except Exception:
             return 0
-        self.spatial.load_state(self.SPATIAL_MAP_PATH)
         return n
+
+    def restore_spatial_map(self) -> int:
+        """Load the persisted visit-cell map. Returns cells restored."""
+        return self.spatial.load_state(self.SPATIAL_MAP_PATH)
