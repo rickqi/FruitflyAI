@@ -67,7 +67,7 @@ skill 具备**自我更新迭代**能力，通过受控进化循环固定能力�
 
 进化迭代历史在仪表板实时可见（`/evolution.json`：Brain 版本徽章、EVO 计数、每轮能力列表）。
 
-> 当前版本：BRAIN_VERSION **2.20.4** / SKILL_VERSION **3.2.0**（… → 2.19.1 R31-fix：成功 tick 多巴胺保底 → 2.19.2 t23 逃逸释放锁死三合一修复：释放冷却 1800s→60s + 新异常立即清冷却 + fallen 越过冷却闸门 + stuck_score 去 fallen 钉死 → 2.20.3 R31-fix3：伤害负 RPE + 受击格失败记忆 + coverage 门控位移奖励（移动型困境脑机制自治修复）。完整逐轮记录见 **skills/evolution_history.json**）。
+> 当前版本：BRAIN_VERSION **2.23.9** / SKILL_VERSION **3.4.2**（… → 2.19.2 t23 逃逸释放锁死三合一修复 → 2.20.x R31 系列（伤害负 RPE/CPG 级联/LIF 竞争优先）→ 2.23.x R31-fix 链（含 stuck_duration 位移排空）→ 2.23.9 t27 MBON 饱和陡峭稳态缩放：|MBON|>0.99 三倍缩放强制回落<0.8，恢复蘑菇体学习分辨力。完整逐轮记录见 **skills/evolution_history.json**）。
 
 ## 二期门禁：12 小时稳定自动聘雇（2026-09-14 决策）
 

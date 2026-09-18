@@ -150,6 +150,16 @@ class MushroomBody:
         self.saturation_frames_threshold = 30   # 50→30: 更快响应饱和
         self.saturation_scale_factor = 0.85       # 0.9→0.85: 更强缩放抑制
         self.saturation_events = 0
+        # t27 P0: steep scaling for hard saturation.  Channels pinned at
+        # |MBON|>0.99 (live: dive=0.992/forward=0.994/punch=0.997) made the
+        # MB output unlearnable — every column at the tanh ceiling.  Steep
+        # mode triples the synaptic-scale factor (0.85 → 0.41 effective) and
+        # only disengages once |MBON| < 0.8 (hysteresis prevents re-pin).
+        self._steep_scaling = np.zeros(n_mbon, dtype=bool)
+        self.steep_enter_threshold = 0.99
+        self.steep_exit_threshold = 0.8
+        self.steep_scale_multiplier = 3.0
+        self.steep_scaling_events = 0
         # EVO R22 · spontaneous recovery counter: tracks how long a MBON
         # column has been suppressed to near-zero.  When the network has
         # "learned helplessness" (column pinned at 0), slow noise+drift
@@ -222,20 +232,48 @@ class MushroomBody:
         raw_mbon = self.kc_activity @ self.weights  # (N_MBONS,)
         self.mbon_outputs = np.tanh(raw_mbon).astype(np.float32)
 
-        # ---- Homeostatic synaptic scaling (EVO R17) ----
+        # ---- Homeostatic synaptic scaling (EVO R17 + t27 steep mode) ----
         # A MBON column pinned at |output|≈1 means runaway weights; scale
         # that column's active synapses down 10% once saturation persists
         # past the frame threshold.  Purely postsynaptic homeostasis.
         sat = np.abs(self.mbon_outputs) >= 0.98
         self._saturation_frames = np.where(
             sat, self._saturation_frames + 1, 0).astype(np.int32)
+        # t27 P0: steep-mode hysteresis — enter at |MBON|>0.99, exit only
+        # when the channel has recovered below 0.8.  While steep, the
+        # synaptic-scale factor is TRIPLED so a saturated column falls back
+        # into its dynamic range quickly enough to stay learnable.
+        self._steep_scaling = np.where(
+            np.abs(self.mbon_outputs) > self.steep_enter_threshold, True,
+            np.where(np.abs(self.mbon_outputs) < self.steep_exit_threshold,
+                     False, self._steep_scaling))
         for j in np.flatnonzero(
                 self._saturation_frames >= self.saturation_frames_threshold):
+            if self._steep_scaling[j]:
+                continue   # steep channels scale EVERY frame (below)
             active = self.kc_activity > 0
             if active.any():
                 self.weights[active, j] *= self.saturation_scale_factor
             self._saturation_frames[j] = 0
             self.saturation_events += 1
+
+        # t27 P0: steep mode — a channel pinned above 0.99 scales EVERY frame
+        # at triple shrink strength until it recovers below 0.8 (hysteresis).
+        # Waiting on the saturation-frame threshold left recovered-ish
+        # channels (|out|≈0.88) stranded between the two thresholds.
+        steep_idx = np.flatnonzero(
+            self._steep_scaling
+            & (np.abs(self.mbon_outputs) >= self.steep_exit_threshold))
+        for j in steep_idx:
+            active = self.kc_activity > 0
+            if active.any():
+                steep_f = 1.0 - (1.0 - self.saturation_scale_factor) \
+                    * self.steep_scale_multiplier
+                self.weights[active, j] *= steep_f
+                self.weights[active, j] = np.clip(
+                    self.weights[active, j], -50.0, 50.0,
+                    out=self.weights[active, j])
+                self.steep_scaling_events += 1
 
         # ---- EVO R22 · spontaneous recovery from learned helplessness ----
         # When a MBON column has been suppressed (|output| < 0.05) for a
@@ -577,6 +615,11 @@ class MushroomBody:
             "kc_trace_nonzero": int((self.kc_trace > 0).sum()),
             "dopamine_events": len(self._dopamine_events),
             "consolidated_count": len(self.consolidated),
+            # t27: saturation homeostasis observability
+            "saturation_events": self.saturation_events,
+            "steep_scaling_events": self.steep_scaling_events,
+            "steep_active": int(self._steep_scaling.sum()),
+            "mbon_abs_max": round(float(np.abs(self.mbon_outputs).max()), 4),
         }
 
     @property

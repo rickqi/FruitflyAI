@@ -36,7 +36,7 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.23.8"  # R31-fix11: stuck_duration drains under sustained displacement
+BRAIN_VERSION = "2.23.9"  # t27 P0: MBON steep homeostatic scaling - hard-saturation channels recover <0.8
 SKILL_VERSION = "3.4.2"   # EVO-071: Phase 6 fitness reads fields that exist (must mirror evolution_skill)
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
