@@ -472,6 +472,34 @@ class MushroomBody:
         np.clip(self.weights, W_MIN, W_MAX, out=self.weights)
         return n
 
+    def consolidate_anomaly_resolution(self, kc_sig: np.ndarray,
+                                        control_x: int, control_y: int,
+                                        dopamine: float = 0.3) -> bool:
+        """Store an anomaly-resolution memory: the KC signature + the motor
+        output (x/y) that successfully broke the anomaly, so next time the
+        same scene+anomaly is encountered the brain can recall the fix.
+
+        The motor action is encoded as an MBON bias vector (columns 0..3 =
+        forward/left/right/jump) and stored as a consolidated memory with a
+        positive dopamine tag (+0.3 default).
+        """
+        mbon = np.zeros(self.n_mbon, dtype=np.float32)
+        # Encode control into MBON forward/turn columns
+        mbon[0] = np.clip(control_y / 127.0, -1.0, 1.0)   # forward bias
+        mbon[1] = np.clip(-control_x / 127.0, -1.0, 1.0)  # left turn bias
+        mbon[2] = np.clip(control_x / 127.0, -1.0, 1.0)   # right turn bias
+        mbon[3] = 0.3 if control_y > 50 else 0.0           # jump if strong fwd
+        # Check for near-duplicate before storing
+        entry = (kc_sig.copy(), mbon, float(dopamine))
+        for existing_kc, _, _ in self.consolidated:
+            overlap = float(np.dot(kc_sig, existing_kc))
+            if overlap > self.n_kc * self.sparsity * 0.5:
+                return False  # similar pattern already stored
+        self.consolidated.append(entry)
+        if len(self.consolidated) > CONSOLIDATED_MAX:
+            self.consolidated = self.consolidated[-CONSOLIDATED_MAX:]
+        return True
+
     def recall(self) -> np.ndarray | None:
         """Recall MBON outputs from consolidated memories.
 
