@@ -557,6 +557,8 @@ class SensorSample:
     mb_w_dive: Optional[float] = None
     mb_w_groundpound: Optional[float] = None
     mb_w_longjump: Optional[float] = None
+    # L2: path efficiency — high path_length / net_displacement = wasted motion
+    waste_ratio: float = 0.0
 
     def to_dict(self) -> dict: return asdict(self)
 
@@ -714,7 +716,8 @@ class DataCollector:
             mb_w_punch=flow.get("mb_w_punch", None),
             mb_w_dive=flow.get("mb_w_dive", None),
             mb_w_groundpound=flow.get("mb_w_groundpound", None),
-            mb_w_longjump=flow.get("mb_w_longjump", None))
+            mb_w_longjump=flow.get("mb_w_longjump", None),
+            waste_ratio=self._compute_waste())
         # Track consecutive motor-vs-motion mismatch frames (wall corners)
         self._decoupled_run = self._decoupled_run + 1 if s.command_decoupled else 0
         self.samples.append(s)
@@ -740,6 +743,15 @@ class DataCollector:
     def coverage_stagnant_120s(self) -> bool:
         if len(self._cov_hist) < 5: return False
         return abs(self._cov_hist[0][1] - self._cov_hist[-1][1]) < 0.5
+
+    def _compute_waste(self) -> float:
+        """Path inefficiency: path_length / max(net_displacement,1). 1=straight, >100=oscillating."""
+        if len(self._positions) < 20: return 0.0
+        pts = list(self._positions)
+        dx = pts[-1][1] - pts[0][1]; dz = pts[-1][2] - pts[0][2]
+        net = math.hypot(dx, dz)
+        path = sum(math.hypot(pts[i][1]-pts[i-1][1], pts[i][2]-pts[i-1][2]) for i in range(1, len(pts)))
+        return round(path / max(net, 1.0), 2)
 
     def motion_entropy(self) -> float:
         if len(self._controls) < 5: return 1.0
@@ -849,6 +861,7 @@ class DataCollector:
         vals["position_unchanged_60s"] = self.position_unchanged_60s()
         vals["coverage_stagnant_120s"] = self.coverage_stagnant_120s()
         vals["motion_entropy"] = self.motion_entropy()
+        vals["waste_ratio"] = self._compute_waste()
         return vals
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1589,6 +1602,13 @@ class BrainMutator:
                                        if not k.startswith("_"))
                                 if hasattr(sample, "__dict__") else None)
 
+        # L2: waste penalty — penalise path_length / displacement ratio > 10x
+        waste = num("waste_ratio", 0.0)
+        waste_penalty = min(max((waste - 10.0) / 200.0, 0.0), 1.0) * 0.15
+        if waste > 0:
+            raw["waste_penalty_factor"] = round(waste_penalty / 0.15, 3)
+        else:
+            missing.append("waste_ratio")
         return {
             "coverage": coverage,
             "unstuck": unstuck,
@@ -1597,6 +1617,7 @@ class BrainMutator:
             "speed": speed,
             "first_contact": first_contact,
             "revisit_penalty": max(0.0, (rr - 0.2) * 2.0) * 0.05,
+            "waste_penalty": waste_penalty,
             "missing_inputs": missing,
             "raw": raw,
         }
@@ -1667,7 +1688,8 @@ class BrainMutator:
         c = self.fitness_components(sample, prev)
         return round(
             c["coverage"] + c["unstuck"] + c["novelty"] + c["health"]
-            + c["speed"] + c["first_contact"] - c["revisit_penalty"], 4)
+            + c["speed"] + c["first_contact"] - c["revisit_penalty"]
+            - c.get("waste_penalty", 0.0), 4)
 
     @staticmethod
     def _load_active_strategy() -> dict:

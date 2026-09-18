@@ -10,7 +10,7 @@
    ],
    "default": 0.25,
    "min": 0.0,
-   "max": 1.0,
+   "max": 0.4,
    "description": "Novelty-driven turn bias multiplier injected into CX goal columns. Higher = stronger response to fresher ground.",
    "wired": true
   },
@@ -73,14 +73,14 @@
   "exploration.dopamine_revisit_cost": {
    "default": 0.5,
    "min": 0.0,
-   "max": 1.0,
+   "max": 0.4,
    "description": "Dopamine punishment threshold for revisit_penalty. Higher = MB learns faster to avoid loops.",
    "wired": false
   },
   "exploration.breakout_forward_bias": {
    "default": 0.7,
    "min": 0.2,
-   "max": 1.0,
+   "max": 0.4,
    "description": "Fraction of forward drive during escape behavior (vs. turning). Higher = straighter breakout runs.",
    "wired": false
   },
@@ -129,7 +129,7 @@
   "escape.fallen_jump_boost": {
    "default": 0.6,
    "min": 0.3,
-   "max": 1.0,
+   "max": 0.4,
    "description": "Additional jump current during fallen state, on top of ESCAPE_JUMP_DRIVE.",
    "wired": true
   },
