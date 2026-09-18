@@ -1,0 +1,37 @@
+{
+ "熔岩地": {
+  "scene": "熔岩地",
+  "buckets": {
+   "fallen_recovery.mode=directional_climb|exploration.turn_bias=0.8|escape.stuck_threshold_s=10.0": {
+    "signature": "fallen_recovery.mode=directional_climb|exploration.turn_bias=0.8|escape.stuck_threshold_s=10.0",
+    "params": {
+     "fallen_recovery": {
+      "mode": "directional_climb"
+     },
+     "exploration": {
+      "turn_bias": 0.8
+     },
+     "escape": {
+      "stuck_threshold_s": 10.0
+     }
+    },
+    "improved": 0,
+    "unchanged": 0,
+    "worse": 1,
+    "total_improved": 2,
+    "total_worse": 1,
+    "promoted": false,
+    "first_seen": 1789723136.225525,
+    "last_verdict": "worse",
+    "last_deltas": {},
+    "last_seen": 1789723136.2420611,
+    "promoted_at": 1789723136.2345443,
+    "worse_reset_at": 1789723136.2420611,
+    "demoted_at": 1789723136.2420611
+   }
+  },
+  "promoted": false,
+  "promoted_signature": null,
+  "updated_at": 1789723136.2420611
+ }
+}
