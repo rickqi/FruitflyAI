@@ -1143,8 +1143,14 @@ class MotionStateDetector:
                            heading_rate: float) -> bool:
         return ramp_score > 0.5 and stuck_duration > 15.0 and heading_rate < 0.05
 
-    def _detect_oscillating(self) -> bool:
-        """Detect oscillation in control.x: ≥3 alternations between ≤-60 and ≥+60."""
+    def _detect_oscillating(self, disp_60s: float | None = None) -> bool:
+        """Detect oscillation in control.x: ≥3 alternations between ≤-60 and ≥+60.
+        
+        R31-fix12: displacement gate — when there is genuine progress the
+        alternating pattern is not a stuck oscillation but zig-zag navigation.
+        """
+        if disp_60s is not None and disp_60s > 300.0:
+            return False
         if len(self._ctrl_x_buf) < 6:
             return False
         buf = list(self._ctrl_x_buf)
@@ -1202,7 +1208,7 @@ class MotionStateDetector:
             return self.FALLEN
         if self._detect_micro_loop(visited_cells, loop_score, stuck_duration, disp_60s=disp_60s):
             return self.MICRO_LOOP
-        if self._detect_oscillating():
+        if self._detect_oscillating(disp_60s=disp_60s):
             return self.OSCILLATING
         if self._detect_wall_stuck(wall_score, escape_behavior, stuck_duration):
             return self.WALL_STUCK
