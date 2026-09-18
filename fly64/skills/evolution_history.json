@@ -2,8 +2,8 @@
   "$schema": "fly64/evolution-history/1.0",
   "canonical_versions": {
     "brain": "2.23.6",
-    "skill": "3.4.1",
-    "as_of": "2026-09-17T21:53:24.771267+08:00"
+    "skill": "3.4.2",
+    "as_of": "2026-09-18T01:08:22.683057+08:00"
   },
   "records": [
     {
@@ -1446,6 +1446,32 @@
       "tests": "实测（brain 2.23.6 / skill 3.4.1，运行中）：① **首个本能晋级**：场景 '山坡·天空'，显著签名 'fallen_recovery.mode=directional_climb|exploration.turn_bias=0.8|escape.stuck_threshold_s=5.0'，证据 improved=2 / unchanged=0 / worse=0（干净记录），binding_status() 报告 qualifying=1（此前数轮均为 0）；get_binding('山坡·天空') 返回的正是该三个显著参数；② **课程阶梯晋级**：stage 1 → 5、attempts=19、目标沿 STAGE_GOALS 从 disp_60s>30 依次抬到 >500，全程 consecutive_fail=0；③ 课程历史中出现一条 met=null（verdict=improved）——EVO-065 三态判定在真实运行中生效：不可观测的那次既不计成功也不计失败，仅 unobserved+1；④ 观测时 memory scene_label='致命熔岩地' 而晋级场景为 '山坡·天空'，coach_applied.instinct_applied=False —— 场景作用域正确，与 EVO-064 的实测结论一致（绑定只在同场景前缀期间生效）",
       "source": "本次会话 t16 运行时观测；证据库 51 条 outcome / 18 签名 / 8 场景",
       "notes": "**为何值得单独记录**：EVO-058 修复的正是“机制存在但结构上永不可达”——此前实测合格签名数恒为 0，我还据此把“签名复用率 0%”误判为结构性问题（EVO-067 已更正为证据量不足）。本轮在无干预条件下出现首个晋级，说明该修复确实把不可达变成了可达。**课程侧对照**：修复前是**固定** goal 造成假晋级（30 次尝试冲到 stage 9）；现在是**递增** goal 下的真实晋级（4 次晋级、目标 30→500、fail=0），二者形状相似但语义相反，可由 goal 与 met 记录区分。**版本轨**：纯观测，无代码改动，故不递增版本。"
+    },
+    {
+      "id": "EVO-071",
+      "date": "2026-09-18",
+      "time": "01:08:22 +0800",
+      "round": "t17 执行四条建议：度量工具化 + Phase 6 根因修复 + 登记册",
+      "kind": "skill",
+      "brain_version": "2.23.6",
+      "skill_version": "3.4.2",
+      "trigger": "执行上一轮的四条建议。过程中**修正了我自己对两处失败的误判**（原记为 real-bug，实测均为 test-drift），并借助 EVO-067 上线的新仪表**定位到 Phase 6 的真实根因**：适应度函数读取了 SensorSample 上**根本不存在**的四个字段。",
+      "changes": [
+        "**Phase 6 根因修复**（本轮的实质缺陷）：fitness_components 原先用 getattr(sample, X, default) 读取 coverage_rate / first_contact_rate / novelty / revisit_ratio——四个字段在 SensorSample 上都不存在（实测 27/27 次读数为 None 或默认 0.0），于是 40% 的权重（0.10 novelty + 0.10 speed + 0.10 first_contact + 0.05 revisit）被静默归零、永远不可能变化，另有 30%（coverage_pct）在 34 次试验中仅 6 次变化——这精确解释了 41–62% 的精确零 delta 与约 94% 低于 0.03 门槛、123 次试验仅 3 次提交。现改为**从样本真正携带的字段派生**：novelty←revisit_count/(visited+revisit)、speed←forward_speed、first_contact←窗口内 visited_cells 增量/时长（需 prev 样本）、revisit 惩罚←派生比值；新增 missing_inputs 列出任何无数据的项，evaluate() 传入基线样本以获得真实速率，试验结束时释放",
+        "保留 _legacy_fitness_components 作为**审计预言机**（复现修复前的数值，含静默默认语义）",
+        "新增 tests/test_phase6_fitness_inputs.py 11 条：真实 SensorSample 在提供 prev 时不得有缺失输入、全部派生源必须存在于 dataclass、静态检查禁止再 getattr 四个幽灵字段、缺失输入必须被具名上报、coverage/health/forward_speed/visited 增量各自单调驱动、revisit 比值由真实计数器派生、loop_score 作为 novelty 回退、evaluate 必须传基线样本并释放",
+        "tests/test_phase6_attribution.py 改为钉住**新**契约（EVO-067 钉的是旧算术）：预言机复现旧值、新公式在幽灵字段缺失时不劣于旧值、分量求和等于 fitness",
+        "新增 scripts/attribute_phase6_failures.py：用仪表数据把“零 delta”归因为 A 同一样本 / B 输入未变 / C 权重相消 / D 有效试验，并统计每个输入的变化次数",
+        "**修正我自己对两处失败的误判**（原 baseline 记为 real-bug，实测为 test-drift）：① test_spin_loop_fix::test_loop_score_zero_on_fresh_exploration——SpatialMemoryMap.update 的签名是 (x, y, z)，测试却按旧的 (x, z) 调用，把世界坐标传进了**高度**参数、z 恒为 0，200 个位置塌缩成 24 格故 loop_score=1.0；实测 update(x,0,z) → 200 格 / 0.0。已修正测试并新增 TestUpdateCoordinateContract 钉住三坐标契约（含“第二个测试虽断言通过但只访问了 1 个格子”的同类错误）；② test_optic_flow::test_memory_no_cliff_emergency_when_cliff_high——pos_y 默认 0.0 被坠落检测读作“地下”，而 escape_behavior 的**第一析取项就是 self._fallen**，故逃逸与 flow_cliff 无关；实测 pos_y=100/500 → escape=False。已补 pos_y=500 并在注释中说明",
+        "新增 scripts/audit_motor_injections.py：量化“运动输出有多少仍由符号分支决定”——model.py 有 **66 处**运动池电流注入，其中 **52 处（79%）由条件守护**、**7 处直接由视觉特征门控**（tau→jump、sky_score→jump、cliff_confirmed/cliff_tangent_bias→forward/turn×3、opening_score/opening_asymmetry→turn×2）。故 test_no_visual_motor_shortcut 的不变量**按设计不成立**，重分类为 aspirational 并附实测证据",
+        "新增 scripts/build_unimplemented_register.py + docs/declared-not-implemented.md：把“已声明未实现”的 **30 项**汇成单一登记册（15 愿景测试 + 14 未接参数 + 1 架构愿景），每项一栏 Decision（实现 / 正式废弃），由审计工具生成、禁止手改",
+        "scripts/measure_evolution_health.py 新增 --snapshot / --trend：把 promoted、signature_reuse_rate、可用 outcome、Phase 6 试验与提交数写成**时间序列**（skills/evolution_health_trend.jsonl）；并修正 count_instrumented_trials 未去重导致的虚高（原始计数 2709 → 去重后 34）"
+      ],
+      "tests": [
+        "test_phase6_fitness_inputs 11 + test_phase6_attribution 13 = 24 passed（Windows 与 WSL 双端）；test_spin_loop_fix 9/9（原 1 failed）；test_optic_flow 由 2 failed 降为 1 failed（仅剩性能项）；**Phase 6 归因实测（34 条带仪表试验）**：delta==0.0 14/34（41.2%）、passed 1；归因 D 有效试验 20、**B 输入未变 13**、C 权重相消 1、**A 同一样本 0**（采集器确实刷新，我此前对该原因的担心被证伪）；逐输入变化次数：stuck_duration 34/34、health_score 16/34、coverage_pct 6/34、**coverage_rate 0/34、first_contact_rate 0/34、novelty 0/34、revisit_ratio 0/34**——正是根因"
+      ],
+      "source": "本次会话 t17；工具 scripts/attribute_phase6_failures.py、audit_motor_injections.py、build_unimplemented_register.py、measure_evolution_health.py",
+      "notes": "**版本轨**：仅 skill 3.4.1 → 3.4.2（patch；Phase 6 的适应度计算与搜索决策改变，属缺陷修复）。脑行为未变，BRAIN_VERSION 保持 canonical。**方法论价值（本轮最大收获）**：四条建议里“用仪表定位 Phase 6 根因”一条，让我先看到 41% 零 delta，再用逐输入变化次数把范围缩到四个**恒为常量**的字段，最后确认它们在 dataclass 上根本不存在——**没有改动任何阈值或窗口就得到了根因**，这正是当初拒绝凭推断调参的价值。**自我更正**：我先前把两处失败判为 real-bug，实测都是测试误调用 API/漏传参数；登记册与基线中的 cause 因此改为 test-drift，并各自留下可复现的实测命令。**P4.4 广度（建议①）**：snapshot 实测 promoted=1、signature_reuse_rate 已由 0% 升至 **8.3%**、可用 outcome 36 条——趋势文件已建立，后续按快照比较而非目测。"
     }
   ]
 }

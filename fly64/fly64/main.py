@@ -37,7 +37,7 @@ from .scene_recognition import SceneRecognizer
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
 BRAIN_VERSION = "2.23.7"  # R31-fix10: loop_score decays when disp>500u
-SKILL_VERSION = "3.4.1"   # EVO-067: Phase 6 fitness/diagnostic instrumentation (must mirror evolution_skill)
+SKILL_VERSION = "3.4.2"   # EVO-071: Phase 6 fitness reads fields that exist (must mirror evolution_skill)
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
 _evo_iter_counter = 0

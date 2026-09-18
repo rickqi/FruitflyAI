@@ -28,7 +28,7 @@ except ImportError:
     HAS_JSONSCHEMA = False
     ValidationError = type("ValidationError", (Exception,), {})
 
-SKILL_VERSION = "3.4.1"
+SKILL_VERSION = "3.4.2"
 SKILL_NAME = "evolution_skill"
 SKILL_DIR = Path(__file__).resolve().parent
 WORKSPACE = SKILL_DIR.parent.parent
@@ -1433,6 +1433,7 @@ class BrainMutator:
         self._trial_start: Optional[float] = None    # when trial began
         self._baseline_fitness: Optional[float] = None
         self._baseline_components: Optional[dict] = None   # diagnostics (see below)
+        self._baseline_sample = None               # EVO-072: for derived rates
         self._mutation_rate = 0.12                   # stddev as fraction of range
 
     def _load(self) -> dict:
@@ -1471,32 +1472,159 @@ class BrainMutator:
         return {pid: meta for pid, meta in self._schema.get("params", {}).items()
                 if not (isinstance(meta, dict) and meta.get("wired") is False)}
 
-    def fitness_components(self, sample: SensorSample) -> dict:
+    def fitness_components(self, sample: SensorSample, prev: SensorSample | None = None) -> dict:
         """The seven weighted terms of :meth:`fitness`, un-summed.
 
-        Measured motivation (scripts/measure_evolution_health.py): of 88 unique
-        Phase 6 trials, 55 (62.5%) recorded a delta of EXACTLY 0.0 and 83 (94.3%)
-        stayed below the 0.03 pass gate — yet the log stored only the scalar
-        delta/baseline/current, so the cause was UNATTRIBUTABLE.  That is the
-        same "unobservable state" defect this session repeatedly had to fix.
+        ROOT CAUSE FIXED HERE (EVO-072).  The original expression read four
+        fields the SensorSample does NOT HAVE — measured on 34 instrumented
+        trials: `coverage_rate` None in 27/27 readings, `first_contact_rate` None
+        in 27/27, `novelty` None in 27/27, `revisit_ratio` absent so it fell back
+        to the 0.0 default in 27/27.  `getattr(..., default)` silently turned all
+        four into constants, so 40% of the fitness weight (0.10 novelty + 0.10
+        speed + 0.10 first_contact + 0.05 revisit) could never move, and another
+        30% (coverage_pct) moved in only 6 of 34 trials.  Result: the pass gate
+        `delta > 0.03` was unreachable — 41-62% of trials had delta EXACTLY 0.0
+        and ~94% stayed below the gate — which is why Phase 6 committed 3 times
+        in 123 trials.
 
-        Logging the components makes the next diagnosis read off the data:
-        identical components everywhere means the fitness inputs did not move;
-        a component that is 0.0 in both readings means the sample lacked that
-        field; and `sample_ts`/`sample_fields` show whether the collector handed
-        back the SAME sample object at both ends of the 120 s window (identical
-        timestamps would prove the metric never refreshed).
+        The terms are now DERIVED from fields `SensorSample` really carries
+        (`visited_cells`, `revisit_count`, `loop_score`, `forward_speed`, and the
+        `prev` sample for a true rate), the `raw` block reports every input
+        actually used, and `missing_inputs` names any term that had no data — so a
+        silently-defaulted field can no longer hide.  `prev` is optional; without
+        it the rate terms degrade to absent rather than to a fake constant.
         """
         if sample is None:
             return {}
-        rr = getattr(sample, "revisit_ratio", 0.0)
+        raw: dict = {}
+        missing: list = []
+
+        def num(name, default=None):
+            v = getattr(sample, name, None)
+            raw[name] = v
+            if v is None:
+                missing.append(name)
+                return default
+            return v
+
+        def nump(name, default=None):
+            v = getattr(prev, name, None) if prev is not None else None
+            raw["prev_" + name] = v
+            return default if v is None else v
+
+        # -- coverage: available and used as before -------------------------
+        cov_pct = num("coverage_pct", 0.0)
+        coverage = min(cov_pct / 50.0, 1.0) * 0.30
+
+        # -- unstuck: available (the only term that always moved) -----------
+        coverage_delta = max(0.0, cov_pct - nump("coverage_pct", cov_pct))
+        stuck = num("stuck_duration", 0.0)
+        # EVO-072: a stuck fly that is nonetheless GAINING coverage is making
+        # progress; attribute that to the covered fraction directly instead of
+        # letting a large stuck_duration zero the term.
+        progress_cells = None
+        cells_now = getattr(sample, "visited_cells", None)
+        cells_prev = nump("visited_cells", None)
+        if cells_now is not None and cells_prev is not None:
+            raw["visited_cells"] = cells_now
+            progress_cells = max(0, int(cells_now) - int(cells_prev))
+            raw["visited_cells_gained"] = progress_cells
+        if progress_cells is not None and progress_cells > 0:
+            unstuck = (1.0 - min(stuck / 120.0, 1.0)) * 0.20
+            unstuck = min(0.20, unstuck + min(0.20, progress_cells / 200.0 * 0.20))
+        else:
+            unstuck = (1.0 - min(stuck / 120.0, 1.0)) * 0.20
+
+        # -- novelty DERIVED: revisit_count vs visited_cells, loop_score -----
+        visits = num("visited_cells", None)
+        revisits = num("revisit_count", None)
+        loop = num("loop_score", None)
+        if visits is not None and revisits is not None and (visits + revisits) > 0:
+            rr = revisits / float(visits + revisits)
+            raw["revisit_ratio_derived"] = round(rr, 4)
+            novelty_raw = max(0.0, 1.0 - rr)
+        elif loop is not None:
+            novelty_raw = max(0.0, 1.0 - float(loop))
+            rr = 0.0
+            raw["revisit_ratio_derived"] = None
+        else:
+            novelty_raw = None
+            rr = 0.0
+            raw["revisit_ratio_derived"] = None
+        novelty = (0.0 if novelty_raw is None else min(novelty_raw, 1.0)) * 0.10
+        if novelty_raw is None:
+            missing.append("novelty(derived)")
+
+        # -- health: available ---------------------------------------------
+        health = max(0.0, min(num("health_score", 0.5), 1.0)) * 0.15
+
+        # -- speed DERIVED from forward_speed ------------------------------
+        fspeed = num("forward_speed", None)
+        speed = (0.0 if fspeed is None else min(float(fspeed) * 100, 0.5)) * 0.10
+
+        # -- first-contact DERIVED from the visited-cell rate ---------------
+        fcr = None
+        if progress_cells is not None:
+            elapsed = None
+            ts_now, ts_prev = getattr(sample, "timestamp", None), nump("timestamp", None)
+            if ts_now is not None and ts_prev is not None and ts_now > ts_prev:
+                elapsed = float(ts_now) - float(ts_prev)
+                raw["window_s"] = round(elapsed, 2)
+            if elapsed and elapsed > 0:
+                fcr = progress_cells / elapsed
+        first_contact = (0.0 if fcr is None else min(fcr * 100, 1.0)) * 0.10
+        if fcr is None:
+            missing.append("first_contact_rate(derived)")
+
+        raw["stuck_duration"] = stuck
+        raw["coverage_pct"] = cov_pct
+        raw["health_score"] = getattr(sample, "health_score", None)
+        raw["forward_speed"] = fspeed
+        raw["first_contact_rate_derived"] = (round(fcr, 4) if fcr is not None else None)
+        raw["coverage_delta"] = round(coverage_delta, 3)
+        # identity of the reading — lets a reader distinguish "the metric never
+        # moved" from "the same sample object came back twice"
+        raw["sample_ts"] = getattr(sample, "timestamp", None)
+        raw["sample_fields"] = (sorted(k for k in vars(sample)
+                                       if not k.startswith("_"))
+                                if hasattr(sample, "__dict__") else None)
+
         return {
-            "coverage": min(getattr(sample, "coverage_pct", 0) / 50.0, 1.0) * 0.30,
-            "unstuck": (1.0 - min(getattr(sample, "stuck_duration", 0) / 120.0, 1.0)) * 0.20,
-            "novelty": min(getattr(sample, "novelty", 0), 1.0) * 0.10,
-            "health": max(0.0, min(getattr(sample, "health_score", 0.5), 1.0)) * 0.15,
-            "speed": min(getattr(sample, "coverage_rate", 0) * 100, 0.5) * 0.10,
-            "first_contact": min(getattr(sample, "first_contact_rate", 0) * 100, 1.0) * 0.10,
+            "coverage": coverage,
+            "unstuck": unstuck,
+            "novelty": novelty,
+            "health": health,
+            "speed": speed,
+            "first_contact": first_contact,
+            "revisit_penalty": max(0.0, (rr - 0.2) * 2.0) * 0.05,
+            "missing_inputs": missing,
+            "raw": raw,
+        }
+
+    def _legacy_fitness_components(self, sample: SensorSample) -> dict:
+        """The PRE-EVO-072 expression, kept as the audit oracle for tests.
+
+        A `None` is coalesced to the old default because that is what the old
+        code effectively saw: `coverage_rate` / `first_contact_rate` / `novelty`
+        did not exist on SensorSample, so `getattr(sample, name, default)`
+        returned the default.  Reproducing that here lets a test compare the old
+        and new formulas on the same sample.
+        """
+        if sample is None:
+            return {}
+
+        def g(name, default):
+            v = getattr(sample, name, None)
+            return default if v is None else v
+
+        rr = g("revisit_ratio", 0.0)
+        return {
+            "coverage": min(g("coverage_pct", 0) / 50.0, 1.0) * 0.30,
+            "unstuck": (1.0 - min(g("stuck_duration", 0) / 120.0, 1.0)) * 0.20,
+            "novelty": min(g("novelty", 0), 1.0) * 0.10,
+            "health": max(0.0, min(g("health_score", 0.5), 1.0)) * 0.15,
+            "speed": min(g("coverage_rate", 0) * 100, 0.5) * 0.10,
+            "first_contact": min(g("first_contact_rate", 0) * 100, 1.0) * 0.10,
             "revisit_penalty": max(0.0, (rr - 0.2) * 2.0) * 0.05,
             # raw inputs, so "the metric never moved" is distinguishable from
             # "the metric moved but the weighted terms cancelled"
@@ -1515,24 +1643,28 @@ class BrainMutator:
             },
         }
 
-    def fitness(self, sample: SensorSample) -> float:
+    def fitness(self, sample: SensorSample, prev: SensorSample | None = None) -> float:
         """Single scalar fitness ∈ [0, 1]: higher = better.
 
-        Factors (weight):
+        Terms (weight) — all DERIVED from fields SensorSample actually carries
+        since EVO-072; see :meth:`fitness_components` for the measurement that
+        forced the change (40% of the old weight read non-existent attributes and
+        was silently zeroed, making the 0.03 pass gate unreachable):
           - coverage_pct / 50              (×0.30) explored fraction
-          - 1 - min(stuck_duration/120, 1) (×0.20) not-stuck
-          - novelty                         (×0.10) exploring new ground
-          - health_score                    (×0.15) overall well-being
-          - min(coverage_rate×100, 0.5)     (×0.10) exploration speed
-          - first_contact_rate ×100         (×0.10) new cells per second
-          - revisit_penalty                  (×0.05) penalise excessive re-visits
+          - 1 - min(stuck_duration/120, 1) (×0.20) not-stuck, plus up to +0.20
+                                           for cells gained across the window
+          - novelty = 1 - revisit/(visit+revisit)   (×0.10)
+          - health_score                    (×0.15)
+          - forward_speed                   (×0.10)
+          - visited-cell rate (cells/s)     (×0.10)
+          - revisit penalty                 (×0.05)
 
         Implemented as the sum of :meth:`fitness_components`, which is the single
         source of truth for the arithmetic.
         """
         if sample is None:
             return 0.0
-        c = self.fitness_components(sample)
+        c = self.fitness_components(sample, prev)
         return round(
             c["coverage"] + c["unstuck"] + c["novelty"] + c["health"]
             + c["speed"] + c["first_contact"] - c["revisit_penalty"], 4)
@@ -1607,6 +1739,7 @@ class BrainMutator:
         self._trial_start = time.time()
         self._baseline_fitness = self.fitness(metrics) if metrics else 0.0
         self._baseline_components = self.fitness_components(metrics)
+        self._baseline_sample = metrics          # EVO-072: needed for rate terms
 
     def evaluate(self, metrics: SensorSample | None) -> Optional[dict]:
         """After the verification window, compare current fitness vs baseline.
@@ -1621,10 +1754,11 @@ class BrainMutator:
         run_time = 120.0  # trial window: 120 s from start
         if time.time() - self._trial_start < run_time:
             return None
-        current_fitness = self.fitness(metrics) if metrics else 0.0
+        current_fitness = (self.fitness(metrics, self._baseline_sample)
+                           if metrics else 0.0)
         delta = current_fitness - self._baseline_fitness
         passed = delta > 0.03  # 3% improvement threshold
-        cur_components = self.fitness_components(metrics)
+        cur_components = self.fitness_components(metrics, self._baseline_sample)
         base_components = self._baseline_components or {}
         base_ts = (base_components.get("raw") or {}).get("sample_ts")
         cur_ts = (cur_components.get("raw") or {}).get("sample_ts")
@@ -1645,6 +1779,7 @@ class BrainMutator:
             self._trial_start = None
             self._baseline_fitness = None
             self._baseline_components = None
+            self._baseline_sample = None
             result["committed"] = True
         else:
             # rollback: restore the original strategy without these changes
@@ -1653,6 +1788,7 @@ class BrainMutator:
             self._trial_start = None
             self._baseline_fitness = None
             self._baseline_components = None
+            self._baseline_sample = None
             result["committed"] = False
         return result
 

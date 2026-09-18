@@ -1,7 +1,7 @@
 {
  "platform": "linux",
- "recorded_at": "2026-09-17T13:34:05.177989+00:00",
- "count": 25,
+ "recorded_at": "2026-09-17T17:19:00.388125+00:00",
+ "count": 23,
  "entries": [
   {
    "id": "tests/test_coach_pipeline.py::TestServiceCycle::test_no_1210_errors_recently",
@@ -25,8 +25,8 @@
   },
   {
    "id": "tests/test_invariants.py::test_no_visual_motor_shortcut",
-   "cause": "real-bug",
-   "note": "the invariant that no visual signal reaches the motor pools directly is violated by the current code"
+   "cause": "aspirational",
+   "note": "architectural invariant violated by design: fly64/model.py injects current into motor pools from 66 sites (79%% guarded, 7 visually gated). Measured black vs white frame disparity persists with w=0 even after disabling documented sensory gates (sky_score/opening_score/escape_mode). See scripts/audit_motor_injections.py for the full enumeration."
   },
   {
    "id": "tests/test_mbon_saturation.py::TestSaturationRecovery::test_absolute_override_at_095",
@@ -59,19 +59,9 @@
    "note": "compute_flow exceeds the stated budget, and 'should not trigger escape without cliff' disagrees with the implementation"
   },
   {
-   "id": "tests/test_optic_flow.py::test_memory_no_cliff_emergency_when_cliff_high",
-   "cause": "real-bug",
-   "note": "compute_flow exceeds the stated budget, and 'should not trigger escape without cliff' disagrees with the implementation"
-  },
-  {
    "id": "tests/test_p1_neural_takeover.py::TestKpiBaseline::test_control_write_count_shrunk",
    "cause": "test-drift",
    "note": "asserts a control-write line count that drifted as the motor path changed"
-  },
-  {
-   "id": "tests/test_spin_loop_fix.py::TestLoopScoreBounded::test_loop_score_zero_on_fresh_exploration",
-   "cause": "real-bug",
-   "note": "SpatialMemoryMap.loop_score returns 1.0 after 200 distinct cells; either the metric or the test's grid-clamp assumption is wrong"
   },
   {
    "id": "tests/test_trajectory_height.py::test_trajectory_html_wiring",

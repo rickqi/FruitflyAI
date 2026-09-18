@@ -1,6 +1,6 @@
 # EvolutionSkill — Self-Evolving Motion Diagnosis
 
-> 当前版本：BRAIN_VERSION **2.23.6** / SKILL_VERSION **3.4.1**（EVO-062 死控件 → EVO-065 课程三态判定 → EVO-066 契约审计（死旋钮清理、Phase 6 搜索空间 21→7）→ EVO-067 双环实测（Phase 6 提交率 2.27%、62.5% 试验精确零 delta → 已补分量与 same_sample 仪表；P4.4 阻塞为证据量）→ EVO-068 验证基线（回归可探测：36 条全部带成因，新回归立即以 NEW 冒头）。完整逐轮记录见 skills/evolution_history.json）
+> 当前版本：BRAIN_VERSION **2.23.7** / SKILL_VERSION **3.4.2**（EVO-066 契约审计（死旋钮清理、Phase 6 搜索空间 21→7）→ EVO-067 双环实测（Phase 6 提交率 2.27%、62.5% 试验精确零 delta → 已补分量与 same_sample 仪表）→ EVO-068 验证基线（回归可探测：36 条带成因，新回归以 NEW 冒头）→ EVO-071 Phase 6 根因修复（适应度 40% 权重读的是 SensorSample 上不存在的字段，被 getattr 静默归零，0.03 门槛不可达；现从真实字段派生 + missing_inputs 上报）＋两处测试误判更正＋“已声明未实现”30 项登记册。完整逐轮记录见 skills/evolution_history.json）
 
 **Version**: 3.0.0
 **Status**: Active

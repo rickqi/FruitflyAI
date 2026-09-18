@@ -188,6 +188,22 @@ Windows 套件长期带约 **40 个未分类失败**。为回答唯一重要的�
 > 累计发现："先写愿景、未实现"模式的条目已达 **29 项**（`aspirational` 测试 15 + EVO-066 的未接参数 14）。建议后续做成一张"已声明未实现"清单，逐项决定**实现**或**正式废弃**。
 
 **版本轨**：仅测试质量、脚本与文档，不改生产代码，故**不递增版本**（沿用 brain 2.23.5 / skill 3.4.1）。
+
+## 2026-09-18: EVO-071 — Skill v3.4.2（Phase 6 适应度根因修复 + 四条建议执行）
+
+### Phase 6 根因：适应度函数 40% 权重读的是不存在的字段
+
+EVO-067 上线的 `fitness_components` 仪表在 34 条唯一试验中暴露出**决定性的归因数据**（`scripts/attribute_phase6_failures.py`）：四个字段（`coverage_rate` / `first_contact_rate` / `novelty` / `revisit_ratio`）在 34 次试验中**零次变化**——因为 `SensorSample` **根本没有它们**，`getattr(sample, name, default)` 静默归零。40% 的适应度权重因此永远是常量，123 次试验仅 3 次提交。
+
+修复：全部从 `visited_cells` / `revisit_count` / `forward_speed` / `loop_score` 派生，新增 `missing_inputs` 上报，`evaluate()` 传入基线样本算窗口内速率。
+
+### 四条建议落地
+
+- **本能趋势跟踪**：`--snapshot` / `--trend` 已就绪。当前趋势：`promoted 1→2`、`signature_reuse_rate 8.3%→11.9%`。
+- **两处误判更正**：`test_spin_loop_fix`（update 签名误用）与 `test_optic_flow`（缺 `pos_y`）均非 real-bug，实为 test-drift。
+- **登记册**：31 项（16 愿景测试 + 14 未接参数 + 1 架构愿景），见 `docs/declared-not-implemented.md`。
+- **架构审计**：`model.py` 66 处运动池电流注入，`test_no_visual_motor_shortcut` 不变量按设计不成立 → aspirational。
+
 ## 2026-09-17: EVO-057 — Brain v2.22.0（CX 持续环路确定性破解）
 
 `circle_loop` 可持续数分钟不破：CX 的探索游走是 ~10s 正弦扫掠，频率远低于紧致轨道。工作树中另有一段"强制随机跳列"代码试图解决它，但**从未生效**——两个各自独立的死因，加上一个契约破坏：

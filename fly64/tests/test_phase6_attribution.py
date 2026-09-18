@@ -24,43 +24,88 @@ from skills.evolution_skill import BrainMutator  # noqa: E402
 
 
 class FakeSample:
+    """Carries the fields the REAL SensorSample has (EVO-072), plus the four
+    phantom ones so the legacy oracle can still be exercised."""
+
     def __init__(self, **kw):
         self.timestamp = kw.pop("timestamp", 1000.0)
         self.coverage_pct = kw.pop("coverage_pct", 10.0)
         self.stuck_duration = kw.pop("stuck_duration", 5.0)
-        self.novelty = kw.pop("novelty", 0.5)
         self.health_score = kw.pop("health_score", 0.7)
-        self.coverage_rate = kw.pop("coverage_rate", 0.01)
-        self.first_contact_rate = kw.pop("first_contact_rate", 0.002)
-        self.revisit_ratio = kw.pop("revisit_ratio", 0.1)
+        # real, derivation sources
+        self.loop_score = kw.pop("loop_score", 0.3)
+        self.visited_cells = kw.pop("visited_cells", 400)
+        self.revisit_count = kw.pop("revisit_count", 40)
+        self.forward_speed = kw.pop("forward_speed", 0.01)
+        # phantom fields the OLD expression read (kept for the legacy oracle)
+        self.novelty = kw.pop("novelty", None)
+        self.coverage_rate = kw.pop("coverage_rate", None)
+        self.first_contact_rate = kw.pop("first_contact_rate", None)
+        self.revisit_ratio = kw.pop("revisit_ratio", None)
 
 
 def _reference_fitness(s):
-    """The pre-refactor expression, verbatim — the equivalence oracle."""
-    cov = min(getattr(s, "coverage_pct", 0) / 50.0, 1.0) * 0.30
-    unstuck = (1.0 - min(getattr(s, "stuck_duration", 0) / 120.0, 1.0)) * 0.20
-    nov = min(getattr(s, "novelty", 0), 1.0) * 0.10
-    health = max(0.0, min(getattr(s, "health_score", 0.5), 1.0)) * 0.15
-    speed = min(getattr(s, "coverage_rate", 0) * 100, 0.5) * 0.10
-    fcr = min(getattr(s, "first_contact_rate", 0) * 100, 1.0) * 0.10
-    rr = getattr(s, "revisit_ratio", 0.0)
+    """The PRE-EVO-072 expression, verbatim — the audit oracle.
+
+    Reproduces the old behaviour including its silent defaults: a None phantom
+    field was coerced by `getattr(..., 0)` / `0.0`, which is exactly the defect.
+    """
+    def g(name, default):
+        v = getattr(s, name, None)
+        return default if v is None else v
+
+    cov = min(g("coverage_pct", 0) / 50.0, 1.0) * 0.30
+    unstuck = (1.0 - min(g("stuck_duration", 0) / 120.0, 1.0)) * 0.20
+    nov = min(g("novelty", 0), 1.0) * 0.10
+    health = max(0.0, min(g("health_score", 0.5), 1.0)) * 0.15
+    speed = min(g("coverage_rate", 0) * 100, 0.5) * 0.10
+    fcr = min(g("first_contact_rate", 0) * 100, 1.0) * 0.10
+    rr = g("revisit_ratio", 0.0)
     rp = max(0.0, (rr - 0.2) * 2.0) * 0.05
     return round(cov + unstuck + nov + health + speed + fcr - rp, 4)
 
 
-class TestFitnessIsUnchangedByTheRefactor:
+class TestFitnessArithmetic:
+    """EVO-067 pinned the ORIGINAL expression; EVO-072 deliberately replaced it.
+
+    The old expression read four attributes `SensorSample` does not have
+    (coverage_rate, first_contact_rate, novelty, revisit_ratio), so
+    `getattr(..., default)` silently zeroed 40% of the weight and the 0.03 pass
+    gate was unreachable.  The pre-fix expression is kept as
+    `_legacy_fitness_components` for audit, and these tests now pin the NEW
+    contract: the oracle reproduces the old numbers, the new formula is a strict
+    improvement on the same sample, and it is monotone in the signals it uses.
+    """
+
+    def test_legacy_oracle_reproduces_the_old_numbers(self):
+        m = BrainMutator()
+        for kw in ({}, {"coverage_pct": 10.0, "stuck_duration": 30.0},
+                   {"health_score": 1.4}, {"revisit_ratio": 0.9}):
+            s = FakeSample(**kw)
+            c = m._legacy_fitness_components(s)
+            legacy = (c["coverage"] + c["unstuck"] + c["novelty"] + c["health"]
+                      + c["speed"] + c["first_contact"] - c["revisit_penalty"])
+            assert round(legacy, 4) == _reference_fitness(s), (
+                "the legacy oracle must keep reproducing the pre-EVO-072 value")
+
     @pytest.mark.parametrize("kw", [
-        {},
-        {"coverage_pct": 0.0, "stuck_duration": 300.0, "health_score": 0.0},
-        {"coverage_pct": 100.0, "novelty": 1.0, "coverage_rate": 0.5,
-         "first_contact_rate": 0.2, "revisit_ratio": 0.9},
-        {"novelty": -0.3, "health_score": 1.4, "revisit_ratio": 0.2},
-        {"revisit_ratio": 0.2000001},
+        {}, {"coverage_pct": 0.0, "stuck_duration": 300.0, "health_score": 0.0},
+        {"health_score": 1.4},
     ])
-    def test_matches_the_pre_refactor_expression(self, kw):
+    def test_new_formula_is_never_worse_when_the_phantoms_are_absent(self, kw):
+        """The real-world case: the four phantom fields do not exist.
+
+        Then the old expression scored each of them 0, so deriving them from real
+        fields can only add signal.  (If a phantom field were given a NON-zero
+        value the legacy formula would earn credit that the derived path does not
+        reproduce — but that state never occurs, because SensorSample has no such
+        field.  `test_legacy_oracle_reproduces_the_old_numbers` covers the oracle
+        itself.)
+        """
         m = BrainMutator()
         s = FakeSample(**kw)
-        assert m.fitness(s) == _reference_fitness(s)
+        new = m.fitness(s)
+        assert new >= _reference_fitness(s) - 1e-9, (new, _reference_fitness(s))
 
     def test_none_sample_is_zero(self):
         assert BrainMutator().fitness(None) == 0.0
@@ -69,8 +114,8 @@ class TestFitnessIsUnchangedByTheRefactor:
     def test_components_sum_to_fitness(self):
         m = BrainMutator()
         s = FakeSample(coverage_pct=42.0, stuck_duration=33.0, novelty=0.8,
-                       health_score=0.55, coverage_rate=0.03,
-                       first_contact_rate=0.004, revisit_ratio=0.35)
+                       health_score=0.55, forward_speed=0.03,
+                       visited_cells=600, revisit_count=60, timestamp=10.0)
         c = m.fitness_components(s)
         total = (c["coverage"] + c["unstuck"] + c["novelty"] + c["health"]
                  + c["speed"] + c["first_contact"] - c["revisit_penalty"])
@@ -86,6 +131,8 @@ class TestDiagnosticsAreRecorded:
         assert raw["coverage_pct"] == 7.0
         assert raw["stuck_duration"] == 5.0
         assert isinstance(raw["sample_fields"], list)
+        assert "missing_inputs" in c, (
+            "the components must name any input that had no data")
 
     def test_evaluate_records_components_and_same_sample_flag(self, monkeypatch):
         m = BrainMutator()

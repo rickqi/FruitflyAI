@@ -17,12 +17,13 @@ Sources: `known_failures.win32.json` (aspirational tests), `skills/brain_tunable
 
 ---
 
-## 1. Tests asserting unimplemented features — 15 entries
+## 1. Tests asserting unimplemented features — 16 entries
 
 | test file | # | what is declared | evidence | Decision |
 |---|---|---|---|---|
 | `tests/test_what_i_see_protocol.py` | 10 | test_build_request_with_scene_context | ENHANCED_PROMPT_TEMPLATE / build_consult_request(SceneContext) / StrategyWriter(scene_tags) / parse_response(semantic_level) do not exist in plugin/ll | _implement / retire_ |
 | `tests/test_mbon_saturation.py` | 5 | test_absolute_override_at_095 | _saturation_recovery_counter / _saturation_recovered appear NOWHERE in fly64|plugin|skills; MushroomBody has a different mechanism (_saturation_frames | _implement / retire_ |
+| `tests/test_invariants.py` | 1 | test_no_visual_motor_shortcut | architectural invariant violated by design: fly64/model.py injects current into motor pools from 66 sites (79%% guarded, 7 visually gated). Measured b | _implement / retire_ |
 
 ## 2. Unwired tunable parameters — 14 entries
 
@@ -86,10 +87,10 @@ Decision: _retire invariant / continue takeover_.
 
 | source | entries |
 |---|---|
-| aspirational tests | 15 |
+| aspirational tests | 16 |
 | unwired tunable parameters | 14 |
 | architectural aspirations | 1 |
-| **total awaiting a decision** | **30** |
+| **total awaiting a decision** | **31** |
 
 Note: this register deliberately lists only things with **zero**
 implementation.  Partially implemented items (e.g. the 3 `test-drift` and the
