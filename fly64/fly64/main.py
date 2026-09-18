@@ -1891,7 +1891,7 @@ async def run(args) -> None:
                     and apply_action_entropy(
                         control,
                         novelty=memory_ctrl.novelty,
-                        loop_score=memory_ctrl.loop_score,
+                        loop_score=memory_ctrl.spatial.loop_score,
                         stuck_duration=memory_ctrl.stuck_duration,
                         rng=model.rng)):
                 action_entropy_applied = True
