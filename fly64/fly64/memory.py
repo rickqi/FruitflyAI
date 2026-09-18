@@ -1376,6 +1376,7 @@ class ReflexController:
                  cooldown_duration: float = 5.0,
                  stuck_ramp_duration: float = 1.5,
                  oscillating_duration: float = 2.0,
+                 oscillating_burst_duration: float = 3.0,
                  wall_stuck_reverse_duration: float = 0.3,
                  wall_stuck_turn_duration: float = 0.8,
                  micro_loop_duration: float = 2.0):
@@ -1383,6 +1384,7 @@ class ReflexController:
         self.cooldown_duration = cooldown_duration
         self.stuck_ramp_duration = stuck_ramp_duration
         self.oscillating_duration = oscillating_duration
+        self.oscillating_burst_duration = oscillating_burst_duration
         self.wall_stuck_reverse_duration = wall_stuck_reverse_duration
         self.wall_stuck_turn_duration = wall_stuck_turn_duration
         self.micro_loop_duration = micro_loop_duration
@@ -1586,9 +1588,14 @@ class ReflexController:
                 self._phase_timer = 0.0
 
         elif rt == self.OSCILLATING:
-            if timer >= j(self.oscillating_duration):
-                self._active_reflex = ""
-                self._phase_timer = 0.0
+            if self._reflex_phase == "hold":
+                if timer >= j(self.oscillating_duration):
+                    self._reflex_phase = "burst"
+                    self._phase_timer = 0.0
+            elif self._reflex_phase == "burst":
+                if timer >= j(self.oscillating_burst_duration):
+                    self._active_reflex = ""
+                    self._phase_timer = 0.0
 
         elif rt == self.WALL_STUCK:
             if self._reflex_phase == "reverse" and timer >= j(self.wall_stuck_reverse_duration):
@@ -1641,6 +1648,10 @@ class ReflexController:
             if phase == "hold":
                 cx = self._turn_direction
                 cy = 70
+            elif phase == "burst":
+                cx = 0
+                cy = 70
+                jump = True
 
         elif rt == self.WALL_STUCK:
             if phase == "reverse":
