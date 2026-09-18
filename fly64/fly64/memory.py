@@ -1418,6 +1418,15 @@ class ReflexController:
 
     # ---- helpers -----------------------------------------------------------
 
+    @staticmethod
+    def _jittered(val: float, stuck_duration: float,
+                  rng_choice, max_jitter: float = 0.3) -> float:
+        """Apply ±max_jitter uniform jitter to *val* when stuck > 30 s."""
+        if stuck_duration <= 30.0:
+            return val
+        pct = rng_choice(0, 1001) / 1000.0
+        return val * (1.0 + (pct - 0.5) * 2.0 * max_jitter)
+
     # ---- public API --------------------------------------------------------
 
     def update(self, dt: float, anomaly_state: dict,
@@ -1458,7 +1467,8 @@ class ReflexController:
         # If a reflex is already active, advance its phase timer
         if self._active_reflex:
             self._phase_timer += dt
-            self._advance_phase()
+            self._advance_phase(rng_choice=rng_choice,
+                                stuck_duration=stuck_duration)
             return self._active_reflex
 
         # Check if a new reflex should fire
@@ -1554,43 +1564,39 @@ class ReflexController:
 
         return reflex_type
 
-    def _advance_phase(self) -> None:
+    def _advance_phase(self, rng_choice=None,
+                       stuck_duration: float = 0.0) -> None:
         """Advance the active reflex through its phase sequence."""
         rt = self._active_reflex
         timer = self._phase_timer
+        if rng_choice is not None:
+            j = lambda v: self._jittered(v, stuck_duration, rng_choice)
+        else:
+            j = lambda v: v
 
         if rt == self.STUCK_RAMP:
-            # Single phase: forward burst for stuck_ramp_duration
-            if timer >= self.stuck_ramp_duration:
+            if timer >= j(self.stuck_ramp_duration):
                 self._active_reflex = ""
                 self._phase_timer = 0.0
 
         elif rt == self.OSCILLATING:
-            # Single phase: hold turn for oscillating_duration
-            if timer >= self.oscillating_duration:
+            if timer >= j(self.oscillating_duration):
                 self._active_reflex = ""
                 self._phase_timer = 0.0
 
         elif rt == self.WALL_STUCK:
-            # Phase 1: reverse, Phase 2: opposite turn
-            if self._reflex_phase == "reverse" and timer >= self.wall_stuck_reverse_duration:
+            if self._reflex_phase == "reverse" and timer >= j(self.wall_stuck_reverse_duration):
                 self._reflex_phase = "turn"
-                self._turn_direction = -self._turn_direction  # opposite turn
+                self._turn_direction = -self._turn_direction
                 self._phase_timer = 0.0
-            elif self._reflex_phase == "turn" and timer >= self.wall_stuck_turn_duration:
+            elif self._reflex_phase == "turn" and timer >= j(self.wall_stuck_turn_duration):
                 self._active_reflex = ""
                 self._phase_timer = 0.0
 
         elif rt == self.MICRO_LOOP:
-            # Phase 1: turn (with CX steering bias to break heading cancellation),
-            # Phase 2: forward burst.
-            # EVO R28: mix cx_bias into turn direction so alternation doesn't
-            # perfectly cancel the heading.
             _cx_turn = getattr(self, '_last_cx_bias', 0.0)
-            # (÷ breakout scale) and hands the budget to the forward burst —
-            # the reflex keeps ownership, the brain biases the mix.
             turn_dur = max(0.15, 0.5 / self._breakout_scale)
-            burst_dur = max(0.5, self.micro_loop_duration - turn_dur)
+            burst_dur = max(0.5, j(self.micro_loop_duration) - turn_dur)
             if self._reflex_phase == "turn" and timer >= turn_dur:
                 self._reflex_phase = "burst"
                 self._phase_timer = 0.0
