@@ -1,116 +1,150 @@
-/* 脑参数进化仪表板 (evo-params.html) */
+<!doctype html>
+<html lang="zh">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>🧬 Fly64 Evolution & Parameter Panel</title>
+<style>
 :root{color-scheme:dark;--bg:#0f1419;--panel:#131c24;--line:#2a3440;--ink:#edf1f5}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.5 -apple-system,sans-serif;padding:20px}
-h1{font-size:18px;margin:0 0 4px;color:#6cdaed}
-.sub{color:#aebac7;font-size:12px;margin-bottom:18px}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px}
+body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.5 -apple-system,sans-serif;padding:20px;min-width:600px}
+h1{font-size:18px;margin:0;color:#6cdaed}
+.sub{color:#aebac7;font-size:12px;margin:4px 0 16px}
+.intro{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin-bottom:14px;font-size:12px;line-height:1.5}
+.intro h3{font-size:13px;font-weight:600;margin:0 0 6px;color:#ffca72}
+.intro p{margin:0 0 4px;color:#aebac7}.intro code{background:#1a2430;border-radius:2px;padding:1px 5px;font-size:11px;color:#6cdaed}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px;margin-bottom:12px}
 .card h2{font-size:13px;margin:0 0 8px;color:#aebac7;font-weight:600;display:flex;justify-content:space-between}
 .card h2 span{color:var(--ink)}
-.param-row{display:grid;grid-template-columns:1fr 120px;gap:6px;margin-bottom:6px;align-items:center}
-.param-row label{font-size:12px;color:#aebac7}
-.param-row .val{font-size:12px;font-variant-numeric:tabular-nums;text-align:right;color:#6cdaed;white-space:nowrap}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+.stat-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;text-align:center}.stat{background:var(--bg);border-radius:4px;padding:6px 4px}
+.stat .n{font-size:20px;font-weight:600;color:#6cdaed;display:block}.stat .l{font-size:10px;color:#aebac7}
+.stat .n.gold{color:#ffca72}.stat .n.green{color:#7dff9d}.stat .n.red{color:#ff3c3c}
+.param-row{display:grid;grid-template-columns:1fr 100px 180px;gap:6px;margin-bottom:6px;align-items:center;padding:4px 0;border-bottom:1px solid #1a2430}
+.param-row label{font-size:12px;color:#aebac7}.param-row .val{font-size:12px;text-align:right;color:#6cdaed;font-variant-numeric:tabular-nums}
 .param-row input[type=range]{width:100%;height:4px;accent-color:#6cdaed;cursor:pointer;background:var(--line);border-radius:2px;appearance:none;margin:0}
 .param-row input[type=range]::-webkit-slider-thumb{appearance:none;width:12px;height:12px;border-radius:50%;background:#6cdaed;border:none;cursor:pointer}
-.stat-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;text-align:center}
-.stat{background:var(--bg);border-radius:4px;padding:6px 4px}
-.stat .n{font-size:20px;font-weight:600;color:#6cdaed;display:block}
-.stat .l{font-size:10px;color:#aebac7}.stat .n.gold{color:#ffca72}.stat .n.green{color:#7dff9d}.stat .n.red{color:#ff3c3c}
+.param-row.inert{opacity:.45}.param-row.inert label{color:#536170}.param-row .desc{font-size:9px;color:#536170;grid-column:1/2;margin-top:-2px}
 .trial-row{display:flex;gap:8px;align-items:center;padding:4px 0;border-bottom:1px solid var(--line);font-size:11px}
-.trial-row.passed .delta{color:#7dff9d}.trial-row.failed .delta{color:#ff7a7a}.trial-row .iter{color:#536170;width:36px}
-.trial-row .delta{font-variant-numeric:tabular-nums;width:60px;font-weight:600}
-.trial-row .score{color:#aebac7;width:80px}.trial-row .params{color:#536170;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-canvas{display:block;width:100%;height:80px}
+.trial-row.passed .delta{color:#7dff9d}.trial-row.failed .delta{color:#ff7a7a}
+.trial-row .iter{color:#536170;width:36px}.trial-row .delta{width:60px;font-weight:600}
+.trial-row .score{color:#aebac7;width:80px}
+canvas{display:block;width:100%;height:72px;margin-bottom:8px;border-radius:3px}
 .btn{background:transparent;color:var(--ink);border:1px solid var(--line);border-radius:3px;font:inherit;font-size:12px;padding:4px 10px;cursor:pointer}
-.btn:hover{border-color:#6cdaed}
-.badge{padding:2px 8px;border-radius:9px;font-size:10px;font-weight:500}
-.badge.high{background:#2a8a3a;color:#fff}.badge.mid{background:#b8860b;color:#fff}.badge.low{background:#8b2020;color:#fff}
+a.btn{text-decoration:none;display:inline-block}
 .msg{font-size:12px;color:#7dff9d;margin-top:8px}
+.tag{display:inline-block;font-size:9px;background:#1a2430;border-radius:6px;padding:1px 6px;margin-left:4px;color:#536170}
+.fade{color:#536170;font-size:11px;text-align:right;margin-top:6px}
 </style>
 </head>
 <body>
 <h1>🧬 Evolution & Brain Parameter Panel</h1>
-<p class="sub">Live view of <code>active_strategy.json</code> tunable parameters · evolution trial history · <span id="brainVer">Brain</span> <span id="skillVer">Skill</span></p>
+<p class="sub">
+<span id="brainVer">Brain v—</span> · <span id="skillVer">Skill v—</span> ·
+自 <a href="/evo-params.html" style="color:#6cdaed">commit 2202d1e</a>（2026-09-17，三条轨道 B+A+C）
+</p>
+
+<div class="intro">
+<h3>📋 用途说明</h3>
+<p>
+此面板是 <b>BrainMutator 进化循环的可视化前端</b>，在提交 <code>2202d1e</code>（B+A+C 三条轨道）中新增。
+它允许你：
+</p>
+<p>
+🔧 <b>实时调参</b> —— 下方的滑块直接写入 <code>active_strategy.json</code>，脑模型每 ~600 tick（≈12s）热重载生效。
+标有「未接线」的参数在脑模型中无消费者，调节不会改变行为。使用前确认参数是否已接线。
+</p>
+<p>
+📈 <b>监测进化试验</b> —— 右侧散点图展示 BrainMutator 最近 50 次参数突变的 <code>delta</code>（适应度变化），
+绿点 = 提交优胜参数，红点 = 回滚——新参数真正生效需要先有试验记录。
+</p>
+<p>
+🏥 <b>状态速览</b> —— Health / Stuck / Novelty / Stall ratio / Loop / Coverage / Cells / Edges 实时读数。
+<a href="/" style="color:#6cdaed">返回监控面板</a> · <a href="/monitor-preview.html" style="color:#6cdaed">布局预览</a>
+</p>
+</div>
+
 <div class="grid">
-  <div id="statusCard" class="card"><h2>🏥 Status</h2>
-    <div class="stat-row"><div class="stat"><span class="n" id="svHealth">—</span><span class="l">Health</span></div>
-    <div class="stat"><span class="n" id="svStuck">—</span><span class="l">Stuck/s</span></div>
-    <div class="stat"><span class="n" id="svNovelty">—</span><span class="l">Novelty</span></div>
-    <div class="stat"><span class="n" id="svStall">—</span><span class="l">Stall ratio</span></div></div>
-    <div class="stat-row" style="margin-top:6px;grid-template-columns:repeat(4,1fr)">
-    <div><span class="n" id="svLoop">—</span><span class="l">Loop</span></div>
-    <div><span class="n" id="svCover">—</span><span class="l">Coverage %</span></div>
-    <div><span class="n" id="svCells">—</span><span class="l">Cells</span></div>
-    <div><span class="n" id="svEdges">—</span><span class="l">Edges</span></div></div>
+  <div class="card">
+    <h2>🏥 导航健康状态</h2>
+    <div class="stat-row">
+      <div class="stat"><span class="n" id="svHealth">—</span><span class="l">Health</span></div>
+      <div class="stat"><span class="n" id="svStuck">—</span><span class="l">Stuck/s</span></div>
+      <div class="stat"><span class="n" id="svNovelty">—</span><span class="l">Novelty</span></div>
+      <div class="stat"><span class="n" id="svStall">—</span><span class="l">Stall</span></div>
+    </div>
+    <div class="stat-row" style="margin-top:8px">
+      <div><span class="n" id="svLoop">—</span><span class="l">Loop</span></div>
+      <div><span class="n" id="svCover">—</span><span class="l">Cov%</span></div>
+      <div><span class="n" id="svCells">—</span><span class="l">Cells</span></div>
+      <div><span class="n" id="svEdges">—</span><span class="l">Edges</span></div>
+    </div>
   </div>
-  <div id="evoCard" class="card"><h2>🧬 Evolution Trials <span id="trialCount">0</span></h2>
+  <div class="card">
+    <h2>🧬 进化试验 <span id="trialCount">0</span></h2>
     <canvas id="evoChart"></canvas>
     <div id="trialList"></div>
   </div>
 </div>
-<div class="card" style="margin-top:12px">
-  <h2>🔧 Exploration Parameters <span><span id="paramCount">0</span> <span style="color:#536170;font-size:11px">(slider → auto-commit to active_strategy.json)</span></span></h2>
+
+<div class="card">
+  <h2>🔧 可调参数 <span><span id="paramCount">0</span> <span class="fade">滑块调节 → POST /active_strategy-update → 主循环 ~12s 热重载</span></span></h2>
   <div id="paramsBody"></div>
   <div id="paramMsg" class="msg"></div>
 </div>
 
 <script>
 const $=id=>document.getElementById(id);
-const CYAN='#6cdaed',GOLD='#ffca72',PURPLE='#9d7bff',GREEN='#7dff9d',RED='#ff3c3c',MUTED='#aebac7',BG='#0f1419';
+const CYAN='#6cdaed',GOLD='#ffca72',GREEN='#7dff9d',RED='#ff3c3c',MUTED='#aebac7';
 let paramsData={},tunables={};
-
 async function get(p){const r=await fetch(p,{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);return r.json();}
 
 function drawTrials(trials){
-  const cv=$('evoChart'),d=Math.min(devicePixelRatio||1,2),w=cv.clientWidth,h=80;cv.width=w*d;cv.height=h*d;
-  const ctx=cv.getContext('2d');ctx.setTransform(d,0,0,d,0,0);ctx.clearRect(0,0,w,h);
+  const cv=$('evoChart'),d=Math.min(devicePixelRatio||1,2),w=cv.clientWidth,h=72;
+  cv.width=w*d;cv.height=h*d;const ctx=cv.getContext('2d');ctx.setTransform(d,0,0,d,0,0);
+  ctx.clearRect(0,0,w,h);
   if(trials.length<2)return;
-  const left=8,right=w-12,top=14,bottom=h-6;
+  const left=8,right=w-12,top=12,bottom=h-4;
   const vals=trials.map(t=>t.delta||0);const mn=Math.min(...vals,0),mx=Math.max(...vals,1),span=Math.max(mx-mn,0.01);
   const x=i=>left+(i/(trials.length-1))*(right-left),y=v=>bottom-(v-mn)/span*(bottom-top);
-  for(const v of[mn,mx]){const yy=y(v);ctx.fillStyle='#2a3440';ctx.strokeStyle='#2a3440';ctx.lineWidth=0.5;
+  for(const v of[mn,mx]){const yy=y(v);ctx.fillStyle='#2a3440';ctx.strokeStyle='#2a3440';ctx.lineWidth=.5;
     ctx.beginPath();ctx.moveTo(left,yy);ctx.lineTo(right,yy);ctx.stroke();ctx.fillStyle='#536170';ctx.font='8px sans-serif';ctx.fillText(v.toFixed(2),right-26,yy-2);}
-  trials.forEach((t,i)=>{
-    ctx.fillStyle=t.passed?GREEN:RED;ctx.beginPath();ctx.arc(x(i),y(t.delta||0),2.5,0,7);ctx.fill();
-  });
+  trials.forEach((t,i)=>{ctx.fillStyle=t.passed?GREEN:RED;ctx.beginPath();ctx.arc(x(i),y(t.delta||0),2.5,0,7);ctx.fill();});
 }
+
 function renderParams(active,original){
-  const body=$('paramsBody');body.innerHTML='';
-  let count=0,inert=0;
-  for(const [pid,meta] of Object.entries(tunables)){    const cur=active[pid]!=null?active[pid]:meta.default;
-    const row=document.createElement('div');row.className='param-row';
-    // wired===false: verified to have no consumer anywhere in the brain, so
-    // moving this slider cannot change behaviour.  It is rendered disabled and
-    // labelled instead of silently doing nothing (the panel used to report a
-    // check mark for such writes). See skills/brain_tunable_params.json
-    // wired_note and scripts/audit_contract_pairs.py.
-    if(meta.wired===false){row.classList.add('inert');inert++}
+  const body=$('paramsBody');body.innerHTML='';let count=0,inert=0;
+  for(const [pid,meta] of Object.entries(tunables)){
+    const cur=active[pid]!=null?active[pid]:meta.default;
+    const row=document.createElement('div');row.className='param-row'+(meta.wired===false?' inert':'');
+    if(meta.wired===false)inert++;
     const label=document.createElement('label');
-    label.textContent=(meta.label||pid)+(meta.wired===false?' · 未接线':'');   // 未接线 = not wired
-    const range=document.createElement('input');range.type='range';range.min=meta.min;range.max=meta.max;range.step=(meta.max-meta.min)/100;range.value=cur;
-    if(meta.wired===false){range.disabled=true;range.title='该参数在脑中无任何消费者，调节不会改变行为（未接线）'}
+    label.textContent=(meta.label||pid)+(meta.wired===false?' · 未接线':'');
     const val=document.createElement('span');val.className='val';val.textContent=Number(cur).toFixed(3);
-    range.oninput=async function(){val.textContent=Number(this.value).toFixed(3);
+    const range=document.createElement('input');range.type='range';range.min=meta.min;range.max=meta.max;
+    range.step=(meta.max-meta.min)/100;range.value=cur;
+    if(meta.wired===false){range.disabled=true;range.title='该参数在脑中无消费者，调节无效'}
+    else{range.oninput=async function(){val.textContent=Number(this.value).toFixed(3);
       try{await fetch('/active_strategy-update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({[pid]:Number(this.value)})});
-        $('paramMsg').textContent='✓ '+pid.replace('exploration.','')+' = '+Number(this.value).toFixed(3)}catch(e){$('paramMsg').textContent='⚠ '+e.message}};
+      $('paramMsg').textContent='✓ '+pid.replace('exploration.','')+' = '+Number(this.value).toFixed(3)}catch(e){$('paramMsg').textContent='⚠ '+e.message}};}
+    const desc=document.createElement('div');desc.className='desc';desc.textContent=(meta.description||'').slice(0,80);
     row.appendChild(label);row.appendChild(val);row.appendChild(range);
+    if(meta.description)row.appendChild(desc);
     body.appendChild(row);count++;
   }
   $('paramCount').textContent=inert?(count+' ('+inert+' 未接线)'):count;
 }
+
 function renderTrials(trials){
-  $('trialCount').textContent=trials.length;
-  drawTrials(trials);
+  $('trialCount').textContent=trials.length;drawTrials(trials);
   const list=$('trialList');list.innerHTML='';
   for(const t of trials.slice().reverse().slice(-40)){
     const row=document.createElement('div');row.className='trial-row '+(t.passed?'passed':'failed');
     row.innerHTML='<span class=iter>#'+(t.iteration||'')+'</span><span class=delta>'+(t.delta>0?'+':'')+(t.delta||0).toFixed(3)+'</span><span class=score>'+(t.passed?'COMMIT':'rollback')+'</span>';
-    list.appendChild(row);
-  }
+    list.appendChild(row);}
 }
+
 function renderHealth(m){
-  $('svHealth').textContent=typeof m.health_score=='number'?Math.round(m.health_score*100)+'%':'—';
+  const h=m.health_score,d=typeof h=='number'?Math.round(h*100)+'%':'—';
+  $('svHealth').textContent=d; $('svHealth').className='n'+(h<0.3?' red':h<0.6?' gold':' green');
   $('svStuck').textContent=m.stuck_duration!=null?Math.round(m.stuck_duration)+'s':'—';
   $('svNovelty').textContent=m.novelty!=null?Number(m.novelty).toFixed(2):'—';
   $('svStall').textContent=m.stall_ratio!=null?Number(m.stall_ratio).toFixed(2):'—';
@@ -119,28 +153,25 @@ function renderHealth(m){
   $('svCells').textContent=m.visited_cells||'—';
   $('svEdges').textContent=m.adjacency_edges||'—';
 }
+
 async function refresh(){
   try{const m=await get('/memory.json');renderHealth(m);
     const s=await get('/active_strategy.json');
-    if(s.exploration&&Object.keys(s.exploration).length){
-      paramsData=s.exploration;
+    if(s.exploration&&Object.keys(s.exploration).length){paramsData=s.exploration;
       if(!$('paramsBody').innerHTML)renderParams(s.exploration,tunables);}
     const t=await get('/evolution-log.json');
     if(Array.isArray(t)&&t.length)renderTrials(t);
   }catch(e){console.warn('refresh',e);}
 }
+
 async function load(){
   try{const t=await get('/brain_tunable_params.json');
     tunables={};
     for(const [pid,meta] of Object.entries(t.params||{})){
-      const d=meta.description||'';const aliases=meta.aliases||[];
-      tunables[pid]={label:pid.replace('exploration.','')+(aliases.length?' ⚡':''),description:d,min:meta.min||0,max:meta.max||1,default:meta.default||0,wired:meta.wired!==false};}
+      tunables[pid]={label:pid.replace('exploration.',''),description:meta.description||'',min:meta.min||0,max:meta.max||1,default:meta.default||0,wired:meta.wired!==false};}
     await refresh();
   }catch(e){console.warn('load',e);}
-  try{const f=await get('/flow.json');
-    if(f.brain_version)$('brainVer').textContent='v'+f.brain_version;
-    if(f.skill_version)$('skillVer').textContent='v'+f.skill_version;
-  }catch(e){}
+  try{const f=await get('/flow.json');if(f.brain_version)$('brainVer').textContent='v'+f.brain_version;if(f.skill_version)$('skillVer').textContent='v'+f.skill_version;}catch(e){}
 }
 load();
 setInterval(refresh,5000);
