@@ -36,7 +36,7 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.23.9"  # t27 P0: MBON steep homeostatic scaling - hard-saturation channels recover <0.8
+BRAIN_VERSION = "2.23.10"  # t28 P1: action entropy - Gaussian stick noise N(0,min(30,stuck/10)) in dead-end loops
 SKILL_VERSION = "3.4.2"   # EVO-071: Phase 6 fitness reads fields that exist (must mirror evolution_skill)
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
@@ -693,6 +693,39 @@ def resolve_decision_source(*, dlg_now: bool, cliff_triggered: bool,
     if jump:
         return "jump"
     return "steering"
+
+
+def action_entropy_sigma(stuck_duration: float) -> float:
+    """t28: entropy sigma grows with how long the brain has been stuck.
+
+    stuck=60s -> sigma 6; stuck=300s+ -> sigma 30 (capped).
+    """
+    return min(30.0, max(0.0, stuck_duration) / 10.0)
+
+
+def apply_action_entropy(control, *, novelty: float, loop_score: float,
+                         stuck_duration: float, rng) -> bool:
+    """t28 P1: inject Gaussian action entropy into control.x/y.
+
+    Fires when the brain is trapped in a fixed-mode loop (novelty < 0.1 AND
+    loop_score > 0.7): N(0, sigma) with sigma = min(30, stuck_duration/10)
+    gives the network a chance to stumble onto a new action combination.
+    The longer it has been stuck, the wilder the exploration.  Returns True
+    when noise was applied (decision_source gets the '+action_entropy' tag).
+    """
+    if novelty >= 0.1 or loop_score <= 0.7:
+        return False
+    sigma = action_entropy_sigma(stuck_duration)
+    if sigma <= 0:
+        return False
+    try:
+        dx = float(rng.normal(0.0, sigma))
+        dy = float(rng.normal(0.0, sigma))
+    except Exception:
+        return False
+    control.x = int(np.clip(round(control.x + dx), -80, 80))
+    control.y = int(np.clip(round(control.y + dy), -80, 80))
+    return True
 
 
 def frame_to_b64(frame) -> str:
@@ -1849,6 +1882,21 @@ async def run(args) -> None:
                     control.y = -70
             elif getattr(model, "_deep_bail_start", 0.0) != 0.0 and _py > 0:
                 model._deep_bail_start = 0.0
+            # ---- t28 P1: action entropy (fixed-mode loop breaker) ----
+            # novelty collapsed + loop saturated = the brain is running a
+            # learned dead-end pattern; Gaussian N(0, sigma) on the stick
+            # with sigma growing with stuck time gives the LIF pools a
+            # chance to stumble into a new action combination.
+            if (not dlg_now and not cliff_triggered
+                    and apply_action_entropy(
+                        control,
+                        novelty=memory_ctrl.novelty,
+                        loop_score=memory_ctrl.loop_score,
+                        stuck_duration=memory_ctrl.stuck_duration,
+                        rng=model.rng)):
+                action_entropy_applied = True
+            else:
+                action_entropy_applied = False
             bridge.write_control(control.x, control.y, control.jump,
                                  b=getattr(control, "b", False),
                                  z=getattr(control, "z", False))
@@ -1865,6 +1913,9 @@ async def run(args) -> None:
                 cpg_primitive=(cpg_phase.primitive.value
                                if cpg_phase is not None else ""),
                 jump=control.jump)
+            # t28: entropy marker appended after base attribution
+            if action_entropy_applied:
+                decision_source += "+action_entropy"
             replay.add((model.step_count - 1) * model.dt, frame, control, spikes, bridge.frame_metadata)
             observatory.observe(frame, seq, control, spikes, bridge.game_status(),
                                 causal=dict(cliff_conf=round(memory_ctrl.cliff_confidence, 3),

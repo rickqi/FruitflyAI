@@ -312,6 +312,21 @@ setsid nohup env FLY64_BRIDGE=/tmp/f64b_traj \
 
 # 变更日志
 
+## 2026-09-15: t28 P1 动作熵探索 — Brain v2.23.10（卡住时高斯噪声破死循环）
+
+**触发**：novelty≈0 且 loop_score>0.7 时大脑在既定模式死循环，需要噪声触发新动作组合。
+
+**修复**（main.py）：
+- 纯函数 `apply_action_entropy(control, novelty, loop_score, stuck_duration, rng)`：触发条件 novelty<0.1 且 loop_score>0.7；`σ = min(30, stuck_duration/10)`（60s→σ6，300s→σ30 封顶）；control.x/y 注入 N(0,σ) 并钳位 ±80
+- run_loop 在 write_control 前调用；命中时 decision_source 追加 `+action_entropy`（dashboard 协议枚举同步扩展）
+- `action_entropy_sigma()` 抽出便于验证单调性
+
+**回归**：`tests/test_action_entropy.py` 7 用例（σ 契约 60s→6/300s→30/封顶/单调、触发与非触发分支、300 样本统计 σ(stuck300)>σ(stuck60)、±80 钳位、decision_source 标记、main.py 接线断言）；test_dashboard_protocol 枚举扩展 +5 entropy 组合；全量与 HEAD worktree 基线失败集逐项一致（44 项既有，零新增）。
+
+**版本**：Brain 2.23.9→**2.23.10**（SKILL 3.4.2 镜像不变）。
+
+---
+
 ## 2026-09-15: t26 P1 最小逃逸持续时间 1.5s — Brain v2.20.2（防 0.02s 瞬放）
 
 **触发**：逃逸平均 0.02s 即被释放（effectiveness_rate=1.4%）——根因是 `_escape_activated_at` "set once, never resets"：首次逃逸的时间戳永久保留，任何后续重触发都继承巨大 `_escape_s`，释放逻辑下一 tick 即闪放。
