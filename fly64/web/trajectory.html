@@ -60,6 +60,7 @@ window.__drawState=()=>({raw:pts.length,drawn:(pathGeo.drawRange?pathGeo.drawRan
   smooth:typeof smoothPts==='function'?smoothPts().length:0});
 // t22 diagnostics: height gradient + vertical reference line state
 window.__line2State=()=>({type:mainPath.type,linewidth:mainMat.linewidth});
+window.__carpetColors=()=>{const c=carpet;if(!c||!c.count)return{count:0};const n=Math.min(c.count,1200);let mnR=1,mxR=0,mnG=1,mxG=0,mnB=1,mxB=0;const col=new THREE.Color();for(let i=0;i<n;i+=Math.max(1,Math.floor(n/30))){try{c.getColorAt(i,col);}catch{break}if(col.r<mnR)mnR=col.r;if(col.r>mxR)mxR=col.r;if(col.g<mnG)mnG=col.g;if(col.g>mxG)mxG=col.g;if(col.b<mnB)mnB=col.b;if(col.b>mxB)mxB=col.b;}return{count:n,range:{R:[+mnR.toFixed(2),+mxR.toFixed(2)],G:[+mnG.toFixed(2),+mxG.toFixed(2)],B:[+mnB.toFixed(2),+mxB.toFixed(2)]}};};
 window.__heightState=()=>({minY:heightRange.min,maxY:heightRange.max,
   colored:(pathGeo.getAttribute('color')?pathGeo.attributes.color.count:0),
   vertSegments:(vertGeo.getAttribute('position')?vertGeo.attributes.position.count/2:0),

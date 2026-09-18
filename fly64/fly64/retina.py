@@ -1321,17 +1321,11 @@ class SphericalRetina:
         # Build per-cell edge_0 magnitude using numpy scatter
         n_cells = len(lum)
         cell_edge = np.zeros(n_cells, dtype=np.float32)
-        # For each pair, assign mean diff to both ends (vectorized)
-        pair_max = np.maximum(
-            np.zeros(n_pairs, dtype=np.float32),
-            np.maximum(diffs, cell_edge[pairs[:, 0]])
-        )
-        # Scatter via loop-free approach: use np.maximum.at for unbounded update
         np.maximum.at(cell_edge, pairs[:, 0], diffs)
         np.maximum.at(cell_edge, pairs[:, 1], diffs)
 
         vp = self._vp_rc
-        rows_set = sorted(set(int(r) for r in vp[:, 0]))
+        rows_set = np.unique(vp[:, 0]).tolist()
         total_score = 0.0
         total_width = 0.0
         row_count = 0

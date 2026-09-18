@@ -1,0 +1,18 @@
+{
+  "$schema": "fly64/evolution-history/1.0",
+  "canonical_versions": {},
+  "records": [
+    {
+      "id": "AUTO-0001",
+      "recorded_at": "2026-09-18T08:02:04.339696+00:00",
+      "kind": "skill_fix",
+      "trigger": "t1"
+    },
+    {
+      "id": "AUTO-0002",
+      "recorded_at": "2026-09-18T08:02:04.351098+00:00",
+      "kind": "skill_fix",
+      "trigger": "t2"
+    }
+  ]
+}
