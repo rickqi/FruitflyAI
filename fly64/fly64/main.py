@@ -1071,7 +1071,7 @@ async def run(args) -> None:
                 # alone misses this class (fast loop → large disp60 → never
                 # flagged, yet no progress = no new cells).
                 _circling = (memory_ctrl.spatial.loop_score > 0.8
-                            and memory_ctrl.spatial.coverage_rate < 0.01
+                            and memory_ctrl.spatial.coverage_rate < 0.05
                             and memory_ctrl.stuck_duration > 30.0)
                 memory_ctrl.reflex_ineffective = bool(
                     (memory_ctrl.reflex_active and _disp60 < 30.0)
@@ -1157,7 +1157,7 @@ async def run(args) -> None:
             # ---- L2a: stuck/circling help trigger — fast-looping case ----
             _now = time.monotonic()
             _stuck_no_progress = (memory_ctrl.stuck_score >= 0.8
-                                  and memory_ctrl.spatial.coverage_rate < 0.01
+                                  and memory_ctrl.spatial.coverage_rate < 0.05
                                   and memory_ctrl.stuck_duration > 5.0)
             if _stuck_no_progress:
                 if _stuck_no_coverage_start is None:
@@ -1960,6 +1960,13 @@ async def run(args) -> None:
                 # EVO R14: anomaly-state mirror — DAN dopamine input for the
                 # mushroom body's loop-suppression learning.
                 model.anomaly_state_name = memory_ctrl.anomaly_state
+                # P0: anomaly resolution → consolidate scene+action memory
+                # so the brain learns which motor output breaks each anomaly.
+                if memory_ctrl.anomaly._anomaly_resolved:
+                    _kc_sig = getattr(model, "_kc_activity", None)
+                    if _kc_sig is not None:
+                        model.mushroom.consolidate_anomaly_resolution(
+                            _kc_sig, control.x, control.y)
                 # EVO R15: cliff-standoff mirror — standoff duration + the
                 # FailureMemory tangential detour bias (sensory gate only;
                 # the LIF network decides the actual heading).

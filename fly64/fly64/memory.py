@@ -722,7 +722,7 @@ class SpatialMemoryMap:
         True when coverage_rate ≈ 0 (no new cells visited recently)."""
         if len(self._coverage_history) < 10:
             return None
-        return self.coverage_rate < 0.01
+        return self.coverage_rate < 0.05
 
     def recent_path(self, n: int = 80) -> list[dict]:
         """Last *n* distinct cell centres actually walked through (oldest first).
@@ -1127,6 +1127,12 @@ class MotionStateDetector:
         self._total_ticks: int = 0
         self._latest_confidence: float = 0.0
         self._latest_duration: float = 0.0
+        # P0: anomaly resolution signal — True on the tick a stuck state
+        # transitions to idle, consumed by MemoryController for dopamine reward.
+        self._anomaly_resolved: bool = False
+        # P0: persistent anomaly flag — True when a non-idle anomaly has been
+        # active >30s, consumed by the EVO/coach escalation path.
+        self._anomaly_persistent: bool = False
 
         # Oscillation detection: history of control.x for sign-change counts
         self._ctrl_x_buf: deque[int] = deque(maxlen=window)
@@ -1256,6 +1262,7 @@ class MotionStateDetector:
             confidence = round(max_count / self.window, 3)
 
         # Track active state continuity
+        prev_state = self._active_state
         if majority_state != self._active_state:
             # Record transition
             self._transitions.append({
@@ -1266,6 +1273,15 @@ class MotionStateDetector:
             })
             self._active_state = majority_state
             self._state_start_tick = self._total_ticks
+        # P0: anomaly resolved when transitioning from a stuck state to idle
+        self._anomaly_resolved = (
+            prev_state != self.IDLE and majority_state == self.IDLE
+        )
+        # P0: persistent anomaly when non-idle for >30s
+        _dur = (self._total_ticks - self._state_start_tick) * 0.020
+        self._anomaly_persistent = (
+            majority_state != self.IDLE and _dur > 30.0
+        )
 
         duration_in_state = round(
             (self._total_ticks - self._state_start_tick) * 0.020, 2
