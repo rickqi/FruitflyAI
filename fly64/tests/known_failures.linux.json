@@ -1,8 +1,13 @@
 {
  "platform": "linux",
- "recorded_at": "2026-09-17T17:19:00.388125+00:00",
- "count": 23,
+ "recorded_at": "2026-09-18T08:07:39.713106+00:00",
+ "count": 24,
  "entries": [
+  {
+   "id": "tests/test_autonomy_regression.py::TestVersionContract::test_brain_version_in_skills_md_round_table",
+   "cause": "unknown",
+   "note": ""
+  },
   {
    "id": "tests/test_coach_pipeline.py::TestServiceCycle::test_no_1210_errors_recently",
    "cause": "live-state",
@@ -12,6 +17,11 @@
    "id": "tests/test_coach_pipeline.py::TestServiceCycle::test_service_log_shows_success",
    "cause": "live-state",
    "note": "reads the resident service's log, so it depends on whether a successful cycle has been recorded recently, not on the code"
+  },
+  {
+   "id": "tests/test_coach_pipeline.py::TestStrategyExecution::test_fallen_recovery_has_params",
+   "cause": "unknown",
+   "note": ""
   },
   {
    "id": "tests/test_evolution_capability.py::TestEvoRound10::test_bold_explore_decision_source",
@@ -52,11 +62,6 @@
    "id": "tests/test_mbon_saturation.py::TestSaturationRecovery::test_reset_clears_recovery_state",
    "cause": "aspirational",
    "note": "_saturation_recovery_counter / _saturation_recovered appear nowhere in fly64|plugin|skills; MushroomBody has a different mechanism (_saturation_frames + saturation_scale_factor + saturation_events)"
-  },
-  {
-   "id": "tests/test_optic_flow.py::test_flow_computation_performance",
-   "cause": "real-bug",
-   "note": "compute_flow exceeds the stated budget, and 'should not trigger escape without cliff' disagrees with the implementation"
   },
   {
    "id": "tests/test_p1_neural_takeover.py::TestKpiBaseline::test_control_write_count_shrunk",

@@ -1,8 +1,13 @@
 {
  "platform": "win32",
- "recorded_at": "2026-09-17T17:16:41.181320+00:00",
- "count": 35,
+ "recorded_at": "2026-09-18T08:05:26.164237+00:00",
+ "count": 38,
  "entries": [
+  {
+   "id": "tests/test_autonomy_regression.py::TestVersionContract::test_brain_version_in_skills_md_round_table",
+   "cause": "unknown",
+   "note": ""
+  },
   {
    "id": "tests/test_bridge.py::test_bridge_round_trip",
    "cause": "environment",
@@ -37,6 +42,11 @@
    "id": "tests/test_coach_dopamine.py::test_main_loop_wires_coach_bias",
    "cause": "environment",
    "note": "reads fly64/main.py with the default (locale) encoding, which is gbk on Windows and cannot decode the UTF-8 source; the same test passes on Linux"
+  },
+  {
+   "id": "tests/test_coach_pipeline.py::TestStrategyExecution::test_fallen_recovery_has_params",
+   "cause": "unknown",
+   "note": ""
   },
   {
    "id": "tests/test_evolution_capability.py::TestEvoRound10::test_bold_explore_decision_source",
@@ -112,6 +122,11 @@
    "id": "tests/test_r31fix3_reward_reshaping.py::test_damage_rate_limited_in_main_wiring",
    "cause": "environment",
    "note": "Windows default encoding (gbk) cannot decode the UTF-8 source it reads"
+  },
+  {
+   "id": "tests/test_regression_detector.py::TestDetectorDetects::test_reports_clean_against_its_own_baseline",
+   "cause": "unknown",
+   "note": ""
   },
   {
    "id": "tests/test_retina.py::test_clean_break_rejects_old_images_and_protocol",
