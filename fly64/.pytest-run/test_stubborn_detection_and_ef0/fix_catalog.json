@@ -1,1 +1,0 @@
-{"fixes": [{"id": "fix_0001", "pattern_id": "healed_y", "pattern_name": "healed_y", "pattern_version": "1.0.0", "diagnosis": "d", "fix_template": "t", "severity": "high", "applied_at": "2026-09-16T00:00:00+00:00", "version": 1, "effective": true, "reverted": false}]}
