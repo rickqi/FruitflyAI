@@ -1,180 +1,145 @@
 <!doctype html>
-<html lang="zh">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>🧬 Fly64 Evolution & Parameter Panel</title>
-<style>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>🧬 Fly64 Evolution & Parameter Panel</title><style>
 :root{color-scheme:dark;--bg:#0f1419;--panel:#131c24;--line:#2a3440;--ink:#edf1f5}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.5 -apple-system,sans-serif;padding:20px;min-width:600px}
-h1{font-size:18px;margin:0;color:#6cdaed}
-.sub{color:#aebac7;font-size:12px;margin:4px 0 16px}
-.intro{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin-bottom:14px;font-size:12px;line-height:1.5}
-.intro h3{font-size:13px;font-weight:600;margin:0 0 6px;color:#ffca72}
-.intro p{margin:0 0 4px;color:#aebac7}.intro code{background:#1a2430;border-radius:2px;padding:1px 5px;font-size:11px;color:#6cdaed}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px;margin-bottom:12px}
+body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.5 -apple-system,sans-serif;padding:16px;min-width:600px}
+h1{font-size:18px;margin:0;color:#6cdaed}.sub{color:#aebac7;font-size:12px;margin:4px 0 12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:10px;margin-bottom:10px}
 .card h2{font-size:13px;margin:0 0 8px;color:#aebac7;font-weight:600;display:flex;justify-content:space-between}
 .card h2 span{color:var(--ink)}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
-.stat-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;text-align:center}.stat{background:var(--bg);border-radius:4px;padding:6px 4px}
-.stat .n{font-size:20px;font-weight:600;color:#6cdaed;display:block}.stat .l{font-size:10px;color:#aebac7}
-.stat .n.gold{color:#ffca72}.stat .n.green{color:#7dff9d}.stat .n.red{color:#ff3c3c}
-.param-row{display:grid;grid-template-columns:1fr 100px 180px;gap:6px;margin-bottom:6px;align-items:center;padding:4px 0;border-bottom:1px solid #1a2430}
-.param-row label{font-size:12px;color:#aebac7}.param-row .val{font-size:12px;text-align:right;color:#6cdaed;font-variant-numeric:tabular-nums}
-.param-row input[type=range]{width:100%;height:4px;accent-color:#6cdaed;cursor:pointer;background:var(--line);border-radius:2px;appearance:none;margin:0}
-.param-row input[type=range]::-webkit-slider-thumb{appearance:none;width:12px;height:12px;border-radius:50%;background:#6cdaed;border:none;cursor:pointer}
-.param-row.inert{opacity:.45}.param-row.inert label{color:#536170}.param-row .desc{font-size:9px;color:#536170;grid-column:1/2;margin-top:-2px}
-.trial-row{display:flex;gap:8px;align-items:center;padding:4px 0;border-bottom:1px solid var(--line);font-size:11px}
-.trial-row.passed .delta{color:#7dff9d}.trial-row.failed .delta{color:#ff7a7a}
-.trial-row .iter{color:#536170;width:36px}.trial-row .delta{width:60px;font-weight:600}
-.trial-row .score{color:#aebac7;width:80px}
-canvas{display:block;width:100%;height:72px;margin-bottom:8px;border-radius:3px}
-.btn{background:transparent;color:var(--ink);border:1px solid var(--line);border-radius:3px;font:inherit;font-size:12px;padding:4px 10px;cursor:pointer}
-a.btn{text-decoration:none;display:inline-block}
-.msg{font-size:12px;color:#7dff9d;margin-top:8px}
-.tag{display:inline-block;font-size:9px;background:#1a2430;border-radius:6px;padding:1px 6px;margin-left:4px;color:#536170}
-.fade{color:#536170;font-size:11px;text-align:right;margin-top:6px}
-</style>
-</head>
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.stat-row{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;text-align:center}.stat{background:var(--bg);border-radius:4px;padding:4px}
+.stat .n{font-size:18px;font-weight:600;color:#6cdaed;display:block}.stat .l{font-size:10px;color:#aebac7}
+.section-tabs{display:flex;gap:4px;margin:0 0 8px}.section-tabs button{padding:3px 10px;border:1px solid var(--line);border-radius:3px;background:transparent;color:#aebac7;cursor:pointer;font-size:11px}
+.section-tabs button.active{border-color:#6cdaed;color:#6cdaed}
+.param-row{display:grid;grid-template-columns:1fr 80px 160px;gap:4px;margin-bottom:4px;align-items:center;padding:3px 0;border-bottom:1px solid #1a2430;font-size:12px}
+.param-row label{color:#aebac7}.param-row .val{text-align:right;color:#6cdaed;font-variant-numeric:tabular-nums}
+.param-row input[type=range]{width:100%;height:3px;accent-color:#6cdaed;cursor:pointer;appearance:none;margin:0;background:var(--line);border-radius:2px}
+.param-row.inert{opacity:.4}.param-row .desc{font-size:9px;color:#536170;grid-column:1/2;margin-top:-1px}
+.trial-row{display:grid;grid-template-columns:30px 60px 60px 1fr;gap:4px;align-items:center;padding:3px 0;border-bottom:1px solid var(--line);font-size:11px}
+.trial-row .delta{font-weight:600}.trial-row.passed .delta{color:#7dff9d}.trial-row.failed .delta{color:#ff7a7a}.trial-row .iter{color:#536170}.trial-row .score{font-size:10px}.trial-row .pv{color:#536170;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px}
+canvas{display:block;width:100%;height:60px;border-radius:3px;margin-bottom:4px}
+.btn{background:transparent;color:var(--ink);border:1px solid var(--line);border-radius:3px;font:inherit;font-size:11px;padding:3px 8px;cursor:pointer}
+.btn.active{border-color:#6cdaed;color:#6cdaed}.msg{font-size:11px;color:#7dff9d;margin-top:6px}
+</style></head>
 <body>
-<h1>🧬 Evolution & Brain Parameter Panel</h1>
-<p class="sub">
-<span id="brainVer">Brain v—</span> · <span id="skillVer">Skill v—</span> ·
-自 <a href="/evo-params.html" style="color:#6cdaed">commit 2202d1e</a>（2026-09-17，三条轨道 B+A+C）
-</p>
-
-<div class="intro">
-<h3>📋 用途说明</h3>
-<p>
-此面板是 <b>BrainMutator 进化循环的可视化前端</b>，在提交 <code>2202d1e</code>（B+A+C 三条轨道）中新增。
-它允许你：
-</p>
-<p>
-🔧 <b>实时调参</b> —— 下方的滑块直接写入 <code>active_strategy.json</code>，脑模型每 ~600 tick（≈12s）热重载生效。
-标有「未接线」的参数在脑模型中无消费者，调节不会改变行为。使用前确认参数是否已接线。
-</p>
-<p>
-📈 <b>监测进化试验</b> —— 右侧散点图展示 BrainMutator 最近 50 次参数突变的 <code>delta</code>（适应度变化），
-绿点 = 提交优胜参数，红点 = 回滚——新参数真正生效需要先有试验记录。
-</p>
-<p>
-🏥 <b>状态速览</b> —— Health / Stuck / Novelty / Stall ratio / Loop / Coverage / Cells / Edges 实时读数。
-<a href="/" style="color:#6cdaed">返回监控面板</a> · <a href="/monitor-preview.html" style="color:#6cdaed">布局预览</a>
-</p>
-</div>
-
+<h1>🧬 Evolution & Parameter Panel</h1>
+<p class="sub"><span id="brainVer">Brain v—</span> · <span id="skillVer">Skill v—</span> · <a href="/" style="color:#6cdaed">返回监控</a> · <a href="/evo-params.html" style="color:#6cdaed">实时刷新 5s</a></p>
 <div class="grid">
-  <div class="card">
-    <h2>🏥 导航健康状态</h2>
-    <div class="stat-row">
-      <div class="stat"><span class="n" id="svHealth">—</span><span class="l">Health</span></div>
-      <div class="stat"><span class="n" id="svStuck">—</span><span class="l">Stuck/s</span></div>
-      <div class="stat"><span class="n" id="svNovelty">—</span><span class="l">Novelty</span></div>
-      <div class="stat"><span class="n" id="svStall">—</span><span class="l">Stall</span></div>
-    </div>
-    <div class="stat-row" style="margin-top:8px">
-      <div><span class="n" id="svLoop">—</span><span class="l">Loop</span></div>
-      <div><span class="n" id="svCover">—</span><span class="l">Cov%</span></div>
-      <div><span class="n" id="svCells">—</span><span class="l">Cells</span></div>
-      <div><span class="n" id="svEdges">—</span><span class="l">Edges</span></div>
-    </div>
-  </div>
-  <div class="card">
-    <h2>🧬 进化试验 <span id="trialCount">0</span></h2>
-    <canvas id="evoChart"></canvas>
-    <div id="trialList"></div>
-  </div>
+<div class="card"><h2>🏥 导航健康</h2>
+<div class="stat-row">
+<div class="stat"><span class="n" id="svHealth">—</span><span class="l">Health</span></div>
+<div class="stat"><span class="n" id="svStuck">—</span><span class="l">Stuck/s</span></div>
+<div class="stat"><span class="n" id="svNovelty">—</span><span class="l">Novelty</span></div>
+<div class="stat"><span class="n" id="svStall">—</span><span class="l">Stall</span></div></div>
+<div class="stat-row" style="margin-top:6px">
+<div><span class="n" id="svLoop">—</span><span class="l">Loop</span></div>
+<div><span class="n" id="svCover">—</span><span class="l">Cov%</span></div>
+<div><span class="n" id="svCells">—</span><span class="l">Cells</span></div>
+<div><span class="n" id="svWaste">—</span><span class="l">Waste×</span></div></div>
 </div>
-
-<div class="card">
-  <h2>🔧 可调参数 <span><span id="paramCount">0</span> <span class="fade">滑块调节 → POST /active_strategy-update → 主循环 ~12s 热重载</span></span></h2>
-  <div id="paramsBody"></div>
-  <div id="paramMsg" class="msg"></div>
+<div class="card"><h2>🧬 进化试验 <span><span id="trialCount">0</span> <span id="filterTabs" style="margin-left:8px"></span></span></h2>
+<canvas id="evoChart"></canvas>
+<div id="trialList"></div></div>
 </div>
-
+<div class="card"><h2>🔧 可调参数 <span id="paramSecTabs"></span></h2>
+<div id="paramsBody"></div>
+<div id="paramMsg" class="msg"></div></div>
 <script>
 const $=id=>document.getElementById(id);
-const CYAN='#6cdaed',GOLD='#ffca72',GREEN='#7dff9d',RED='#ff3c3c',MUTED='#aebac7';
-let paramsData={},tunables={};
+const COLORS={CYAN:'#6cdaed',GREEN:'#7dff9d',RED:'#ff3c3c',GOLD:'#ffca72'};
+let tunables={}, filter='all', sect='exploration', allStrategy={}, allTrials=[];
+
 async function get(p){const r=await fetch(p,{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);return r.json();}
 
 function drawTrials(trials){
-  const cv=$('evoChart'),d=Math.min(devicePixelRatio||1,2),w=cv.clientWidth,h=72;
-  cv.width=w*d;cv.height=h*d;const ctx=cv.getContext('2d');ctx.setTransform(d,0,0,d,0,0);
-  ctx.clearRect(0,0,w,h);
+  const cv=$('evoChart'),d=Math.min(devicePixelRatio||1,2),w=cv.clientWidth||400,h=60;
+  cv.width=w*d;cv.height=h*d;const ctx=cv.getContext('2d');ctx.setTransform(d,0,0,d,0,0);ctx.clearRect(0,0,w,h);
   if(trials.length<2)return;
-  const left=8,right=w-12,top=12,bottom=h-4;
-  const vals=trials.map(t=>t.delta||0);const mn=Math.min(...vals,0),mx=Math.max(...vals,1),span=Math.max(mx-mn,0.01);
-  const x=i=>left+(i/(trials.length-1))*(right-left),y=v=>bottom-(v-mn)/span*(bottom-top);
+  const flt=filter==='all'?trials:trials.filter(t=>filter==='pass'?t.passed:!t.passed);
+  if(flt.length<1)return;
+  const left=8,right=w-12,top=10,bottom=h-4;
+  const vals=flt.map(t=>t.delta||0);const mn=Math.min(...vals,0),mx=Math.max(...vals,1),span=Math.max(mx-mn,0.01);
+  const x=i=>left+(i/(flt.length-1))*(right-left),y=v=>bottom-(v-mn)/span*(bottom-top);
   for(const v of[mn,mx]){const yy=y(v);ctx.fillStyle='#2a3440';ctx.strokeStyle='#2a3440';ctx.lineWidth=.5;
     ctx.beginPath();ctx.moveTo(left,yy);ctx.lineTo(right,yy);ctx.stroke();ctx.fillStyle='#536170';ctx.font='8px sans-serif';ctx.fillText(v.toFixed(2),right-26,yy-2);}
-  trials.forEach((t,i)=>{ctx.fillStyle=t.passed?GREEN:RED;ctx.beginPath();ctx.arc(x(i),y(t.delta||0),2.5,0,7);ctx.fill();});
+  flt.forEach((t,i)=>{ctx.fillStyle=t.passed?COLORS.GREEN:COLORS.RED;
+    ctx.beginPath();ctx.arc(x(i),y(t.delta||0),2.5,0,7);ctx.fill();});
 }
 
-function renderParams(active,original){
+function renderParams(){
   const body=$('paramsBody');body.innerHTML='';let count=0,inert=0;
   for(const [pid,meta] of Object.entries(tunables)){
-    const cur=active[pid]!=null?active[pid]:meta.default;
+    if(meta.section!==sect)continue;
+    const cur=allStrategy[meta.section]?.[pid.replace(meta.section+'.','')] ?? meta.default;
     const row=document.createElement('div');row.className='param-row'+(meta.wired===false?' inert':'');
     if(meta.wired===false)inert++;
-    const label=document.createElement('label');
-    label.textContent=(meta.label||pid)+(meta.wired===false?' · 未接线':'');
-    const val=document.createElement('span');val.className='val';val.textContent=Number(cur).toFixed(3);
-    const range=document.createElement('input');range.type='range';range.min=meta.min;range.max=meta.max;
-    range.step=(meta.max-meta.min)/100;range.value=cur;
-    if(meta.wired===false){range.disabled=true;range.title='该参数在脑中无消费者，调节无效'}
-    else{range.oninput=async function(){val.textContent=Number(this.value).toFixed(3);
-      try{await fetch('/active_strategy-update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({[pid]:Number(this.value)})});
-      $('paramMsg').textContent='✓ '+pid.replace('exploration.','')+' = '+Number(this.value).toFixed(3)}catch(e){$('paramMsg').textContent='⚠ '+e.message}};}
-    const desc=document.createElement('div');desc.className='desc';desc.textContent=(meta.description||'').slice(0,80);
-    row.appendChild(label);row.appendChild(val);row.appendChild(range);
-    if(meta.description)row.appendChild(desc);
-    body.appendChild(row);count++;
+    row.appendChild((()=>{
+      const l=document.createElement('label');l.textContent=(meta.label||pid.replace(meta.section+'.',''))+(meta.wired===false?' · ✗':'');
+      const v=document.createElement('span');v.className='val';v.textContent=Number(cur).toFixed(3);
+      const r=document.createElement('input');r.type='range';r.min=meta.min;r.max=meta.max;
+      r.step=(meta.max-meta.min)/100;r.value=cur;
+      const d=document.createElement('div');d.className='desc';d.textContent=(meta.description||'').slice(0,80);
+      if(meta.wired===false){r.disabled=true;r.title='未接线'}
+      else r.oninput=function(){v.textContent=Number(this.value).toFixed(3);
+        setParam(this,pid);}
+      row.append(l,v,r,d);return row;
+    })());
   }
-  $('paramCount').textContent=inert?(count+' ('+inert+' 未接线)'):count;
+  $('paramMsg').textContent=inert?(count+' params ('+inert+' ✗ 未接线)'):count+' params';
+}
+async function setParam(el,pid){
+  const v=Number(el.value);el.parentNode.querySelector('.val').textContent=v.toFixed(3);
+  try{await fetch('/active_strategy-update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({[pid]:v})});
+    $('paramMsg').textContent='✓ '+pid+' = '+v.toFixed(3)}catch(e){$('paramMsg').textContent='⚠ '+e.message}
 }
 
 function renderTrials(trials){
-  $('trialCount').textContent=trials.length;drawTrials(trials);
+  allTrials=trials;$('trialCount').textContent=trials.length;
+  const flt=filter==='all'?trials:trials.filter(t=>filter==='pass'?t.passed:!t.passed);
+  drawTrials(trials);
   const list=$('trialList');list.innerHTML='';
-  for(const t of trials.slice().reverse().slice(-40)){
+  for(const t of flt.slice().reverse().slice(-60)){
     const row=document.createElement('div');row.className='trial-row '+(t.passed?'passed':'failed');
-    row.innerHTML='<span class=iter>#'+(t.iteration||'')+'</span><span class=delta>'+(t.delta>0?'+':'')+(t.delta||0).toFixed(3)+'</span><span class=score>'+(t.passed?'COMMIT':'rollback')+'</span>';
+    const pv=t.params?Object.entries(t.params).slice(0,3).map(([k,v])=>k.replace(/^exploration\./,'')+'='+v.toFixed(2)).join(' '):'';
+    row.innerHTML='<span class=iter>#'+(t.iteration||'')+'</span><span class=delta>'+(t.delta>0?'+':'')+(t.delta||0).toFixed(3)+'</span><span class=score>'+(t.passed?'✅':'↩')+'</span><span class=pv title="'+(t.params?JSON.stringify(t.params):'')+'">'+pv+'</span>';
     list.appendChild(row);}
 }
-
 function renderHealth(m){
   const h=m.health_score,d=typeof h=='number'?Math.round(h*100)+'%':'—';
-  $('svHealth').textContent=d; $('svHealth').className='n'+(h<0.3?' red':h<0.6?' gold':' green');
+  $('svHealth').textContent=d;$('svHealth').className='n'+(h<0.3?' red':h<0.6?' gold':' green');
   $('svStuck').textContent=m.stuck_duration!=null?Math.round(m.stuck_duration)+'s':'—';
   $('svNovelty').textContent=m.novelty!=null?Number(m.novelty).toFixed(2):'—';
   $('svStall').textContent=m.stall_ratio!=null?Number(m.stall_ratio).toFixed(2):'—';
   $('svLoop').textContent=m.loop_score!=null?Number(m.loop_score).toFixed(2):'—';
   $('svCover').textContent=m.coverage_pct!=null?m.coverage_pct+'%':'—';
   $('svCells').textContent=m.visited_cells||'—';
-  $('svEdges').textContent=m.adjacency_edges||'—';
+  $('svWaste').textContent=m.waste_ratio!=null?Number(m.waste_ratio).toFixed(0)+'×':'—';
 }
 
 async function refresh(){
   try{const m=await get('/memory.json');renderHealth(m);
-    const s=await get('/active_strategy.json');
-    if(s.exploration&&Object.keys(s.exploration).length){paramsData=s.exploration;
-      if(!$('paramsBody').innerHTML)renderParams(s.exploration,tunables);}
+    const s=await get('/active_strategy.json');allStrategy=s;
+    if(Object.keys(s).length>0&&!$('paramsBody').innerHTML)renderParams();
     const t=await get('/evolution-log.json');
-    if(Array.isArray(t)&&t.length)renderTrials(t);
-  }catch(e){console.warn('refresh',e);}
+    if(Array.isArray(t)&&t.length!==allTrials.length)renderTrials(t);
+  }catch(e){}
 }
-
 async function load(){
   try{const t=await get('/brain_tunable_params.json');
-    tunables={};
-    for(const [pid,meta] of Object.entries(t.params||{})){
-      tunables[pid]={label:pid.replace('exploration.',''),description:meta.description||'',min:meta.min||0,max:meta.max||1,default:meta.default||0,wired:meta.wired!==false};}
+    tunables={};const secTabs=$('paramSecTabs');const secs=new Set();
+    for(const[pid,meta]of Object.entries(t.params||{})){
+      const sec=pid.split('.')[0];secs.add(sec);
+      tunables[pid]={section:sec,label:pid.replace(sec+'.',''),description:meta.description||'',min:meta.min||0,max:meta.max||1,default:meta.default||0,wired:meta.wired!==false};
+    }
+    secTabs.innerHTML=[...secs].map(s=>'<button class="'+(s===sect?'active':'')+'" onclick="sect=\''+s+'\';renderParams()">'+s+'</button>').join('');
     await refresh();
-  }catch(e){console.warn('load',e);}
+  }catch(e){}
   try{const f=await get('/flow.json');if(f.brain_version)$('brainVer').textContent='v'+f.brain_version;if(f.skill_version)$('skillVer').textContent='v'+f.skill_version;}catch(e){}
+  // filter tabs for trials
+  $('filterTabs').innerHTML=['all','pass','fail'].map(m=>'<button class="btn '+(filter===m?'active':'')+'" onclick="filter=\''+m+'\';renderTrials(allTrials)">'+m+'</button>').join('');
 }
 load();
 setInterval(refresh,5000);
-</script>
-</body>
-</html>
+</script></body></html>

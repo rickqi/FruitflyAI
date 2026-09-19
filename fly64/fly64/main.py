@@ -1054,7 +1054,8 @@ async def run(args) -> None:
     dashboard_process = open_dashboard(url, project) if not args.no_browser else None
     broadcast_task = asyncio.create_task(broadcaster())
     stopping = asyncio.Event()
-    asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, stopping.set)
+    if sys.platform != "win32":
+        asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, stopping.set)
     log_path = args.record.with_suffix(".jsonl")
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log = log_path.open("w", buffering=1)
@@ -2161,6 +2162,12 @@ async def run(args) -> None:
                     # Health scoring
                     "health_score": round(memory_ctrl.health_score, 4),
                     "stall_ratio": round(memory_ctrl.stall_ratio, 3),
+                    "waste_ratio": (lambda _tp=DashboardHTTP.trajectory_points: (
+                        round((sum(math.hypot(_tp[i]["x"]-_tp[i-1]["x"], _tp[i]["z"]-_tp[i-1]["z"])
+                                   for i in range(1, len(_tp)))
+                               / max(math.hypot(_tp[-1]["x"]-_tp[0]["x"], _tp[-1]["z"]-_tp[0]["z"]), 1)), 2)
+                        if len(_tp) >= 10 else 0.0
+                    ))(),
                 }, separators=(",", ":")).encode()
                 DashboardHTTP.flow_json = json.dumps({
                     "asymmetry": round(model.flow_asymmetry, 4),
