@@ -42,3 +42,5 @@ rom/
 Thumbs.db
 SM64/
 fly64/plugin/llm.env
+
+export logs/
