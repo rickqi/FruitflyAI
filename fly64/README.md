@@ -43,6 +43,9 @@ sudo apt update && sudo apt upgrade -y
 # 安装工具链
 sudo apt install -y build-essential libsdl2-dev libglew-dev pkg-config \
                     python3 python3-venv python3-pip curl git make
+
+# 安装 WSLg 显示支持（SM64 游戏窗口需要）
+sudo apt install -y x11-xserver-utils   # 提供 xrandr，修复 SDL2 屏幕检测
 ```
 
 ### 2. 克隆项目
@@ -128,16 +131,31 @@ source venv/bin/activate
 
 > **⚠️ 启动契约（强制）**：常驻运行的大脑与 SM64 **必须用 `setsid nohup … &`（输出重定向 + `</dev/null`）脱离宿主 shell**。禁止把它们作为托管后台 job（pwsh `run_in_background` / agent 后台 job / 交互终端前台子进程）直接启动——宿主会话结束或 job 被回收时进程会被连带 kill，导致共享内存桥冻结、仪表板卡死。规范化入口：`scripts/consolidate.sh`。
 
+> **WSLg 显示（Windows 弹出游戏窗口）**：SM64 使用 `DISPLAY=:0` 可在 Windows 桌面显示游戏窗口。需要先安装 `xrandr` 以解决 SDL2 屏幕尺寸检测问题：
+> ```bash
+> sudo apt install x11-xserver-utils   # 提供 xrandr
+> ```
+> 启动时设置 `SDL_VIDEODRIVER=x11` 强制 X11 后端。一键启动脚本见 `scripts/launch_full.sh`。
+
 ```bash
 # 常驻启动（契约方式，WSL）：
 cd /root/fly64
 setsid nohup python3 -m fly64.main --bridge /tmp/f64b_traj \
   --record /tmp/f64r_traj.npz --no-browser --duration 0 > /tmp/fly64.log 2>&1 < /dev/null &
 
+# WSLg 显示（弹出游戏窗口）：
 cd /root/fly64/.cache/sm64ex
-setsid nohup env FLY64_BRIDGE=/tmp/f64b_traj \
+DISPLAY=:0 SDL_VIDEODRIVER=x11 FLY64_BRIDGE=/tmp/f64b_traj \
+  setsid nohup ./build/us_pc/sm64.us.f3dex2e --skip-intro > /tmp/sm64.log 2>&1 < /dev/null &
+
+# xvfb 虚拟显示（无窗口，适用于无桌面环境）：
+cd /root/fly64/.cache/sm64ex
+FLY64_BRIDGE=/tmp/f64b_traj \
+  setsid nohup xvfb-run -s '-screen 0 640x480x24' --auto-servernum \
   ./build/us_pc/sm64.us.f3dex2e --skip-intro > /tmp/sm64.log 2>&1 < /dev/null &
 ```
+
+> **注意**：`wsl -e bash -c` 中 `setsid nohup` 启动的后台进程会因 WSL 会话退出被清理。建议在 WSL 交互终端（`wsl ~`）中直接执行上述命令，或使用 `scripts/launch_full.sh` 一键脚本（通过 `Start-Process wsl /bin/bash script.sh` 启动）。
 
 前台交互调试（仅临时，用完即收尾）：
 

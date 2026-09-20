@@ -47,6 +47,46 @@
     - 与规则 19 的分工：规则 19 管“证据不受损”，规则 20 管“回归可探测”——共同堵住“机制存在、报告成功、无法生效”的盲区
 
 
+## 2026-09-19: WSL 完整全链路启动（脑模型 + SM64 WSLg 显示）
+
+**目标**：在 WSL2 中完整启动 Fly64 神经系统闭环——脑模型（MaleCNS 166,700 神经元）对接 SM64 游戏，通过共享内存桥接实现视觉→神经→运动控制。
+
+### 启动方式对比与修复
+
+**问题**：`wsl -e bash -c` 中 `setsid nohup` 启动的后台进程会被 WSL 会话退出时连带干掉，SM64 始终无法持久运行。
+
+**修复**：改用 `Start-Process wsl -d Ubuntu-22.04 /bin/bash /root/fly64/scripts/launch_full.sh` 启动，进程组正确脱离。
+
+**显示方案**：
+
+| 方案 | 窗口可见 | 帧数据 | 前提 |
+|------|---------|--------|------|
+| **xvfb**（虚拟帧缓冲） | ❌ 无窗口 | ✅ Frame Seq 持续增长，93%+ 非零像素 | 无 |
+| **WSLg**（DISPLAY=:0） | ✅ 应有窗口 | ✅ 桥接延迟 0.56ms，game_frame 1632 | 需 `apt install x11-xserver-utils`（提供 xrandr） |
+
+**WSLg 屏幕尺寸修复**：安装 `xrandr` 前 SDL2 报 `your 131072x1 screen size is bogus` 无法运行。安装后 SDL 正确检测 `976x1560` 分辨率，SM64 正常启动并通过 `SDL_VIDEODRIVER=x11` 环境变量强制 X11 后端。
+
+### 验证指标（实测读数）
+
+| 指标 | xvfb 方案 | WSLg 方案 |
+|------|-----------|-----------|
+| **桥接延迟** | 0.46 ms | 0.56 ms |
+| **帧序列号** | 3900+ | 1082+ |
+| **像素非零率** | 96.8% | 93.2% |
+| **渲染耗时** | 5.73 ms/帧 | 10.5 ms/帧 |
+| **桥接状态** | state=1 | state=1 |
+| **脑健康评分** | 0.70 | 0.63 |
+| **场景识别** | 山坡·天空 | 山坡·天空 |
+
+### 遗留问题
+- WSLg 下 SDL 窗口仍报 `your 131072x1 screen size is bogus`（仅 stderr 警告，不影响 cubemap 渲染管线）
+- `wsl -e bash -c` + `setsid nohup` 无法可靠持久化后台进程；通过 `Start-Process wsl /bin/bash script.sh` 绕过
+
+### 新建文件
+- `fly64/scripts/launch_full.sh` — 一键全链路启动（脑模型 + SM64）
+- `fly64/scripts/check_bridge.py` / `check_bridge_v2.py` — 桥接帧数据检查脚本
+- `scripts/check_dashboard.py` — 仪表板多端点状态检查
+
 ## 2026-09-17: EVO-059 — Brain v2.23.1（修复生产启动崩溃）
 
 **脑进程在生产环境完全无法启动**，而全部单元测试通过。
