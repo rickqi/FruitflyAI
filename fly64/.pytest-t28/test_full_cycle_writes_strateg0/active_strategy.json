@@ -1,0 +1,15 @@
+{
+  "fallen_recovery": {
+    "mode": "directional_climb"
+  },
+  "exploration": {
+    "bold_explore_stuck_s": 45.0,
+    "turn_bias": 30.0
+  },
+  "escape": {
+    "stuck_threshold_s": 20.0
+  },
+  "coach_advice": "倒退两秒后右转跳跃",
+  "advice_ts": 1789725641.87,
+  "source": "glm-5.3-flash"
+}

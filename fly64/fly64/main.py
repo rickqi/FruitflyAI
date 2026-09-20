@@ -1708,7 +1708,7 @@ async def run(args) -> None:
             # (every ~15s at 20 fps).  The service reads help.json to
             # get the forward face for GLM consult when no dialogue
             # blocking event is active.
-            if model.step_count % 300 == 5 and not bridge.stale:
+            if model.step_count % 60 == 5 and not bridge.stale:
                 try:
                     scr = bridge.read_screen()
                     DashboardHTTP.help_json = json.dumps(build_help_snapshot(

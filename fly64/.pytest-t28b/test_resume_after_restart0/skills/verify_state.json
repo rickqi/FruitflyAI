@@ -1,0 +1,10 @@
+{
+  "active_fix_id": "fix_9999",
+  "started_at": 1789726327.0419743,
+  "baseline": {
+    "stuck": 0,
+    "coverage": 0,
+    "cpg_completed": 0,
+    "cpg_aborted": 0
+  }
+}

@@ -1,0 +1,58 @@
+{
+ "熔岩地": {
+  "scene": "熔岩地",
+  "buckets": {
+   "fallen_recovery.mode=directional_climb|exploration.turn_bias=0.8|escape.stuck_threshold_s=5.0": {
+    "signature": "fallen_recovery.mode=directional_climb|exploration.turn_bias=0.8|escape.stuck_threshold_s=5.0",
+    "params": {
+     "fallen_recovery": {
+      "mode": "directional_climb"
+     },
+     "exploration": {
+      "turn_bias": 0.8
+     },
+     "escape": {
+      "stuck_threshold_s": 5.0
+     }
+    },
+    "improved": 1,
+    "unchanged": 0,
+    "worse": 0,
+    "total_improved": 1,
+    "total_worse": 0,
+    "promoted": false,
+    "first_seen": 1789725600.148858,
+    "last_verdict": "improved",
+    "last_deltas": {},
+    "last_seen": 1789725600.148858
+   },
+   "fallen_recovery.mode=directional_climb|exploration.turn_bias=0.8|escape.stuck_threshold_s=100.0": {
+    "signature": "fallen_recovery.mode=directional_climb|exploration.turn_bias=0.8|escape.stuck_threshold_s=100.0",
+    "params": {
+     "fallen_recovery": {
+      "mode": "directional_climb"
+     },
+     "exploration": {
+      "turn_bias": 0.8
+     },
+     "escape": {
+      "stuck_threshold_s": 100.0
+     }
+    },
+    "improved": 1,
+    "unchanged": 0,
+    "worse": 0,
+    "total_improved": 1,
+    "total_worse": 0,
+    "promoted": false,
+    "first_seen": 1789725600.165911,
+    "last_verdict": "improved",
+    "last_deltas": {},
+    "last_seen": 1789725600.165911
+   }
+  },
+  "promoted": false,
+  "promoted_signature": null,
+  "updated_at": 1789725600.165911
+ }
+}

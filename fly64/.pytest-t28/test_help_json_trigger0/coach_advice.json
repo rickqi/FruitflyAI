@@ -1,0 +1,48 @@
+{
+  "advice": "倒退两秒后右转跳跃",
+  "model": "glm-5.3-flash",
+  "ts": 1789725642.0,
+  "strategy": {
+    "fallen_recovery": {
+      "mode": "directional_climb"
+    },
+    "exploration": {
+      "bold_explore_stuck_s": 45.0,
+      "turn_bias": 30.0
+    },
+    "escape": {
+      "stuck_threshold_s": 20.0
+    }
+  },
+  "history": [
+    {
+      "advice": "倒退两秒后右转跳跃",
+      "context": {
+        "help_reason": "interaction_blocked",
+        "scene_name": "门",
+        "position": {
+          "x": 1.0
+        },
+        "pos_y": null,
+        "diagnosis": "habituated",
+        "stuck_duration": 2.0,
+        "anomaly_state": "idle",
+        "health_score": 1.0
+      },
+      "strategy": {
+        "fallen_recovery": {
+          "mode": "directional_climb"
+        },
+        "exploration": {
+          "bold_explore_stuck_s": 45.0,
+          "turn_bias": 30.0
+        },
+        "escape": {
+          "stuck_threshold_s": 20.0
+        }
+      },
+      "model": "glm-5.3-flash",
+      "ts": 1789725642.0
+    }
+  ]
+}

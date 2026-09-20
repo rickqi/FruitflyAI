@@ -1,0 +1,10 @@
+{
+ "course": "escape-lava",
+ "stage": 1,
+ "attempts": 0,
+ "goal": {
+  "metric": "disp_60s",
+  "op": "gt",
+  "target": 30
+ }
+}

@@ -8,6 +8,16 @@ import ctypes
 import sys
 from pathlib import Path
 
+# Windows compat: POSIX clock_gettime_ns → perf_counter_ns
+if sys.platform == "win32":
+    def _clock_monotonic_ns() -> int:
+        return time.perf_counter_ns()
+    CLOCK_MONOTONIC = None  # not used on Windows
+else:
+    def _clock_monotonic_ns() -> int:
+        return time.clock_gettime_ns(time.CLOCK_MONOTONIC)
+    CLOCK_MONOTONIC = time.CLOCK_MONOTONIC
+
 MAGIC = b"FLY64V2\0"
 WIDTH = 384
 HEIGHT = 256
@@ -40,7 +50,7 @@ elif sys.platform == "linux":
         pass  # no-op: x86-64 TSO ordering suffices for the seqlock
 else:
     def _memory_barrier():
-        raise RuntimeError("Fly64 shared-memory bridge targets macOS/Linux only")
+        pass  # Windows: x86-64 TSO ordering suffices for the seqlock
 
 
 class SeqlockWatchdog:
@@ -93,7 +103,7 @@ class SharedBridge:
         self.seqlock_watchdog = SeqlockWatchdog()
         if create:
             self.mm[:HEADER_SIZE] = bytes(HEADER_SIZE)
-            self._write_header(0, 0, time.clock_gettime_ns(time.CLOCK_MONOTONIC), 0, 0, 0, 1)
+            self._write_header(0, 0, _clock_monotonic_ns(), 0, 0, 0, 1)
         elif self.mm[:8] != MAGIC or struct.unpack_from("<I", self.mm, 8)[0] != 2:
             self.close()
             raise ValueError("incompatible Fly64 bridge")
@@ -149,7 +159,7 @@ class SharedBridge:
         # On macOS Python monotonic_ns() is mach_absolute_time, whereas the
         # native game's CLOCK_MONOTONIC includes sleep time. Use the exact same
         # POSIX clock in both processes or every packet can appear days stale.
-        struct.pack_into("<Q", self.mm, 24, time.clock_gettime_ns(time.CLOCK_MONOTONIC))
+        struct.pack_into("<Q", self.mm, 24, _clock_monotonic_ns())
         struct.pack_into("<bbH", self.mm, 32, x, y, buttons)
         if jump:
             event = struct.unpack_from("<I", self.mm, 36)[0]
@@ -182,7 +192,7 @@ class SharedBridge:
 
     def game_status(self):
         seq, x, y, buttons, clock, state = struct.unpack_from("<IbbHQI", self.mm, 40)
-        age = (time.clock_gettime_ns(time.CLOCK_MONOTONIC) - clock) / 1e6
+        age = (_clock_monotonic_ns() - clock) / 1e6
         return dict(seq=seq, x=x, y=y,
                     jump=bool(buttons & A_BUTTON),
                     b=bool(buttons & B_BUTTON),
