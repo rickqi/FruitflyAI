@@ -2073,7 +2073,8 @@ class MemoryController:
         novelty term rewards escaping a loop even inside the same scene —
         giving health a recovery gradient.
         """
-        revisit_cost = self.revisit_penalty * 0.35
+        revisit_cost = self.revisit_penalty * 0.35 * getattr(
+            self, '_revisit_penalty_scale', 0.5)
         stuck_cost = min(self._stuck_duration / 300.0, 0.3)
         stall_cost = self.stall_ratio * 0.25
         scene_boost = self._stored_scene_change_rate * 0.2

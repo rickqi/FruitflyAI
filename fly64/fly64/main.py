@@ -988,6 +988,8 @@ async def run(args) -> None:
     _stuck_no_coverage_help_sent = False
     # L3 operator strategy, hot-reloaded every 600 ticks
     _active_strategy = dict(ACTIVE_STRATEGY_DEFAULTS)
+    _expl: dict = {}     # exploration section — reused outside 600-tick block
+    _esc: dict = {}      # escape section
     _last_strategy_tick = 0
     # EvolutionSkill: on-demand diagnosis when escape states trigger
     try:
@@ -1269,7 +1271,14 @@ async def run(args) -> None:
                     _as_raw = json.loads(_as_path.read_text("utf-8"))
                     _as_raw.setdefault("exploration", {}).update({
                         "turn_bias": _expl.get("turn_bias", 0.25),
-                        "bold_explore_stuck_s": _expl.get("bold_explore_stuck_s", 60)})
+                        "bold_explore_stuck_s": _expl.get("bold_explore_stuck_s", 60),
+                        "loop_breakout_threshold": float(
+                            _expl.get("loop_breakout_threshold", 0.90)),
+                        "cliff_tangent_gain": float(
+                            _expl.get("cliff_tangent_gain", 1.0))})
+                    # Wire revisit_penalty_scale into memory_ctrl for health_score
+                    memory_ctrl._revisit_penalty_scale = max(0.0, float(
+                        _expl.get("revisit_penalty_scale", 0.5)))
                     _as_path.write_text(json.dumps(_as_raw, indent=2, ensure_ascii=False), "utf-8")
                 except Exception:
                     pass
@@ -1440,7 +1449,8 @@ async def run(args) -> None:
             # between bursts so the brain can recover naturally.
             if (memory_ctrl.anomaly_state_name == "oscillating"
                     and (memory_ctrl.stuck_duration > 60
-                         or memory_ctrl.spatial.loop_score > 0.90)
+                         or memory_ctrl.spatial.loop_score > float(
+                              _expl.get("loop_breakout_threshold", 0.90)))
                     and not getattr(memory_ctrl, '_last_burst_tick', 0) == model.step_count):
                 if _deadlock_burst_cooldown <= 0:
                     _deadlock_burst_remaining = 200  # ~4s forward burst
@@ -2084,7 +2094,8 @@ async def run(args) -> None:
                 # the LIF network decides the actual heading).
                 model.cliff_standoff_s = memory_ctrl.cliff_standoff_s
                 model.cliff_tangent_bias = memory_ctrl.cliff_tangent_bias(
-                    pose[0], pose[2], pose[3])
+                    pose[0], pose[2], pose[3]) * float(
+                        _expl.get("cliff_tangent_gain", 1.0))
                 # L1 spatial-memory → CX: sample the visit map in the 4
                 # directions relative to heading and hand the CX goal columns a
                 # turn bias toward fresher ground.  Brain-first sensory gate
