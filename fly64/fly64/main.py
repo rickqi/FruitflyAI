@@ -1252,10 +1252,27 @@ async def run(args) -> None:
                 # behaviour (consumed in memory.py + bold breakout below).
                 _expl = _active_strategy.get("exploration", {}) or {}
                 _esc = _active_strategy.get("escape", {}) or {}
+                # Clamp turn_bias to [0, 0.4] — the EVO loop/plugin may write
+                # 0.8+ which amplifies the oscillating reflex (R31-fix12).
+                if "turn_bias" in _expl:
+                    _expl["turn_bias"] = max(0.0, min(0.25, float(_expl["turn_bias"])))
+                if "bold_explore_stuck_s" in _expl:
+                    _expl["bold_explore_stuck_s"] = max(1, min(10, float(_expl["bold_explore_stuck_s"])))
                 memory_ctrl.bold_explore_stuck_s = float(
                     _expl.get("bold_explore_stuck_s", 60.0))
                 memory_ctrl.bold_turn_bias = float(
                     _expl.get("turn_bias", 69.0))
+                # P0 self-heal: write clamped values back to the file so every
+                # reader (EVO loop, coach plugin) sees the corrected values.
+                try:
+                    _as_path = project / "skills" / "active_strategy.json"
+                    _as_raw = json.loads(_as_path.read_text("utf-8"))
+                    _as_raw.setdefault("exploration", {}).update({
+                        "turn_bias": _expl.get("turn_bias", 0.25),
+                        "bold_explore_stuck_s": _expl.get("bold_explore_stuck_s", 60)})
+                    _as_path.write_text(json.dumps(_as_raw, indent=2, ensure_ascii=False), "utf-8")
+                except Exception:
+                    pass
                 # P2: mirror coach turn_bias (0-1) into the LIF model so the
                 # strategy amplifies the winning turn pool directly.
                 model.strategy_turn_bias = max(
@@ -1421,14 +1438,28 @@ async def run(args) -> None:
             # reflex + alternating bold + LIF zero-sum locks heading=180.
             # A cooldown ensures at least 300 ticks of normal reflex operation
             # between bursts so the brain can recover naturally.
-            if (memory_ctrl.escape_behavior
-                    and memory_ctrl.anomaly_state_name == "oscillating"
-                    and memory_ctrl.stuck_duration > 300):
+            if (memory_ctrl.anomaly_state_name == "oscillating"
+                    and (memory_ctrl.stuck_duration > 60
+                         or memory_ctrl.spatial.loop_score > 0.90)
+                    and not getattr(memory_ctrl, '_last_burst_tick', 0) == model.step_count):
                 if _deadlock_burst_cooldown <= 0:
                     _deadlock_burst_remaining = 200  # ~4s forward burst
                     _deadlock_burst_cooldown = 300
+                    # Direction: steer toward the nearest unvisited frontier
+                    # instead of going straight ahead — this moves the agent
+                    # into novel territory where CX novelty can recover.
+                    _fd = memory_ctrl.spatial.frontier_direction(
+                        pose[0], pose[1], pose[2], search_radius=50)
+                    _burst_heading = 0.0
+                    if _fd is not None:
+                        _burst_heading = math.degrees(math.atan2(_fd[0], _fd[1]))
+                        _expl["burst_heading"] = round(_burst_heading, 1)
             if _deadlock_burst_remaining > 0:
-                control.x = 0
+                # Steer toward the chosen frontier heading
+                if abs(_burst_heading) > 5:
+                    control.x = int(max(-80, min(80, _burst_heading * 1.5)))
+                else:
+                    control.x = 0
                 control.y = 127
                 control.jump = False
                 reflex_override = True

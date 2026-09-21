@@ -41,7 +41,8 @@ canvas{display:block;width:100%;height:60px;border-radius:3px;margin-bottom:4px}
 </div>
 <div class="card"><h2>🧬 进化试验 <span><span id="trialCount">0</span> <span id="filterTabs" style="margin-left:8px"></span></span></h2>
 <canvas id="evoChart"></canvas>
-<div id="trialList"></div></div>
+<div id="trialList"></div>
+<div class="card" style="margin-top:6px;padding:4px 10px"><h2>📈 turn_bias 历史</h2><canvas id="paramChart" style="height:45px"></canvas></div></div>
 </div>
 <div class="card"><h2>🔧 可调参数 <span id="paramSecTabs"></span></h2>
 <div id="paramsBody"></div>
@@ -49,7 +50,7 @@ canvas{display:block;width:100%;height:60px;border-radius:3px;margin-bottom:4px}
 <script>
 const $=id=>document.getElementById(id);
 const COLORS={CYAN:'#6cdaed',GREEN:'#7dff9d',RED:'#ff3c3c',GOLD:'#ffca72'};
-let tunables={}, filter='all', sect='exploration', allStrategy={}, allTrials=[];
+let tunables={}, filter='all', sect='exploration', allStrategy={}, allTrials=[], paramHistory=[]
 
 async function get(p){const r=await fetch(p,{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);return r.json();}
 
@@ -120,11 +121,31 @@ function renderHealth(m){
 
 async function refresh(){
   try{const m=await get('/memory.json');renderHealth(m);
-    const s=await get('/active_strategy.json');allStrategy=s;
+    const s=await get('/active_strategy.json');const lastStrat=JSON.stringify(allStrategy);allStrategy=s;
     if(Object.keys(s).length>0&&!$('paramsBody').innerHTML)renderParams();
+    // P2 drift detection: if params changed outside this page, flag it
+    if(lastStrat!='{}'&&lastStrat!=JSON.stringify(s)&&$('paramsBody').innerHTML){
+      const old=JSON.parse(lastStrat);const o=old.exploration||{},n=s.exploration||{};
+      if(o.turn_bias!=n.turn_bias||o.bold_explore_stuck_s!=n.bold_explore_stuck_s){
+        $('paramMsg').textContent='⚠ 参数外部变更! turn_bias='+(o.turn_bias||'?')+'→'+(n.turn_bias||'?')+' (刷新可恢复面板写入)';$('paramMsg').style.color='#ffca72';}
+    }
+    // P2 param history (limit 120 samples ≈ 10 min)
+    if(s.exploration?.turn_bias!=null){paramHistory.push({t:Date.now(),turn_bias:s.exploration.turn_bias,bold:s.exploration.bold_explore_stuck_s});if(paramHistory.length>120)paramHistory.shift();drawParamHistory();}
     const t=await get('/evolution-log.json');
     if(Array.isArray(t)&&t.length!==allTrials.length)renderTrials(t);
   }catch(e){}
+}
+function drawParamHistory(){
+  const cv=$('paramChart');if(!cv||paramHistory.length<2)return;
+  const d=Math.min(devicePixelRatio||1,2),w=cv.clientWidth,h=45;cv.width=w*d;cv.height=h*d;
+  const ctx=cv.getContext('2d');ctx.setTransform(d,0,0,d,0,0);ctx.clearRect(0,0,w,h);
+  const left=4,right=w-2,top=6,bottom=h-2;
+  const vals=paramHistory.map(p=>p.turn_bias);const mn=0,mx=Math.max(...vals,0.1),span=Math.max(mx-mn,0.01);
+  const x=i=>left+i/(paramHistory.length-1)*(right-left),y=v=>bottom-(v-mn)/span*(bottom-top);
+  ctx.strokeStyle=COLORS.CYAN;ctx.lineWidth=1;ctx.beginPath();
+  paramHistory.forEach((p,i)=>{const yy=y(p.turn_bias);i?ctx.lineTo(x(i),yy):ctx.moveTo(x(i),yy);});ctx.stroke();
+  ctx.fillStyle='#536170';ctx.font='8px sans-serif';
+  ctx.fillText('turn_bias: '+vals[vals.length-1].toFixed(2),left+2,top+7);
 }
 async function load(){
   try{const t=await get('/brain_tunable_params.json');
