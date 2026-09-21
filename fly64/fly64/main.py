@@ -1279,6 +1279,18 @@ async def run(args) -> None:
                     # Wire revisit_penalty_scale into memory_ctrl for health_score
                     memory_ctrl._revisit_penalty_scale = max(0.0, float(
                         _expl.get("revisit_penalty_scale", 0.5)))
+                    # Wire visual_gain_novelty_boost into model
+                    model._visual_novelty_boost = float(
+                        _expl.get("visual_gain_novelty_boost", 0.10))
+                    # Wire dopamine_revisit_cost into model
+                    model._dopamine_revisit_cost = float(
+                        _expl.get("dopamine_revisit_cost", 0.20))
+                    # Wire stuck_ramp_cooldown into reflex controller
+                    memory_ctrl.reflex.cooldown_duration = max(1.0, min(15.0, float(
+                        _expl.get("stuck_ramp_cooldown", 5.0))))
+                    # Wire breakout_forward_bias into model (max escape forward gain)
+                    model._max_escape_forward = max(0.15, min(0.60, float(
+                        _expl.get("breakout_forward_bias", 0.50))))
                     _as_path.write_text(json.dumps(_as_raw, indent=2, ensure_ascii=False), "utf-8")
                 except Exception:
                     pass
@@ -2289,8 +2301,10 @@ async def run(args) -> None:
                     "primitive_disp": getattr(memory_ctrl, "disp_60s", None),
                     "cpg_status": cpg.status(),
                     "cliff_conf": round(memory_ctrl.cliff_confidence, 3),
-                    "gate_forward": getattr(control, "forward_rate", 0.0) > 0.4,
-                    "gate_jump": getattr(control, "jump_rate", 0.0) > 2.0,
+                    "gate_forward": getattr(control, "forward_rate", 0.0) > float(
+                        _expl.get("gate_forward_threshold", 0.4)),
+                    "gate_jump": getattr(control, "jump_rate", 0.0) > float(
+                        _expl.get("gate_jump_threshold", 2.0)),
                     "hrc_asymmetry": round(getattr(model, "true_hrc_asymmetry", 0.0), 4),
                     "mb_dopamine": round(getattr(model.mushroom, "dopamine", 0.0), 4),
                     "mb_mbon_forward": round(float(model.mushroom.mbon_outputs[0]), 4),

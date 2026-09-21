@@ -1397,7 +1397,9 @@ class FlyModel:
         # Negative: revisit
         revisit = getattr(self, "_revisit_penalty", 0.0)
         if revisit > 0.5:
-            punishment = max(punishment, self.DAN_PUNISH_REVISIT)
+            punishment = max(punishment, getattr(
+                self, '_dopamine_revisit_cost',
+                self.DAN_PUNISH_REVISIT))
         # EVO R14 · Negative: circling-family anomaly states.  This is the
         # dopaminergic-neuron (DAN) input for loop suppression — the mushroom
         # body's three-factor rule then weakens the scene→turn associations
@@ -1423,7 +1425,8 @@ class FlyModel:
         # High novelty (unexplored) → slight suppression for caution
         # B10 (P1): piecewise branches replaced by a smooth sigmoid — same
         # ±0.10 range, no discontinuities at the old 0.3 / 0.7 breakpoints.
-        novelty_gain = 1.0 + 0.10 * float(np.tanh((0.5 - novelty) * 4.0))
+        novelty_gain = 1.0 + getattr(self, '_visual_novelty_boost', 0.10) * float(
+                np.tanh((0.5 - novelty) * 4.0))
 
         # ---- Reward signal from stuck_duration changes (for gain modulation) ----
         # When stuck_duration drops significantly (escape succeeded) → reward=+1
@@ -1662,7 +1665,9 @@ class FlyModel:
             _dz = getattr(self, "_last_disp_z", 0.0)
             _disp = (_dx ** 2 + _dz ** 2) ** 0.5
             if _disp < 0.5:
-                self._escape_forward_accum = min(0.50, self._escape_forward_accum + 0.005)
+                self._escape_forward_accum = min(
+                    getattr(self, '_max_escape_forward', 0.50),
+                    self._escape_forward_accum + 0.005)
             else:
                 self._escape_forward_accum = max(0.15, self._escape_forward_accum - 0.01)
             self.v[self.forward] += self._escape_forward_accum

@@ -33,14 +33,14 @@
       "min": 0.1,
       "max": 0.8,
       "description": "Forward pool firing rate gate (Hz). Lower = easier to trigger forward motion.",
-      "wired": false
+      "wired": true
     },
     "exploration.gate_jump_threshold": {
       "default": 2.0,
       "min": 0.5,
       "max": 4.0,
       "description": "Jump pool firing rate gate (Hz). Lower = jump triggers more easily.",
-      "wired": false
+      "wired": true
     },
     "exploration.cliff_tangent_gain": {
       "default": 1.0,
@@ -61,28 +61,28 @@
       "min": 1.0,
       "max": 15.0,
       "description": "Seconds stuck_ramp reflex stays suppressed after firing. Longer = less reflex thrashing.",
-      "wired": false
+      "wired": true
     },
     "exploration.visual_gain_novelty_boost": {
       "default": 0.1,
       "min": -0.2,
       "max": 0.5,
       "description": "Sensor gain boost per unit novelty (applied at model.step). Positive = stronger response to novel visual input.",
-      "wired": false
+      "wired": true
     },
     "exploration.dopamine_revisit_cost": {
       "default": 0.5,
       "min": 0.0,
       "max": 1.0,
       "description": "Dopamine punishment threshold for revisit_penalty. Higher = MB learns faster to avoid loops.",
-      "wired": false
+      "wired": true
     },
     "exploration.breakout_forward_bias": {
-      "default": 0.7,
-      "min": 0.2,
-      "max": 0.9,
+      "default": 0.5,
+      "min": 0.15,
+      "max": 0.6,
       "description": "Fraction of forward drive during escape behavior (vs. turning). Higher = straighter breakout runs.",
-      "wired": false
+      "wired": true
     },
     "escape.commit_ticks": {
       "default": 50,
@@ -145,7 +145,7 @@
       "min": 0.5,
       "max": 5.0,
       "description": "Minimum reflex cooldown duration in seconds. Lower = faster re-trigger but more thrashing.",
-      "wired": false
+      "wired": true
     },
     "reflex.adaptive_cooldown_scale": {
       "default": 0.05,
