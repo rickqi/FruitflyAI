@@ -36,8 +36,8 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.23.11"  # R31-fix12: oscillating displacement gate (progress breaks self-loop)
-SKILL_VERSION = "3.4.2"   # EVO-071: Phase 6 fitness reads fields that exist (must mirror evolution_skill)
+BRAIN_VERSION = "2.23.12"  # exploration deadlock fix: escape-override-reflex 200t burst + cx_novelty recovery
+SKILL_VERSION = "3.5.0"   # EVO-050: waste_penalty fitness + exploration triple-deadlock analysis
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
 _evo_iter_counter = 0
@@ -974,7 +974,7 @@ async def run(args) -> None:
         try:
             _dialogue_writer.write_dialogue_decision(
                 llm_decision["action"], llm_decision["reason"],
-                source="glm-5.3-flash", wait_seconds=wait_s,
+                source="glm-5v-turbo", wait_seconds=wait_s,
                 timed_out=timed_out)
         except Exception:
             pass
@@ -1425,7 +1425,7 @@ async def run(args) -> None:
                     and memory_ctrl.anomaly_state_name == "oscillating"
                     and memory_ctrl.stuck_duration > 300):
                 if _deadlock_burst_cooldown <= 0:
-                    _deadlock_burst_remaining = 60
+                    _deadlock_burst_remaining = 200  # ~4s forward burst
                     _deadlock_burst_cooldown = 300
             if _deadlock_burst_remaining > 0:
                 control.x = 0
