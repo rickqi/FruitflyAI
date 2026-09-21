@@ -1,0 +1,233 @@
+{
+  "$schema": "v1",
+  "meta": {
+    "title": "Fly64 跨组件契约注册表",
+    "version": "1.0.0",
+    "created": "2025-07-20",
+    "purpose": "系统化登记所有跨组件状态载体的契约，确保 write-once-read-many 规范得到程序化执行",
+    "rules_in_effect": [
+      "RULE-19: 不可观测的失败为零容忍 — 任何被构造/维护/消费但从未被至少一个健康组件观测的状态路径视为不可观测的失败，门禁直接拒绝",
+      "WORM: 每个状态键在系统生命周期内精确写入一次（生产者），可供多个消费者读取任意次数；无读取者的写入是死写，无写入者的读取是沉默默认值"
+    ]
+  },
+  "contracts": {
+    "bridge_mmap": {
+      "description": "SM64（C）与 Python 脑模型之间的共享内存桥（write-once-read-many）",
+      "artifact": "runtime/fly64_bridge.bin",
+      "version": 2,
+      "magic": "FLY64V2",
+      "protocol": "mmap with seqlock (POSIX shared memory mapped file)",
+      "worm_enforced": true,
+      "layout": [
+        {"offset": 0, "size": 8, "field": "magic", "type": "bytes", "producer": "C (sm64ex)", "consumers": ["bridge.py:__init__", "bridge.py:write_frame"]},
+        {"offset": 8, "size": 4, "field": "version", "type": "uint32", "producer": "bridge.py:_write_header", "consumers": ["bridge.py:__init__"]},
+        {"offset": 12, "size": 4, "field": "frame_seq", "type": "uint32", "producer": "bridge.py:read_frame (proto C), bridge.py:write_frame (test)", "consumers": ["bridge.py:read_frame", "bridge.py:game_status", "SeqlockWatchdog"]},
+        {"offset": 16, "size": 4, "field": "control_seq", "type": "uint32", "producer": "bridge.py:write_control", "consumers": ["bridge.py:write_control (read-mod-write)"]},
+        {"offset": 20, "size": 4, "field": "enabled", "type": "uint32", "producer": "C (sm64ex)", "consumers": ["bridge.py:enabled", "bridge.py:write_control"]},
+        {"offset": 24, "size": 8, "field": "heartbeat_ns", "type": "uint64", "producer": "bridge.py:write_control", "consumers": ["bridge.py:game_status", "bridge_harness.c: stale check"]},
+        {"offset": 32, "size": 1, "field": "stick_x", "type": "int8", "producer": "bridge.py:write_control", "consumers": ["C sm64ex fly64_bridge_read_controller"]},
+        {"offset": 33, "size": 1, "field": "stick_y", "type": "int8", "producer": "bridge.py:write_control", "consumers": ["C sm64ex fly64_bridge_read_controller"]},
+        {"offset": 34, "size": 2, "field": "buttons", "type": "uint16", "producer": "bridge.py:write_control", "consumers": ["C sm64ex fly64_bridge_read_controller"]},
+        {"offset": 36, "size": 4, "field": "jump_event", "type": "uint32", "producer": "bridge.py:write_control (if jump)", "consumers": ["C sm64ex (event counter)"]},
+        {"offset": 40, "size": 24, "field": "game_state_block", "type": "struct(seq+xy+buttons+clock+state)", "producer": "C (sm64ex)", "consumers": ["bridge.py:game_status"]},
+        {"offset": 64, "size": 24, "field": "pose_block", "type": "4f+1I+1f", "producer": "C (sm64ex)", "consumers": ["bridge.py:read_frame", "bridge.py:game_status"]},
+        {"offset": 88, "size": 4, "field": "b_event", "type": "uint32", "producer": "bridge.py:write_control (if b)", "consumers": ["C sm64ex (event counter)"]},
+        {"offset": 92, "size": 4, "field": "z_event", "type": "uint32", "producer": "bridge.py:write_control (if z)", "consumers": ["C sm64ex (event counter)"]},
+        {"offset": 128, "size": 294912, "field": "frame_pixels", "type": "384x256x3 raw RGB", "producer": "C (sm64ex) or bridge.py:write_frame", "consumers": ["bridge.py:read_frame", "bridge.py:read_screen"]},
+        {"offset": 295040, "size": 230400, "field": "screen_pixels", "type": "320x240x3 raw RGB", "producer": "C (sm64ex)", "consumers": ["bridge.py:read_screen"]}
+      ],
+      "write_once_fields": ["magic", "version", "frame_seq", "control_seq", "heartbeat_ns", "stick_x", "stick_y", "buttons", "b_event", "z_event"],
+      "producers": ["C sm64ex (fly64_bridge.c)", "bridge.py:SharedBridge"],
+      "consumers": ["bridge.py:SharedBridge.read_frame()", "bridge.py:SharedBridge.read_screen()", "bridge.py:SharedBridge.game_status()", "bridge.py:SeqlockWatchdog", "bridge_harness.c"],
+      "unobservable_failures_zero_tolerance": [
+        {"rule_id": "RULE-19a", "description": "Seqlock stalled > 5 s without consumer feedback — raw frame frozen but code keeps executing"},
+        {"rule_id": "RULE-19b", "description": "Torn read after 3 retries — mmap seqlock odd flag indicates partial write but consumer has no visibility"},
+        {"rule_id": "RULE-19c", "description": "heartbeat_ns stale > 250 ms silently interpreted as state=4 (disconnected) — consumer must log when this triggers"}
+      ]
+    },
+    "flow_json": {
+      "description": "实时神经流状态（每秒更新，脑模型内部状态的外化快照）",
+      "artifact": "/flow.json (HTTP endpoint)",
+      "worm_enforced": true,
+      "contract_type": "HTTP JSON (main.py → HTTP endpoint)",
+      "schema": {
+        "optic_flow_group": ["asymmetry", "true_asymmetry", "heading_rate", "looming", "cliff", "cliff_rate", "tau", "hrc_asymmetry", "local_motion", "local_motion_detected"],
+        "emd_group": ["emd_on_right", "emd_on_left", "emd_on_down", "emd_on_up", "emd_off_right", "emd_off_left", "emd_off_down", "emd_off_up", "emd_on_total", "emd_off_total"],
+        "cliff_group": ["cliff_detected", "cliff_confidence", "cliff_confirmed", "cliff_standoff_s", "cliff_conf"],
+        "terrain_group": ["terrain", "blue_dom", "underwater", "scene_name", "scene_hash", "scene_label"],
+        "scene_group": ["scene_match", "scene_change_rate", "scene_id", "revisit_count", "revisit_penalty", "scene_name", "scene_label"],
+        "mbon_group": ["mb_mbon_forward", "mb_mbon_jump", "mb_mbon_punch", "mb_mbon_dive", "mb_mbon_groundpound", "mb_mbon_longjump", "mb_w_punch", "mb_w_dive", "mb_w_groundpound", "mb_w_longjump"],
+        "dopamine_group": ["dopamine_gain.visual", "dopamine_gain.forward", "dopamine_gain.turn", "dopamine_gain.jump", "dopamine_gain.recurrent", "reward_signal", "cumulative_reward", "mb_dopamine", "dopamine_gain_avg", "learning_progress", "reward_trend"],
+        "plasticity_group": ["mushroom_weight_changes", "error_gradient_mean", "gain_update_count", "error_gradient", "corrective_current", "mb_assoc_count", "mb_weight_std", "mb_saturation_events"],
+        "skill_version_group": ["skill_version", "brain_version", "evo_iter", "tick"],
+        "coach_group": ["coach_applied.strategy_mode", "coach_applied.bold_explore_stuck_s", "coach_applied.escape_stuck_threshold_s", "coach_applied.turn_bias", "coach_applied.fallen_forward", "coach_applied.fallen_jump_boost", "coach_applied.command_type", "coach_applied.command_ts", "coach_applied.instinct_scene", "coach_applied.instinct_applied"],
+        "anomaly_group": ["anomaly_state", "anomaly_confidence", "anomaly_duration", "reflex_active", "reflex_type", "reflex_cooldowns", "reflex_ineffective", "disp_60s"],
+        "dialogue_group": ["dialogue_active", "llm_decision.status", "llm_decision.action", "llm_decision.reason", "llm_decision.episode", "llm_decision.wait_s", "llm_decision.ts", "interactive_near"],
+        "health_group": ["health_score", "stall_ratio", "waste_ratio", "bridge_stale"],
+        "retina_group": ["on", "off", "sustained", "edge_0", "edge_45", "edge_90", "edge_135", "fg_fraction"],
+        "enclosure_group": ["wall_score", "ramp_score", "opening_score", "sky_score", "enclosure_score", "ground_angle", "door_frame_score", "opening_width", "target_count"],
+        "decision_group": ["decision_source", "cpg_status", "cpg_completed", "cpg_aborted", "primitive_disp", "gate_forward", "gate_jump", "evo_findings", "command_decoupled"],
+        "plasticity_summary": ["dopamine_gain_avg", "learning_progress", "mushroom_weight_changes", "reward_trend", "error_gradient_mean", "gain_update_count"]
+      },
+      "producers": ["main.py:DashboardHTTP.flow_json (line 2180+)"],
+      "consumers": [
+        "evolution_skill.py:fetch_json('/flow.json')",
+        "evolution_agent.py:fetch_json('/flow.json')",
+        "scene_context.py (threshold tags)",
+        "runner.py (flow field)",
+        "Dashboard JS/HTML (browser consumer)",
+        "m3_gate_check.py",
+        "m10_stability_track.py",
+        "m10_trajectory_analysis.py",
+        "m9_verify_loop.py",
+        "m8_coach_analysis.py",
+        "measure_scene_identity.py",
+        "analyze_circling.py",
+        "analyze_dialogue_llm.py",
+        "analyze_immobile.py",
+        "evo_status_report.py"
+      ],
+      "unobservable_failures_zero_tolerance": [
+        {"rule_id": "RULE-19d", "description": "flow_json 键被写入但无消费者读取（DEAD-WRITE）— 系统在产生不可观测的状态"},
+        {"rule_id": "RULE-19e", "description": "field 被消费者读取但无生产者写入（SILENT-DEFAULT）— 组件在消费虚构值"},
+        {"rule_id": "RULE-19f", "description": "bridge_stale=True 但 dashboard/evolution 没有独立的熔断反馈回路"}
+      ]
+    },
+    "memory_json": {
+      "description": "实时内存/空间状态（每秒更新，MemoryController 的外化快照）",
+      "artifact": "/memory.json (HTTP endpoint)",
+      "worm_enforced": true,
+      "contract_type": "HTTP JSON (main.py → HTTP endpoint)",
+      "schema_keys": [
+        "heat_cells", "adjacency", "stuck_score", "stuck_duration", "cliff_standoff_s",
+        "novelty", "escape_behavior", "control_magnitude", "control_x_zero", "control_y_zero",
+        "jump_not_active", "cpg", "loop_score", "exploration_mode", "visited_cells",
+        "coverage_pct", "coverage_rate", "exploration_speed", "dead_end_count", "dead_end_cells",
+        "cx_novelty_direction", "adjacency_edges", "traversal_steps", "recent_path",
+        "cell_x", "cell_z", "pos_y", "xs", "zs", "heats", "scene_change_rate",
+        "forced_bold_explore", "scene_low_duration", "scene_id", "revisit_count",
+        "revisit_penalty", "scene_match", "anomaly_state", "anomaly_confidence",
+        "anomaly_duration", "reflex_active", "reflex_type", "reflex_cooldowns",
+        "reflex_ineffective", "disp_60s", "dialogue_active", "scene_label",
+        "scene_name", "health_score", "stall_ratio", "waste_ratio"
+      ],
+      "producers": ["main.py:DashboardHTTP.memory_json (line 2110+)"],
+      "consumers": [
+        "evolution_skill.py:fetch_json('/memory.json')",
+        "evolution_agent.py:fetch_json('/memory.json')",
+        "scene_context.py (scene identification)",
+        "runner.py (memory field)",
+        "Dashboard JS/HTML (browser consumer)",
+        "m4_check_live_state.py",
+        "m4_motion_state.py",
+        "evo_status_report.py",
+        "analyze_circling.py",
+        "analyze_dialogue_llm.py",
+        "analyze_immobile.py",
+        "check_control_state.py",
+        "check_help_trigger.py",
+        "check_llm_advice.py",
+        "check_wsl_state.py"
+      ],
+      "unobservable_failures_zero_tolerance": [
+        {"rule_id": "RULE-19g", "description": "memory_json 键被写入但无消费者读取 — 系统在产生不可观测的状态"},
+        {"rule_id": "RULE-19h", "description": "field 被消费者读取但无生产者写入 — 组件在消费虚构默认值"}
+      ]
+    },
+    "active_strategy_json": {
+      "description": "当前激活的教练参数策略（由 LLM 教练写入，main.py 热加载消费）",
+      "artifact": "skills/active_strategy.json",
+      "worm_enforced": true,
+      "contract_type": "JSON file (write: strategy_writer.py / llm_consult.py, read: main.py / instinct_bindings.py)",
+      "schema": {
+        "exploration": {
+          "bold_turn_bias": "float — turn bias for bold exploration mode",
+          "exploration.bold_explore_stuck_s": "float — stuck timeout for bold explore",
+          "exploration.revisit_penalty_scale": "float — penalty multiplier for revisiting cells",
+          "exploration.gate_forward_threshold": "float — forward motion gate threshold",
+          "exploration.gate_jump_threshold": "float — jump gate threshold",
+          "exploration.cliff_tangent_gain": "float — cliff avoidance tangent gain",
+          "exploration.loop_breakout_threshold": "float — loop breakout threshold",
+          "exploration.stuck_ramp_cooldown": "float — cooldown after stuck on ramp",
+          "exploration.visual_gain_novelty_boost": "float — novelty boost to visual gain",
+          "exploration.dopamine_revisit_cost": "float — dopamine cost for revisits",
+          "exploration.breakout_forward_bias": "float — forward bias during breakout"
+        },
+        "escape": {
+          "escape.commit_ticks": "float — commit tick count for escape",
+          "escape.forward_accum_max": "float — max forward accumulation",
+          "escape.forward_accum_step": "float — forward accumulation step",
+          "escape.commit_reinforce": "float — reinforcement factor for commit",
+          "escape.commit_suppress": "float — suppression factor for commit"
+        },
+        "__generation": "int — evolution generation counter"
+      },
+      "producers": ["strategy_writer.py (write)", "llm_consult.py (sanitize_strategy)", "llm_consult.py (SECTION_SPECS)"],
+      "consumers": ["main.py (hot-reload)", "instinct_bindings.py", "coach_outcomes.py", "runner.py", "service.py", "scene_context.py", "evolution_skill.py"],
+      "write_once_fields": ["exploration", "escape", "__generation"],
+      "unobservable_failures_zero_tolerance": [
+        {"rule_id": "RULE-19i", "description": "SECTION_SPECS 中宣传的参数消费者从未读取（如 escape.reverse_seconds）— 教练在调节无效果的旋钮"},
+        {"rule_id": "RULE-19j", "description": "sanitize_strategy 允许死键传播到 active_strategy.json — 测试必须验证消毒函数丢弃了未注册的键"},
+        {"rule_id": "RULE-19k", "description": "active_strategy.json 中的键在 hot-reload 后未被任何行为代码读取 — 参数写入了但未生效"}
+      ]
+    }
+  },
+  "cross_contract_dependencies": {
+    "bridge_mmap → flow_json": {
+      "description": "flow_json.bridge_stale 从 SharedBridge.stale 派生；flow_json.pos_y / cell_x / cell_z 从 mmap pose 块派生",
+      "propagation_delay": "实时（每 tick 更新）"
+    },
+    "flow_json → active_strategy_json": {
+      "description": "flow_json.coach_applied.* 展示 active_strategy.json 经 hot-reload 后的实际生效值",
+      "propagation_delay": "实时（hot-reload 后下一 tick 更新）"
+    },
+    "flow_json → evolution_skill": {
+      "description": "EvolutionSkill 读取 flow_json 的 80+ 信号字段用于 pattern matching",
+      "propagation_delay": "每 tick"
+    },
+    "memory_json → evolution_skill": {
+      "description": "EvolutionSkill 读取 memory_json 的 spatial/memory 字段用于 pattern matching",
+      "propagation_delay": "每 tick"
+    }
+  },
+  "zero_tolerance_enforcement": {
+    "rule_19_reinforcement": [
+      {
+        "id": "ZT-1",
+        "rule": "contract_gate 门禁在每次 CI 中运行 audit_contract_pairs.py，如果有 DEAD-WRITE 或 SILENT-DEFAULT 标记的键，门禁拒绝",
+        "rationale": "任何 DEAD-WRITE 意味着系统在产生不可观测的状态（RULE-19）"
+      },
+      {
+        "id": "ZT-2",
+        "rule": "每个注册过的契约（bridge_mmap / flow_json / memory_json / active_strategy_json）必须有其生产者代码变更时对应的消费者也变更或更新契约注册表",
+        "rationale": "单方面变更生产者而不更新消费者的注册导致不可观测的失败"
+      },
+      {
+        "id": "ZT-3",
+        "rule": "active_strategy.json 中 SECTION_SPECS 宣传的每个策略参数必须在 brain 代码中有文字 READ 位置",
+        "rationale": "教练宣传可调参数但脑模型不消费 = 不可观测的失败（实测案: escape.reverse_seconds）"
+      },
+      {
+        "id": "ZT-4",
+        "rule": "bridge mmap 的 seqlock 停滞 > 5 s 时 flow_json.bridge_stale 必须立即反映，且 dashboard 必须显示不可忽略的警示",
+        "rationale": "SM64 已死但脑模型继续运行 = 不可观测的失败"
+      },
+      {
+        "id": "ZT-5",
+        "rule": "新引入的跨组件状态载体必须在此契约注册表中登记，否则 CI 门禁拒绝",
+        "rationale": "未登记的契约不在审计范围内，会产生不可观测的失败盲区"
+      }
+    ]
+  },
+  "audit_coverage": {
+    "tool": "scripts/audit_contract_pairs.py",
+    "wired_tests": [
+      "tests/test_coach_contract.py (SECTION_SPECS 消费者验证)",
+      "scripts/contract_gate.py (CI 门禁)"
+    ],
+    "run_frequency": "每轮 CI 变更",
+    "last_audit": null,
+    "dead_write_threshold": 0,
+    "silent_default_threshold": 0
+  }
+}

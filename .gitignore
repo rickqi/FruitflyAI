@@ -1,4 +1,4 @@
-﻿# Python
+# Python
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -44,3 +44,9 @@ SM64/
 fly64/plugin/llm.env
 
 export logs/
+
+# Temporary test artifacts
+fly64/.pytest-run/
+fly64/.tmp/
+fly64/.pytest-*/
+.omo/

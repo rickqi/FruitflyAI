@@ -44,14 +44,297 @@ CX_LOOP_BREAK_STUCK_S = 45.0
 CX_LOOP_BREAK_COOLDOWN_TICKS = 1500
 
 
+class AnchorPathIntegrator:
+    """CX-2: Anchor-based path integration with displacement tracking.
+
+    Maintains a world-frame anchor point and integrates displacement using
+    the CX's own heading estimate and forward speed.  Supports visual
+    relocalization to correct drift when familiar scenes are re-encountered.
+
+    The displacement vector represents the brain's belief of how far the
+    agent has travelled since the anchor was set — an egocentric "where
+    am I relative to where I started" signal consumed by spatial memory
+    and goal selection.
+    """
+
+    def __init__(self, speed_to_units: float = 1.6,
+                 displacement_decay: float = 0.9995,
+                 relocalize_gate: float = 0.8,
+                 relocalize_strength: float = 0.3):
+        self.SPEED_TO_UNITS = speed_to_units
+        self.DISPLACEMENT_DECAY = displacement_decay
+        self._relocalize_gate = relocalize_gate
+        self._relocalize_strength = relocalize_strength
+
+        self.anchor: tuple[float, float] | None = None
+        self.disp_x: float = 0.0
+        self.disp_z: float = 0.0
+
+        # Visual relocalization: scene_id → (disp_x, disp_z, confidence)
+        self._scene_positions: dict[int, tuple[float, float, float]] = {}
+        self._last_scene_id: int | None = None
+
+    def set_anchor(self, x: float, z: float) -> None:
+        """Set a new world anchor and reset displacement to zero.
+
+        Parameters
+        ----------
+        x, z : float
+            World-frame anchor position.
+        """
+        self.anchor = (x, z)
+        self.disp_x = 0.0
+        self.disp_z = 0.0
+
+    def reset(self) -> None:
+        """Clear anchor, displacement, and scene memory."""
+        self.anchor = None
+        self.disp_x = 0.0
+        self.disp_z = 0.0
+        self._scene_positions.clear()
+        self._last_scene_id = None
+
+    def integrate(self, heading_estimate: float, forward_speed: float,
+                  dt: float) -> None:
+        """Integrate displacement from forward speed along heading estimate.
+
+        Parameters
+        ----------
+        heading_estimate : float
+            Current heading in radians (CX compass estimate).
+        forward_speed : float
+            Forward speed in game units/s.
+        dt : float
+            Simulation tick interval (seconds).
+        """
+        if self.anchor is None:
+            return
+        if forward_speed > 0.0:
+            self.disp_x += (np.sin(heading_estimate) * forward_speed
+                            * self.SPEED_TO_UNITS * dt)
+            self.disp_z += (np.cos(heading_estimate) * forward_speed
+                            * self.SPEED_TO_UNITS * dt)
+        else:
+            # Slow decay when stationary to prevent infinite drift
+            self.disp_x *= self.DISPLACEMENT_DECAY
+            self.disp_z *= self.DISPLACEMENT_DECAY
+
+    def relocalize(self, scene_id: int | None, confidence: float) -> None:
+        """Correct path integration drift on familiar scene re-exposure.
+
+        When the same scene is encountered with high confidence, pull
+        disp_x/disp_z toward the remembered displacement for that scene.
+        """
+        if scene_id is None or confidence < self._relocalize_gate:
+            self._last_scene_id = scene_id
+            return
+        if scene_id in self._scene_positions:
+            mem_x, mem_z, mem_conf = self._scene_positions[scene_id]
+            w = (self._relocalize_strength * confidence
+                 * (1.0 - mem_conf * 0.5))
+            self.disp_x += (mem_x - self.disp_x) * w
+            self.disp_z += (mem_z - self.disp_z) * w
+            self._scene_positions[scene_id] = (
+                mem_x, mem_z, min(1.0, mem_conf + 0.05))
+        elif self.anchor is not None:
+            self._scene_positions[scene_id] = (
+                self.disp_x, self.disp_z, confidence)
+        self._last_scene_id = scene_id
+
+    @property
+    def distance(self) -> float:
+        """Distance from anchor (game units)."""
+        if self.anchor is None:
+            return 0.0
+        return float(np.hypot(self.disp_x, self.disp_z))
+
+    @property
+    def return_bearing(self) -> float | None:
+        """World-frame bearing FROM current position BACK TO anchor.
+
+        Returns None when at anchor or no anchor is set.
+        """
+        if self.anchor is None or (abs(self.disp_x) < 1e-8
+                                   and abs(self.disp_z) < 1e-8):
+            return None
+        return float(np.arctan2(-self.disp_x, -self.disp_z))
+
+    @property
+    def displacement(self) -> tuple[float, float]:
+        """Current displacement vector (dx, dz) from anchor."""
+        return (self.disp_x, self.disp_z)
+
+    @property
+    def is_anchored(self) -> bool:
+        """True when an anchor has been set."""
+        return self.anchor is not None
+
+    @property
+    def scene_count(self) -> int:
+        """Number of distinct scenes remembered for relocalization."""
+        return len(self._scene_positions)
+
+
+class MultiSourceGoalCompetition:
+    """CX-3: Multi-source goal vector synthesis and steering competition.
+
+    Accepts goal vectors from multiple sources (spatial memory, novelty,
+    scene recognition, LLM advice) and produces a single steering bias
+    through weighted vector competition in the FB (fan-shaped body).
+
+    Each goal vector is a tuple (dx, dz, weight) where dx and dz are
+    world-frame direction components and weight is the source's credibility.
+    The resultant vector norm sets the goal strength; its direction sets
+    the goal column on the compass ring.
+    """
+
+    def __init__(self, n_columns: int = N_COLUMNS,
+                 steering_gain: float = STEERING_GAIN,
+                 optic_flow_gain: float = OPTIC_FLOW_GAIN,
+                 goal_update_rate: float = GOAL_UPDATE_RATE,
+                 goal_memory_decay: float = GOAL_MEMORY_DECAY,
+                 max_steering: float = MAX_STEERING):
+        self.n_columns = n_columns
+        self.steering_gain = steering_gain
+        self.optic_flow_gain = optic_flow_gain
+        self.goal_update_rate = goal_update_rate
+        self.goal_memory_decay = goal_memory_decay
+        self.max_steering = max_steering
+
+        # Goal state
+        self.goal_column: int = 0
+        self.goal_strength: float = 0.0
+        self._goal_float: float = 0.0
+
+        # Steering output
+        self.steering_bias: float = 0.0
+
+        # Idle exploration wander
+        self._idle_wander_phase: float = 0.0
+        self._idle_wander_rate: float = 0.006
+
+        # Loop-break state
+        self._jump_seq: int = 0
+        self._ticks_since_jump: int = CX_LOOP_BREAK_COOLDOWN_TICKS
+        self._ext_goal_strength: float = 0.0
+
+    def update(self, goal_vectors: list[tuple[float, float, float]] | None,
+               heading_column: int, heading_estimate: float,
+               novelty: float = 0.5,
+               novelty_direction: float = 0.0,
+               heading: float | None = None,
+               flow_asymmetry: float = 0.0,
+               stuck_duration: float = 0.0,
+               n_columns: int | None = None) -> float:
+        """One timestep of goal competition and steering computation.
+
+        Parameters
+        ----------
+        goal_vectors : list of (dx, dz, weight) or None
+            Multi-source goal vectors in world frame.
+        heading_column : int
+            Current compass heading column (0..n-1).
+        heading_estimate : float
+            Continuous heading estimate in radians.
+        novelty : float, optional
+            Novelty signal (0-1).
+        novelty_direction : float, optional
+            Direction component of novelty.
+        heading : float or None, optional
+            External game heading for legacy fallback.
+        flow_asymmetry : float, optional
+            Optic flow left-right imbalance.
+        stuck_duration : float, optional
+            Seconds stuck (for loop-break).
+
+        Returns
+        -------
+        float
+            Steering bias in [-1, 1]; positive = steer right.
+        """
+        n = n_columns if n_columns is not None else self.n_columns
+
+        # ---- Goal vector competition ----
+        if goal_vectors:
+            sx = sz = 0.0
+            for dx, dz, w in goal_vectors:
+                sx += w * dx
+                sz += w * dz
+            norm = np.hypot(sx, sz)
+            if norm > 1e-6:
+                goal_angle = float(np.arctan2(sx, sz))
+                self._goal_float = goal_angle / (2 * np.pi) * n
+                self.goal_column = (int(round(self._goal_float)) % n + n) % n
+                self.goal_strength = min(1.0, norm / 1.5)
+                self._ext_goal_strength = self.goal_strength
+        elif (abs(novelty_direction) > 0.1 or abs(novelty - 0.5) > 0.3):
+            # Legacy fallback: novelty-only goal
+            h_ref = heading if heading is not None else heading_estimate
+            column_idx = int((h_ref % (2 * np.pi)) / (2 * np.pi) * n) % n
+            col_offset = novelty_direction * n * 0.25
+            desired = (self._goal_float * (1.0 - self.goal_update_rate)
+                       + (column_idx + col_offset) * self.goal_update_rate)
+            self._goal_float = desired
+            self.goal_column = int(round(desired)) % n
+            self.goal_strength = min(1.0, self.goal_strength + self.goal_update_rate)
+            self._ext_goal_strength = min(1.0, self._ext_goal_strength + self.goal_update_rate)
+        else:
+            self.goal_strength *= self.goal_memory_decay
+            self._ext_goal_strength *= self.goal_memory_decay
+
+        # ---- Idle exploration wander ----
+        _no_goal = self._ext_goal_strength < 0.05
+        if self.goal_strength < 0.05:
+            self._idle_wander_phase += self._idle_wander_rate
+            wander = np.sin(self._idle_wander_phase) * 8.0
+            self._goal_float = (self._goal_float + wander * 0.05 + 0.002) % n
+            self.goal_column = int(round(self._goal_float)) % n
+            self.goal_strength = 0.30
+
+        # ---- Loop-break jump ----
+        stuck = float(stuck_duration or 0.0)
+        self._ticks_since_jump += 1
+        if (stuck > CX_LOOP_BREAK_STUCK_S and _no_goal
+                and self._ticks_since_jump >= CX_LOOP_BREAK_COOLDOWN_TICKS):
+            self._jump_seq += 1
+            _h = (self._jump_seq * 2654435761) & 0xFFFFFFFF
+            jump = _h % n
+            self._goal_float = float(jump)
+            self.goal_column = jump
+            self.goal_strength = 0.60
+            self._ticks_since_jump = 0
+
+        # ---- Steering signal ----
+        offset = (self.goal_column - heading_column) % n
+        if offset > n / 2:
+            offset -= n
+        heading_steer = offset / (n / 2.0)
+        flow_bias = flow_asymmetry * self.optic_flow_gain
+        raw = (heading_steer * self.steering_gain * self.goal_strength
+               + flow_bias)
+        self.steering_bias = float(np.clip(raw, -self.max_steering, self.max_steering))
+        return self.steering_bias
+
+    def reset(self) -> None:
+        """Clear goal state, wander phase, and loop-break counters."""
+        self.goal_column = 0
+        self.goal_strength = 0.0
+        self._goal_float = 0.0
+        self.steering_bias = 0.0
+        self._idle_wander_phase = 0.0
+        self._jump_seq = 0
+        self._ticks_since_jump = CX_LOOP_BREAK_COOLDOWN_TICKS
+        self._ext_goal_strength = 0.0
+
+
 class CentralComplex:
     """Central Complex navigation module.
 
     Architecture
     ------------
     16-column ring attractor (heading compass)
-      -> goal-direction comparison
-      -> steering bias (turn_left/turn_right)
+      -> CX-2 AnchorPathIntegrator (displacement tracking)
+      -> CX-3 MultiSourceGoalCompetition (vector synthesis → steering)
 
     Attributes
     ----------
@@ -59,12 +342,10 @@ class CentralComplex:
         Ring-attractor activity for each heading column.
     heading_column : int
         Index of the most active compass column (0-15).
-    goal_column : int
-        Stored goal-direction column index.
-    goal_strength : float
-        Strength of the current goal (decays without reinforcement).
-    steering_bias : float
-        Current steering output in [-1, 1]; positive = turn right.
+    path_integrator : AnchorPathIntegrator
+        CX-2 sub-module for anchor-based displacement tracking.
+    goal_comp : MultiSourceGoalCompetition
+        CX-3 sub-module for multi-source goal vector competition.
     """
 
     MBON_NAMES = []  # no MBONs — CX outputs directly to motor pools
@@ -73,71 +354,39 @@ class CentralComplex:
                  steering_gain: float = STEERING_GAIN,
                  optic_flow_gain: float = OPTIC_FLOW_GAIN):
         self.n_columns = n_columns
-        self.steering_gain = steering_gain
-        self.optic_flow_gain = optic_flow_gain
 
-        # Ring attractor (heading compass) — one bump of activity
+        # CX-1: Heading compass (ring attractor)
         self.compass = np.ones(n_columns, dtype=np.float32) / n_columns
-        # Imprint initial heading = column 0 with a Gaussian bump
         self._imprint_heading(0.0)
-
-        # Goal direction
-        self.goal_column = 0
-        self.goal_strength = 0.0
-        self._goal_float = 0.0  # continuous float tracking for smooth updates
-
-        # Steering output
-        self.steering_bias = 0.0
-
-        # History for diagnostics
+        self._col_accum = 0.0
         self._compass_history = deque(maxlen=60)
 
-        # EVO R20 · CX-1 罗盘自主化: the bump integrates self-motion
-        # (turn-pool angular velocity) autonomously; external heading and
-        # visual azimuth act as WEAK corrections, not the primary drive.
-        self._col_accum = 0.0   # fractional column drift awaiting rollover
+        # CX-2: Anchor-based path integration
+        self._path_integrator = AnchorPathIntegrator()
 
-        # EVO R20 · CX-2 锚点路径积分: displacement vector integrated in the
-        # anchor frame using the CX's own compass heading — gives the brain
-        # an egocentric "where am I relative to where I entered" signal.
-        self.anchor = None            # (x, z) world anchor
-        self.disp_x = 0.0             # integrated displacement from anchor
-        self.disp_z = 0.0
-        self.SPEED_TO_UNITS = 1.6     # forward_rate(Hz) → game-units/s calib
+        # CX-3: Multi-source goal competition and steering
+        self._goal_comp = MultiSourceGoalCompetition(
+            n_columns=n_columns,
+            steering_gain=steering_gain,
+            optic_flow_gain=optic_flow_gain,
+        )
 
-        # EVO R23 · idle exploration wander: when no goal vectors are
-        # available and goal strength decays, a slow sinusoidal drift
-        # biases the heading — natural search pattern when no target
-        # is present (avoids CX steering collapsing to zero).
-        self._idle_wander_phase = 0.0
-        self._idle_wander_rate = 0.006     # ~530 frames (10s) per full cycle
-
-        # EVO-057 · P1-1 circle_loop break: the sinusoidal wander above is a
-        # ~10 s sweep, far too slow to break a tight circular orbit that the
-        # fly can hold for minutes.  After CX_LOOP_BREAK_STUCK_S of continuous
-        # stuck time with NO active goal, the goal column is jumped to a
-        # distant column outright.  The jump index comes from a multiplicative
-        # hash of _jump_seq — NOT from an unseeded RNG, because the exact
-        # replay contract (replay.py) requires the same input sequence to
-        # reproduce the same trajectory bit for bit.
+        # Backward-compatible attribute references (delegated)
+        self.anchor = None                    # → _path_integrator.anchor
+        self.disp_x = 0.0                     # → _path_integrator.disp_x
+        self.disp_z = 0.0                     # → _path_integrator.disp_z
+        self.goal_column = 0                  # → _goal_comp.goal_column
+        self.goal_strength = 0.0              # → _goal_comp.goal_strength
+        self.steering_bias = 0.0              # → _goal_comp.steering_bias
+        self.SPEED_TO_UNITS = 1.6
+        self._goal_float = 0.0
+        self._ext_goal_strength = 0.0
         self._jump_seq = 0
         self.stuck_time = 0.0
-        # First loop break needs no cooldown wait — a fly already minutes into
-        # an orbit should be re-aimed on the next tick.
         self._ticks_since_jump = CX_LOOP_BREAK_COOLDOWN_TICKS
-        # "Has the brain been given a REAL target?"  Tracked separately from
-        # goal_strength because goal_strength is also written by the synthetic
-        # wander / loop-break blocks; reading it back to decide whether a real
-        # goal exists is exactly the self-poisoning bug that made the original
-        # block unreachable.
-        self._ext_goal_strength = 0.0
-
-        # P3-2: Visual relocalization — corrects path integration drift
-        # by matching scene signatures against remembered positions.
-        self._scene_positions: dict[int, tuple[float, float, float]] = {}
-        self._relocalize_gate = 0.8
-        self._relocalize_strength = 0.3
-        self._last_scene_id: int | None = None
+        self._idle_wander_phase = 0.0
+        self._idle_wander_rate = 0.006
+        self._loop_break_at: int | None = None
 
     def _roll_fractional(self, columns: float) -> None:
         """Rotate the compass bump by a fractional number of columns.
@@ -155,11 +404,7 @@ class CentralComplex:
         self.compass /= (self.compass.sum() + EPS)
 
     def _self_motion_update(self, heading_rate: float, dt: float) -> None:
-        """CX-1: move the bump by integrated angular velocity (rad/s).
-
-        Positive heading_rate (turning right) rotates the bump clockwise.
-        The fractional remainder accumulates so slow turns are not lost.
-        """
+        """CX-1: move the bump by integrated angular velocity (rad/s)."""
         cols = heading_rate * dt / (2.0 * np.pi) * self.n_columns
         self._col_accum += cols
         whole = int(np.floor(self._col_accum))
@@ -167,47 +412,47 @@ class CentralComplex:
             self._roll_fractional(whole)
             self._col_accum -= whole
 
+    # ── CX-2 delegation ──
+
     def set_anchor(self, x: float, z: float) -> None:
         """EVO R20 (CX-2): re-anchor path integration at the current pose."""
-        self.anchor = (x, z)
-        self.disp_x = 0.0
-        self.disp_z = 0.0
+        self._path_integrator.set_anchor(x, z)
+        self._sync_cx2_backrefs()
 
     @property
     def anchor_distance(self) -> float:
         """Integrated distance from the scene anchor (game units)."""
-        return float(np.hypot(self.disp_x, self.disp_z))
+        return self._path_integrator.distance
 
     @property
     def anchor_return_bearing(self) -> float | None:
         """World-frame bearing FROM current position BACK TO the anchor."""
-        if self.anchor is None or (self.disp_x == 0 and self.disp_z == 0):
-            return None
-        return float(np.arctan2(-self.disp_x, -self.disp_z))
+        return self._path_integrator.return_bearing
 
-    # ── P3-2: Visual relocalization ──
     def visual_relocalize(self, scene_id: int | None,
                           confidence: float,
                           scene_count: int) -> None:
-        """Correct path integration drift by matching scene signatures.
+        """Correct path integration drift by matching scene signatures."""
+        self._path_integrator.relocalize(scene_id, confidence)
+        self._sync_cx2_backrefs()
 
-        When the same scene is re-encountered with high confidence,
-        pull disp_x/disp_z toward the remembered position for that scene,
-        providing a weak visual closure on the open-loop path integration.
-        """
-        if scene_id is None or confidence < self._relocalize_gate:
-            return
-        if scene_id in self._scene_positions:
-            mem_x, mem_z, mem_conf = self._scene_positions[scene_id]
-            # Weight correction by confidence and recency
-            w = self._relocalize_strength * confidence * (1.0 - mem_conf * 0.5)
-            self.disp_x += (mem_x - self.disp_x) * w
-            self.disp_z += (mem_z - self.disp_z) * w
-            # Decay memory confidence slightly (re-exposure refreshes)
-            self._scene_positions[scene_id] = (mem_x, mem_z, min(1.0, mem_conf + 0.05))
-        elif self.anchor is not None:
-            # First encounter: store current displacement for this scene
-            self._scene_positions[scene_id] = (self.disp_x, self.disp_z, confidence)
+    def _sync_cx2_backrefs(self) -> None:
+        """Sync backward-compatible anchor/disp references."""
+        self.anchor = self._path_integrator.anchor
+        self.disp_x = self._path_integrator.disp_x
+        self.disp_z = self._path_integrator.disp_z
+
+    def _sync_cx3_backrefs(self) -> None:
+        """Sync backward-compatible goal/steering references."""
+        self.goal_column = self._goal_comp.goal_column
+        self.goal_strength = self._goal_comp.goal_strength
+        self.steering_bias = self._goal_comp.steering_bias
+        self._goal_float = self._goal_comp._goal_float
+        self._ext_goal_strength = self._goal_comp._ext_goal_strength
+        self._jump_seq = self._goal_comp._jump_seq
+        self._ticks_since_jump = self._goal_comp._ticks_since_jump
+
+    # ── CX internal methods ──
 
     def _weak_correction(self, azimuth_rad: float, weight: float) -> None:
         """Weakly pull the bump toward an azimuth (visual/sky compass)."""
@@ -231,13 +476,9 @@ class CentralComplex:
         return int(np.argmax(self.compass))
 
     def _heading_drive(self, heading: float) -> np.ndarray:
-        """Create a normalised Gaussian heading-drive vector.
-
-        Maps *heading* (radians, 0 = +Z) onto the 16-column ring with
-        a Gaussian bump (sigma ~1 column) at the corresponding column.
-        """
+        """Create a normalised Gaussian heading-drive vector."""
         h_norm = heading % (2 * np.pi)
-        column_frac = h_norm / (2 * np.pi) * self.n_columns  # [0, n)
+        column_frac = h_norm / (2 * np.pi) * self.n_columns
         cols = np.arange(self.n_columns, dtype=np.float32)
         dist = np.minimum(
             np.abs(cols - column_frac),
@@ -258,215 +499,106 @@ class CentralComplex:
                scene_confidence: float = 0.0,
                scene_total: int = 0,
                stuck_duration: float = 0.0) -> float:
-        """One timestep of CX processing.
-
-        EVO R20 (CX-1): the ring attractor integrates SELF-MOTION — the
-        bump rolls by angular velocity (heading_rate × dt) autonomously.
-        The external SM64 heading and the visual sky azimuth act as WEAK
-        corrections pulling the bump back when they disagree, so the
-        compass is an internal state corrected by vision, not a copy of
-        the game's heading value.
+        """One timestep of CX processing: compass → path integration → steering.
 
         Parameters
         ----------
-        heading : float
-            External heading in radians (SM64 game state) — weak correction.
+        heading : float or None
+            External heading in radians (SM64) — weak correction.
         heading_rate : float
-            Angular velocity in rad/s (positive = turning right) — SELF-MOTION.
-        dt : float
+            Angular velocity in rad/s (positive = right) — SELF-MOTION.
+        flow_asymmetry : float, optional
+            Optic flow left-right imbalance for collision avoidance.
+        novelty : float, optional
+            Sensory novelty in [0, 1].
+        novelty_direction : float, optional
+            Directional component of novelty.
+        dt : float, optional
             Simulation tick interval.
-        visual_azimuth : float | None
-            Sky azimuth in radians (from hue_az bands) — drift correction.
-        """
-        # ---- 1. Ring-attractor heading compass ----
-        # The compass maintains a stable activity bump through local
-        # excitation (neighbouring columns) and global inhibition.
-        # A heading drive pulls the bump toward the current heading.
+        visual_azimuth : float or None, optional
+            Sky azimuth in radians for drift correction.
+        forward_speed : float, optional
+            Forward speed in game units/s.
+        goal_vectors : list of (dx, dz, weight) or None, optional
+            Multi-source goal vectors for CX-3 vector competition.
+        scene_id : int or None, optional
+            Scene identity for visual relocalization.
+        scene_confidence : float, optional
+            Confidence of current scene match.
+        scene_total : int, optional
+            Total scene count (unused, kept for signature compat).
+        stuck_duration : float, optional
+            Seconds stuck (for loop-break).
 
+        Returns
+        -------
+        float
+            Steering bias in [-1, 1]; positive = steer right.
+        """
         n = self.n_columns
 
-        # ---- CX-1: self-motion integration (autonomous bump roll) ----
-        # The bump moves by angular velocity FIRST, autonomously — this is
-        # the path-integration term that makes the compass an internal
-        # state rather than a copy of the external heading.
+        # ── CX-1: Heading compass ──
         self._self_motion_update(heading_rate, dt)
-
-        # Local excitation: each column receives input from its neighbours
-        # using a [1, 2, 1] kernel (centre-weighted).
         roll_left = np.roll(self.compass, 1)
         roll_right = np.roll(self.compass, -1)
         local = (roll_left + self.compass * 2.0 + roll_right) / 4.0
-
-        # Global inhibition: mean activity suppresses all columns equally
         mean_activity = float(self.compass.mean())
-
-        # External heading drive: WEAK correction (EVO R20 demoted from
-        # primary drive — was the only bump mover before CX-1).
-        # EVO R20 tuning: game heading 0.10 < sky compass 0.12 — the fly's
-        # own visual compass outranks the game-provided value (brain-first).
-        # heading=None (game value unavailable) → no game drive at all:
-        # fully autonomous integration (sky compass still corrects).
         drive = (self._heading_drive(heading) * 0.10
                  if heading is not None else 0.0)
-
-        # Visual azimuth correction: sky compass, slightly stronger
         if visual_azimuth is not None:
-            drive = drive + self._heading_drive(visual_azimuth) * 0.12
-
-        # Ring attractor update (divisive normalisation).
-        # NOTE: drive weights above already include their gain — the legacy
-        # HEADING_DRIVE_WEIGHT multiplier is intentionally dropped here.
-        raw = (
-            self.compass * COMPASS_PERSISTENCE
-            + local * LOCAL_EXCITATION
-            - mean_activity * GLOBAL_INHIBITION
-            + drive
-        )
-        # Ensure non-negative; divisive normalisation.
+            drive += self._heading_drive(visual_azimuth) * 0.12
+        raw = (self.compass * COMPASS_PERSISTENCE
+               + local * LOCAL_EXCITATION
+               - mean_activity * GLOBAL_INHIBITION
+               + drive)
         raw = np.maximum(raw, 0)
         total = raw.sum() + EPS
         self.compass = (raw / total).astype(np.float32)
-
-        # Record history
         self._compass_history.append(self.compass.copy())
 
-        # ---- 2b. CX-2: anchor-frame path integration ----
-        # Displacement is integrated along the CX's OWN compass heading —
-        # the brain's belief of travel, not the game's ground truth.
-        if self.anchor is not None and forward_speed > 0.0:
-            est_h = self.heading_estimate
-            self.disp_x += float(np.sin(est_h) * forward_speed
-                                 * self.SPEED_TO_UNITS * dt)
-            self.disp_z += float(np.cos(est_h) * forward_speed
-                                 * self.SPEED_TO_UNITS * dt)
+        # ── CX-2: Anchor-frame path integration ──
+        self._path_integrator.integrate(
+            self.heading_estimate, forward_speed, dt)
+        self._path_integrator.relocalize(scene_id, scene_confidence)
+        self._sync_cx2_backrefs()
 
-        # P3-2: Visual relocalization — correct path integration drift
-        # by pulling disp_x/disp_z toward remembered scene positions.
-        self.visual_relocalize(scene_id, scene_confidence, scene_total)
-
-        # ---- 2. Goal-direction update (EVO R20 CX-3) ----
-        # Multi-source goal-VECTOR competition (FB vector arithmetic):
-        # each source contributes a world-frame vector; the resultant
-        # defines the goal column and strength.  A single exhausted source
-        # no longer zeroes the compass's sense of direction.
-        if goal_vectors:
-            sx = sz = 0.0
-            for dx, dz, w in goal_vectors:
-                sx += w * dx
-                sz += w * dz
-            norm = np.hypot(sx, sz)
-            if norm > 1e-6:
-                goal_angle = float(np.arctan2(sx, sz))
-                self._goal_float = goal_angle / (2 * np.pi) * n
-                self.goal_column = (int(round(self._goal_float)) % n + n) % n
-                self.goal_strength = min(1.0, norm / 1.5)
-                self._ext_goal_strength = self.goal_strength   # real target
-        elif abs(novelty_direction) > 0.1 or abs(novelty - 0.5) > 0.3:
-            # Legacy fallback: novelty-only goal (when no goal vectors given).
-            # novelty_direction > 0 → want to steer right
-            # In SM64, +x = turn right, which is positive heading_rate.
-            # novelty_direction > 0 → steer right → goal is right of current,
-            # which is a positive column offset.
-            h_ref = heading if heading is not None else self.heading_estimate
-            column_idx = int((h_ref % (2 * np.pi)) / (2 * np.pi) * n) % n
-            col_offset = novelty_direction * n * 0.25
-            desired_goal_float = (
-                self._goal_float * (1.0 - GOAL_UPDATE_RATE)
-                + (column_idx + col_offset) * GOAL_UPDATE_RATE
-            )
-            self._goal_float = desired_goal_float
-            self.goal_column = int(round(desired_goal_float)) % n
-            self.goal_strength = min(1.0, self.goal_strength + GOAL_UPDATE_RATE)
-            self._ext_goal_strength = min(
-                1.0, self._ext_goal_strength + GOAL_UPDATE_RATE)
-        else:
-            # Decay goal strength when no strong signal
-            self.goal_strength *= GOAL_MEMORY_DECAY
-            self._ext_goal_strength *= GOAL_MEMORY_DECAY
-
-        # ---- EVO R23 · idle exploration wander ----
-        # When goal strength is negligible (no target available), a slow
-        # sinusoidal drift biases the heading — natural "search mode"
-        # that prevents CX steering from collapsing to zero in explored
-        # areas.  The drift gradually sweeps the heading across the
-        # environment, breaking position loops over time.
-        #
-        # EVO-057: "no real target" is deliberately read from
-        # _ext_goal_strength, NOT from goal_strength.  The block below writes
-        # goal_strength = 0.30, and the loop-break below writes 0.60, so any
-        # guard phrased as `goal_strength < 0.10` is False precisely when it
-        # is needed — the defect that made the original block unreachable.
-        _no_goal = self._ext_goal_strength < 0.05
-        if self.goal_strength < 0.05:
-            self._idle_wander_phase += self._idle_wander_rate
-            wander = np.sin(self._idle_wander_phase) * 8.0
-            self._goal_float = (self._goal_float + wander * 0.05 + 0.002) % n
-            self.goal_column = int(round(self._goal_float)) % n
-            self.goal_strength = 0.30
-
-        # EVO-057 · P1-1 circle_loop break (see __init__ for rationale).
-        # Guarded on _no_goal: an actively pursued goal must never be
-        # overridden, otherwise the brain would abandon a real target.
-        self.stuck_time = float(stuck_duration or 0.0)
-        self._ticks_since_jump += 1
-        if (self.stuck_time > CX_LOOP_BREAK_STUCK_S and _no_goal
-                and self._ticks_since_jump >= CX_LOOP_BREAK_COOLDOWN_TICKS):
-            self._jump_seq += 1
-            _h = (self._jump_seq * 2654435761) & 0xFFFFFFFF   # Knuth mix
-            jump = _h % n
-            self._goal_float = float(jump)
-            self.goal_column = jump
-            self.goal_strength = 0.60
-            self._ticks_since_jump = 0
-            self._loop_break_at = self._jump_seq
-
-        # ---- 3. Steering signal ----
-        # Compare current heading column against goal column.
-        # Positive offset = goal is to the right → steer right (positive bias).
-        offset = (self.goal_column - self.heading_column) % n
-        if offset > n / 2:
-            offset -= n  # wrap to [-n/2, n/2]
-        heading_steer = offset / (n / 2)  # [-1, 1], positive = steer right
-
-        # Optic flow modulation: strong asymmetry biases steering
-        # away from the side with more motion (collision avoidance).
-        flow_bias = flow_asymmetry * self.optic_flow_gain
-
-        # Combine: heading-to-goal steering * strength + flow bias
-        raw_steering = (
-            heading_steer * self.steering_gain * self.goal_strength
-            + flow_bias
+        # ── CX-3: Multi-source goal competition → steering ──
+        steering = self._goal_comp.update(
+            goal_vectors=goal_vectors,
+            heading_column=self.heading_column,
+            heading_estimate=self.heading_estimate,
+            novelty=novelty,
+            novelty_direction=novelty_direction,
+            heading=heading,
+            flow_asymmetry=flow_asymmetry,
+            stuck_duration=stuck_duration,
         )
+        self._sync_cx3_backrefs()
+        self.stuck_time = float(stuck_duration or 0.0)
 
-        # Clamp
-        self.steering_bias = float(np.clip(
-            raw_steering, -MAX_STEERING, MAX_STEERING
-        ))
-
-        return self.steering_bias
+        return steering
 
     def reset(self) -> None:
-        """Reset compass to initial state (column 0, no goal)."""
+        """Reset compass, path integrator, and goal competition."""
         self.compass.fill(1.0 / self.n_columns)
         self._imprint_heading(0.0)
-        self.goal_column = 0
-        self.goal_strength = 0.0
-        self._goal_float = 0.0
-        self.steering_bias = 0.0
         self._compass_history.clear()
-        self._jump_seq = 0
+        self._path_integrator.reset()
+        self._goal_comp.reset()
+        self._sync_cx2_backrefs()
+        self._sync_cx3_backrefs()
         self.stuck_time = 0.0
         self._loop_break_at = None
+        self.SPEED_TO_UNITS = 1.6
 
-    # -- Diagnostics ---------------------------------------------------
+    # ── Diagnostics ──
 
     @property
     def heading_estimate(self) -> float:
         """Estimated heading in radians from compass activity.
 
-        Returns a weighted-average heading based on the ring-attractor
-        activity, providing a smooth heading estimate useful even when
-        the direct game heading is unavailable.
+        Weighted-average from ring-attractor activity, providing a smooth
+        heading estimate even when direct game heading is unavailable.
         """
         angles = np.linspace(0, 2 * np.pi, self.n_columns, endpoint=False)
         sin_sum = float(np.sum(self.compass * np.sin(angles)))
@@ -485,7 +617,8 @@ class CentralComplex:
                 -np.sum(self.compass * np.log(self.compass + EPS))
             ),
             "compass_peak": float(self.compass.max()),
-            # EVO-057 · P1-1 loop-break telemetry (flow.json surface)
             "loop_breaks": self._jump_seq,
             "stuck_time": round(self.stuck_time, 2),
+            "anchor_distance": round(self.anchor_distance, 2),
+            "scene_count": self._path_integrator.scene_count,
         }

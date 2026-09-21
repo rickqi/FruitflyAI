@@ -24,7 +24,19 @@ from .evolution_skill import (
     VerificationResult,
     SensorSample,
     CoachConsult,
+    HealthTrendCollector,
     SKILL_VERSION,
+)
+from .fix_executor import (
+    FixExecutor,
+    FixActionResult,
+    FixExecutionReport,
+    auto_fix_findings,
+)
+from .fix_template_interpreter import (
+    FixTemplateInterpreter,
+    InterpretationResult,
+    interpret_fix_template,
 )
 
 __all__ = [
@@ -41,5 +53,13 @@ __all__ = [
     "VerificationResult",
     "SensorSample",
     "CoachConsult",
+    "HealthTrendCollector",
     "SKILL_VERSION",
+    "FixExecutor",
+    "FixActionResult",
+    "FixExecutionReport",
+    "auto_fix_findings",
+    "FixTemplateInterpreter",
+    "InterpretationResult",
+    "interpret_fix_template",
 ]

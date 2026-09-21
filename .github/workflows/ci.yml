@@ -46,6 +46,10 @@ jobs:
           pip install -r requirements.txt
           pip install pytest pytest-cov
 
+      - name: Contract gate — zero-tolerance audit (RULE-19)
+        run: |
+          python scripts/contract_gate.py --verbose
+
       - name: Run tests (non-GUI subset, skip MaleCNS-dependent)
         run: |
           python -m pytest tests/ -q --tb=short \

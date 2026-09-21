@@ -63,6 +63,99 @@ def cone_indices(rays):
     return atlas_indices(np.concatenate((rays[:,None], ring), axis=1))
 
 
+class ElementaryMotionDetector:
+    """Hassenstein-Reichardt correlator for 4-directional elementary motion detection.
+
+    Implements the Reichardt correlator:
+        response = signal_A(t-1) * signal_B(t) - signal_B(t-1) * signal_A(t)
+
+    where (A, B) is a neighbor pair ordered in the preferred direction.
+    The mean positive (clipped) correlation across all pairs of that direction
+    gives the direction-selective motion energy.
+
+    Four cardinal directions are supported: rightward, leftward, downward, upward.
+    Right/down use direct left→right and up→down pair arrays while left/up
+    use the same arrays with swapped indices.
+
+    This replicates T4 (ON) and T5 (OFF) direction-selective circuitry and
+    can be applied to either ON transients, OFF transients, or raw luminance.
+    """
+
+    def __init__(self, h_pairs: np.ndarray, v_pairs: np.ndarray):
+        """Initialise with horizontal and vertical neighbor pair arrays.
+
+        Parameters
+        ----------
+        h_pairs : ndarray, shape (M, 2), dtype int32
+            Horizontal (left→right) neighbour pairs: each row (pre, post)
+            where pre has a smaller column index in the same eye.
+        v_pairs : ndarray, shape (N, 2), dtype int32
+            Vertical (up→down) neighbour pairs: each row (pre, post)
+            where pre has a smaller row index in the same eye.
+        """
+        h = np.asarray(h_pairs, dtype=np.int32)
+        v = np.asarray(v_pairs, dtype=np.int32)
+        self._pairs = {
+            "right": h,                        # left→right
+            "left": h[:, ::-1] if len(h) else h,  # right←left (swap)
+            "down": v,                         # up→down
+            "up": v[:, ::-1] if len(v) else v,     # down←up (swap)
+        }
+        self._prev = None
+        self._directions = ("right", "left", "down", "up")
+
+    def compute(self, signal: np.ndarray) -> dict:
+        """Compute 4-direction EMD responses for one frame.
+
+        Parameters
+        ----------
+        signal : ndarray, shape (N,)
+            Per-cell signal (ON transients, OFF transients, or luminance).
+
+        Returns
+        -------
+        dict with keys:
+            right, left, down, up — scalar motion energy per direction
+            total               — sum of all four directional energies
+        """
+        signal = np.asarray(signal, dtype=np.float32)
+        if self._prev is None:
+            self._prev = signal.copy()
+            return {"right": 0.0, "left": 0.0, "down": 0.0, "up": 0.0, "total": 0.0}
+
+        result = {}
+        total = 0.0
+        for direction in self._directions:
+            pairs = self._pairs[direction]
+            if len(pairs) == 0:
+                result[direction] = 0.0
+                continue
+            # HR correlator: prev[pre] * current[post] - current[pre] * prev[post]
+            raw = (self._prev[pairs[:, 0]] * signal[pairs[:, 1]] -
+                   signal[pairs[:, 0]] * self._prev[pairs[:, 1]])
+            val = float(np.clip(np.mean(raw), 0, None))
+            result[direction] = val
+            total += val
+
+        self._prev = signal.copy()
+        result["total"] = total
+        return result
+
+    def reset(self) -> None:
+        """Clear the 1-frame delay buffer.
+
+        Call when switching to a new visual environment so the first frame
+        is treated as a prime (zero output) rather than producing a spurious
+        motion signal from the old context.
+        """
+        self._prev = None
+
+    @property
+    def is_warmed_up(self) -> bool:
+        """True after the first ``compute()`` has stored a priming frame."""
+        return self._prev is not None
+
+
 class SphericalRetina:
     def __init__(self, visual_pixels, sustained_window=5):
         """Multi-channel spherical compound-eye retina.
@@ -187,15 +280,13 @@ class SphericalRetina:
                     v_pairs_emd.append((idx, rc_to_idx[nb]))  # up -> down
                     break
 
-        self._emd_pairs = {
-            "left_to_right": (np.asarray(h_pairs_emd, dtype=np.int32)
-                              if h_pairs_emd else np.empty((0, 2), dtype=np.int32)),
-            "up_to_down": (np.asarray(v_pairs_emd, dtype=np.int32)
-                           if v_pairs_emd else np.empty((0, 2), dtype=np.int32)),
-        }
-        # 1-frame delay buffers for ON and OFF channels
-        self._prev_on = None
-        self._prev_off = None
+        h_emd = (np.asarray(h_pairs_emd, dtype=np.int32)
+                 if h_pairs_emd else np.empty((0, 2), dtype=np.int32))
+        v_emd = (np.asarray(v_pairs_emd, dtype=np.int32)
+                 if v_pairs_emd else np.empty((0, 2), dtype=np.int32))
+        # ElementaryMotionDetector instances for T4 (ON) and T5 (OFF) pathways
+        self._emd_on = ElementaryMotionDetector(h_emd, v_emd)
+        self._emd_off = ElementaryMotionDetector(h_emd, v_emd)
 
         # ---- T4/T5-style HRC on raw per-cell luminance (EVO Round 7) ----
         # Stores the previous frame's per-cell luminance for the
@@ -426,8 +517,9 @@ class SphericalRetina:
         """4-direction Elementary Motion Detector via Hassenstein-Reichardt correlator.
 
         Implements T4 (ON) and T5 (OFF) direction-selective responses for four
-        cardinal directions (rightward, leftward, downward, upward) using a
-        1-frame delay buffer.
+        cardinal directions (rightward, leftward, downward, upward) using
+        ``ElementaryMotionDetector`` instances initialised with the retina's
+        column-neighbour pairs.
 
         Parameters
         ----------
@@ -443,46 +535,21 @@ class SphericalRetina:
             emd_off_right, emd_off_left, emd_off_down, emd_off_up — T5 responses
             emd_on_total, emd_off_total — summed scalar energies
         """
-        if self._prev_on is None or self._prev_off is None:
-            self._prev_on = on_channel.copy()
-            self._prev_off = off_channel.copy()
-            return {
-                "emd_on_right": 0.0, "emd_on_left": 0.0,
-                "emd_on_down": 0.0, "emd_on_up": 0.0,
-                "emd_off_right": 0.0, "emd_off_left": 0.0,
-                "emd_off_down": 0.0, "emd_off_up": 0.0,
-                "emd_on_total": 0.0, "emd_off_total": 0.0,
-            }
+        on_res = self._emd_on.compute(on_channel)
+        off_res = self._emd_off.compute(off_channel)
 
-        result = {}
-        for prefix, ch, prev_ch in [
-            ("on",  on_channel,  self._prev_on),
-            ("off", off_channel, self._prev_off),
-        ]:
-            total = 0.0
-            for direction, pair_key, (a_idx, b_idx) in [
-                ("right", "left_to_right", (0, 1)),
-                ("left",  "left_to_right", (1, 0)),
-                ("down",  "up_to_down",    (0, 1)),
-                ("up",    "up_to_down",    (1, 0)),
-            ]:
-                pairs = self._emd_pairs[pair_key]
-                if len(pairs) == 0:
-                    result[f"emd_{prefix}_{direction}"] = 0.0
-                    continue
-                # HR correlator: prev(pre) * current(post) - current(pre) * prev(post)
-                raw = (prev_ch[pairs[:, a_idx]] * ch[pairs[:, b_idx]] -
-                       ch[pairs[:, a_idx]] * prev_ch[pairs[:, b_idx]])
-                val = float(np.clip(np.mean(raw), 0, None))
-                result[f"emd_{prefix}_{direction}"] = val
-                total += val
-            result[f"emd_{prefix}_total"] = total
-
-        # Store for next frame
-        self._prev_on = on_channel.copy()
-        self._prev_off = off_channel.copy()
-
-        return result
+        return {
+            "emd_on_right":  on_res["right"],
+            "emd_on_left":   on_res["left"],
+            "emd_on_down":   on_res["down"],
+            "emd_on_up":     on_res["up"],
+            "emd_on_total":  on_res["total"],
+            "emd_off_right": off_res["right"],
+            "emd_off_left":  off_res["left"],
+            "emd_off_down":  off_res["down"],
+            "emd_off_up":    off_res["up"],
+            "emd_off_total": off_res["total"],
+        }
 
     def compute_hrc(self, lum: np.ndarray) -> dict:
         """T4/T5-style Hassenstein-Reichardt direction-selective motion detection.
@@ -856,8 +923,8 @@ class SphericalRetina:
         """
         self._prev_lum.clear()
         self._prev_color.clear()
-        self._prev_on = None
-        self._prev_off = None
+        self._emd_on.reset()
+        self._emd_off.reset()
         self._prev_cell_lum = None
 
     # ---- Edge orientation detection ----

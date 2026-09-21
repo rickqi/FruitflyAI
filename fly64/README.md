@@ -130,6 +130,8 @@ source venv/bin/activate
 或手动启动脑模型 + 游戏：
 
 > **⚠️ 启动契约（强制）**：常驻运行的大脑与 SM64 **必须用 `setsid nohup … &`（输出重定向 + `</dev/null`）脱离宿主 shell**。禁止把它们作为托管后台 job（pwsh `run_in_background` / agent 后台 job / 交互终端前台子进程）直接启动——宿主会话结束或 job 被回收时进程会被连带 kill，导致共享内存桥冻结、仪表板卡死。规范化入口：`scripts/consolidate.sh`。
+> 
+> **🚀 推荐方案（从 v1.0.0 起）**：使用 `scripts/wsl_launcher.sh` **tmux 守护启动器**。它在 setsid nohup 基础上增加 tmux 守护会话层，启动 shell 退出或终端窗口关闭后进程仍然存活。详见 [`docs/wsl-launcher-deployment.md`](docs/wsl-launcher-deployment.md)。
 
 > **WSLg 显示（Windows 弹出游戏窗口）**：SM64 使用 `DISPLAY=:0` 可在 Windows 桌面显示游戏窗口。需要先安装 `xrandr` 以解决 SDL2 屏幕尺寸检测问题：
 > ```bash
@@ -155,7 +157,7 @@ FLY64_BRIDGE=/tmp/f64b_traj \
   ./build/us_pc/sm64.us.f3dex2e --skip-intro > /tmp/sm64.log 2>&1 < /dev/null &
 ```
 
-> **注意**：`wsl -e bash -c` 中 `setsid nohup` 启动的后台进程会因 WSL 会话退出被清理。建议在 WSL 交互终端（`wsl ~`）中直接执行上述命令，或使用 `scripts/launch_full.sh` 一键脚本（通过 `Start-Process wsl /bin/bash script.sh` 启动）。
+> **注意**：`wsl -e bash -c` 中 `setsid nohup` 启动的后台进程会因 WSL 会话退出被清理。**推荐使用 `scripts/wsl_launcher.sh`（tmux 守护启动器）**，从 WSL 内部通过 `bash scripts/wsl_launcher.sh --rom <路径>` 启动，或在 Windows PowerShell 中通过 `.\scripts\wsl_launcher.ps1 -Action launch -RomPath <路径>` 启动。详见 [`docs/wsl-launcher-deployment.md`](docs/wsl-launcher-deployment.md)。
 
 前台交互调试（仅临时，用完即收尾）：
 
@@ -1038,8 +1040,8 @@ Round 4/5 正是**能力边界判定的实战示范**：钥匙门的"行为层"�
 > 果蝇中央复合体（Central Complex）是空间导航的核心：环吸引子航向罗盘（EB）+ 路径积分（FB）+ 多目标向量竞争（FB 向量运算）。CX 硬件已存在（`central_complex.py` 16 列环吸引子），但存在三个关键回路缺口——**马里奥因此缺乏真正的空间定位与方向感**，运动中出现大量"用身体转动采集全景眼早已采到的信息"的无效动作。
 
 - [x] **CX-1 · 罗盘自主化** ✅（v2.13.0）：转向池放电差 → 角速度 → bump 自主滚动（自运动积分，小数累积零损失）；`hue_az` 天空方位带 → 软校正（0.12）＞ 游戏航向（0.10）弱校正；`heading=None` 时完全自主。解决：方向感不依赖外部喂入。
-- [ ] **CX-2 · 锚点路径积分**（空间定位）：场景切换时锚定 anchor → 按 CX 罗盘航向 × 前进率积分位移向量。输出距锚距离（restlessness 空间维度）+ 锚点方向角（死端返回）。解决："我在锚点系里在哪"。
-- [ ] **CX-3 · 多源目标向量竞争**（方向决策）：novelty 方向 + 覆盖空隙质心 + 反失败格 + 锚点返回，各源 (角度, 强度) 向量和 → 目标列（FB 经典向量运算），强度竞争自动选主导目标。解决：novelty 枯竭时方向感归零。
+- [x] **CX-2 · 锚点路径积分**（空间定位）：场景切换时锚定 anchor → 按 CX 罗盘航向 × 前进率积分位移向量。输出距锚距离（restlessness 空间维度）+ 锚点方向角（死端返回）。解决："我在锚点系里在哪"。
+- [x] **CX-3 · 多源目标向量竞争** ✅（v2.13.0）：novelty 方向 + 覆盖空隙质心 + 反失败格 + 锚点返回，各源 (角度, 强度) 向量和 → 目标列（FB 经典向量运算），强度竞争自动选主导目标。解决：novelty 枯竭时方向感归零。
 
 每完成一项：PIN 回归测试 + 版本递增 + 部署验证 + 勾选更新。全部完成后马里奥首次具备"锚点-航向-目标"完整空间导航回路。
 
@@ -1286,3 +1288,88 @@ Super Mario 64 为 Nintendo 版权作品，需要用户自行提供合法获取�
 - [MaleCNS](https://male-cns.janelia.org) — 果蝇中枢神经连接组
 - [sm64ex](https://github.com/sm64pc/sm64ex) — Super Mario 64 PC 移植
 - [NeuroMechFly](https://www.nature.com/articles/s41592-024-02497-y) — 果蝇视觉参考
+
+---
+
+## 📦 新增模块（2026-09-21）
+
+### environments/ 环境协议层
+
+| 模块 | 说明 |
+|------|------|
+| `environments/protocol.py` | VisionSource + MotorTarget 抽象基类与适配器 |
+| `environments/__init__.py` | environments 包初始化 |
+| `environments/flygym_env.py` | FlyGymBrainEnv + CpgGait + 脑模型集成验证（24 测试） |
+
+protocol.py 定义了 VisionSource（read_frame/reset/close）和 MotorTarget（write_control/close）接口，并提供了 SM64BridgeAdapter 和 FlyGymAdapter 两种适配器实现。
+
+### 🧪 测试扩增
+
+| 新增测试文件 | 测试数 | 说明 |
+|------------|-------|------|
+| `tests/test_fix_executor.py` | 18 | FixExecutor 模板解析与执行 |
+| `tests/test_telemetry_completeness.py` | 11 | Telemetry 字段完整性 |
+| `tests/test_version_consistency.py` | 4 | 版本号一致性 |
+| `tests/test_stuck_patterns.py` | 23 | Stuck 模式根因验证 |
+| `tests/test_emd.py` | 18 | 4 方向 EMD 运动检测 |
+| `tests/test_cx_navigation.py` | 38 | CX 导航回路（CX-2 + CX-3）|
+| `tests/test_fallen_recovery.py` | 17 | Fallen recovery 验证 |
+| `tests/test_health_trend.py` | 12 | EVO 健康度量面板 |
+| `tests/test_verify_scenario.py` | 24 | FlyGym 第二验证场景 |
+| `tests/test_environment_protocol.py` | 10+ | 环境协议层单元测试 |
+| `tests/test_flygym_adapter.py` | 9 | FlyGym 适配器集成测试 |
+
+总计新增 **165+ 测试用例**，零回归。
+
+## 🛠️ 近期关键修复（2026-09-19 ~ 2026-09-21）
+
+### 修复 1：EVO auto-fix 闭环（P0-1）
+- FixExecutor 类 + auto-fix 集成，支持 fix_template 自动编辑代码
+- 自然语言模板 LLM 辅助结构化解析器
+
+### 修复 2：Mario Stuck 模式根治（P0-2）
+- circle_loop 根因：地形分类器假阳性 cliff
+- ground_angle gate + break_out_gain=0.35
+
+### 修复 3：Telemetry 缺口补全（P1-1）
+- 5 个缺失字段已全部添加至 /memory.json
+
+### 修复 4：Fallen Recovery 修复验证（P1-2）
+- R31-fix7 自适应 burst 验证 + R31-fix9 Coach 多巴胺验证
+
+### 修复 5：视觉 EMD MVP（P1-3）
+- 4 方向 EMD ON/OFF 双通路实现，覆盖度从 ~38% 提升至 ~50%
+
+### 修复 6：CX 导航回路完成（P2-2）
+- CX-2 锚点路径积分 + CX-3 多源目标向量竞争
+
+### 新增 7：EVO 健康度量仪表板（P2-3）
+- HealthTrendCollector + /health-trend.json 端点 + 面板
+
+### 新增 8：第二验证场景（P3-2）
+- FlyGym 果蝇身体仿真环境 + CPG 步态生成器
+
+## ⏳ 剩余待办任务
+
+### P0 — 紧急
+
+| 任务 | 说明 | 预估 |
+|-----|------|------|
+| EVO auto-fix 常驻运行验证 | 启动 --auto-fix --interval 30 并追踪 24h 效果 | 1 天 |
+| FlyGym 端到端集成运行 | 实际启动 FlyGym 仿真 + 脑模型视觉/控制闭环 | 2-3 天 |
+
+### P1 — 高优先级
+
+| 任务 | 说明 | 预估 |
+|-----|------|------|
+| 视觉覆盖度下个能力 | 选择小目标追踪/颜色通道/学习能力之一落地 | 3-5 天 |
+| 测试套件健康检查 | 识别慢测试、重叠测试、隐式依赖 | 1 天 |
+| 神经活动全链路 UI 落地 | S8 方案实现 | 2-3 天 |
+
+### P2 — 中优先级
+
+| 任务 | 说明 | 预估 |
+|-----|------|------|
+| EMD + CX 集成 | 用 EMD 流动信号增强锚点重定位 | 2-3 天 |
+| FlyGym 导航任务 | 走直线/绕障碍等定量导航 | 3-4 天 |
+| 跨领域场景原型 | 用脑模型+新场景证明迁移性 | 5-7 天 |

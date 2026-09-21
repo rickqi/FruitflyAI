@@ -189,6 +189,7 @@ class DashboardHTTP(BaseHTTPRequestHandler):
     evolution_json = b"{}"
     help_json = b"{}"   # L2 coach-help snapshot (see /help.json)
     screen_json = b'{"screen_b64": ""}'
+    health_trend_json = b"[]"  # P2-3: EVO health trend (read from JSONL)
     signal_history = deque(maxlen=600)
 
     def do_GET(self):
@@ -305,6 +306,8 @@ class DashboardHTTP(BaseHTTPRequestHandler):
             body, mime = self.memory_json, "application/json"
         elif path == "/flow.json":
             body, mime = self.flow_json, "application/json"
+        elif path == "/health-trend.json":
+            body, mime = self.health_trend_json, "application/json"
         elif path == "/events.json":
             body, mime = self.events_json, "application/json"
         elif path == "/screen.json":
@@ -1013,6 +1016,9 @@ async def run(args) -> None:
     cliff_recovery_timer: float = 0.0
     cliff_turn_bias: float = 0.0
     previous_anomaly_state: str = ""
+    # ---- Exploration deadlock-burst state (t2) ----
+    _deadlock_burst_remaining: int = 0   # ticks left in the forward burst
+    _deadlock_burst_cooldown: int = 0    # ticks until next burst allowed
     # EVO R11: displacement feedback window (~2.4 s at 50 Hz) — feeds the
     # mushroom body's dopamine signal so zero-displacement escape contexts
     # are learned as punishers (network-level fix for circling).
@@ -1406,6 +1412,29 @@ async def run(args) -> None:
                     _py_ = pose_ev[1] if len(pose_ev) > 1 else 0.0
                     if _py_ >= -200:
                         memory_ctrl.escape_behavior = True
+
+            # ---- Exploration deadlock override: oscillating→straight burst ----
+            # When escape_behavior AND anomaly_state==oscillating AND
+            # stuck_duration>300, override the (±70,±70) oscillating reflex with
+            # a straight-ahead forward burst (ctrl_x=0, ctrl_y=127) for 60 ticks,
+            # then release — breaking the triple-deadlock where oscillating
+            # reflex + alternating bold + LIF zero-sum locks heading=180.
+            # A cooldown ensures at least 300 ticks of normal reflex operation
+            # between bursts so the brain can recover naturally.
+            if (memory_ctrl.escape_behavior
+                    and memory_ctrl.anomaly_state_name == "oscillating"
+                    and memory_ctrl.stuck_duration > 300):
+                if _deadlock_burst_cooldown <= 0:
+                    _deadlock_burst_remaining = 60
+                    _deadlock_burst_cooldown = 300
+            if _deadlock_burst_remaining > 0:
+                control.x = 0
+                control.y = 127
+                control.jump = False
+                reflex_override = True
+                _deadlock_burst_remaining -= 1
+            elif _deadlock_burst_cooldown > 0:
+                _deadlock_burst_cooldown -= 1
 
             # ---- Aggressive mode (P1, audit A5): only the neuromodulatory
             # pathway remains — reflex cooldowns halve via the reflex's own
@@ -2115,6 +2144,11 @@ async def run(args) -> None:
                     "cliff_standoff_s": round(memory_ctrl.cliff_standoff_s, 1),
                     "novelty": round(memory_ctrl.novelty, 3),
                     "escape_behavior": memory_ctrl.escape_behavior,
+                    # P1-1: Telemetry 缺口补全 — 控制信号衍生的 pattern 条件字段
+                    "control_magnitude": abs(control.x) + abs(control.y),
+                    "control_x_zero": control.x == 0,
+                    "control_y_zero": control.y == 0,
+                    "jump_not_active": not control.jump,
                     "cpg": cpg.status(),
                     "loop_score": round(memory_ctrl.spatial.loop_score, 3),
                     "exploration_mode": memory_ctrl.spatial.exploration_mode,
@@ -2192,7 +2226,17 @@ async def run(args) -> None:
                     # EVO R15: expose P1-P3 signal heads for the skill layer
                     "danger_red_index": round(getattr(model, "danger_red_index", 0.0), 4),
                     "sky_blue_index": round(getattr(model, "sky_blue_index", 0.0), 4),
+                    # 4-direction EMD (T4/T5) motion detection signals
+                    "emd_on_right": round(model.emd_on_right, 4),
+                    "emd_on_left": round(model.emd_on_left, 4),
                     "emd_on_down": round(model.emd_on_down, 4),
+                    "emd_on_up": round(model.emd_on_up, 4),
+                    "emd_off_right": round(model.emd_off_right, 4),
+                    "emd_off_left": round(model.emd_off_left, 4),
+                    "emd_off_down": round(model.emd_off_down, 4),
+                    "emd_off_up": round(model.emd_off_up, 4),
+                    "emd_on_total": round(model.emd_on_total, 4),
+                    "emd_off_total": round(model.emd_off_total, 4),
                     "target_count": model.target_count,
                     "mb_assoc_count": getattr(model.mushroom, "assoc_count", 0),
                     "cliff_standoff_s": round(getattr(model, "cliff_standoff_s", 0.0), 1),
@@ -2206,8 +2250,6 @@ async def run(args) -> None:
                     "gate_forward": getattr(control, "forward_rate", 0.0) > 0.4,
                     "gate_jump": getattr(control, "jump_rate", 0.0) > 2.0,
                     "hrc_asymmetry": round(getattr(model, "true_hrc_asymmetry", 0.0), 4),
-                    "emd_on_total": round(model.emd_on_total, 4),
-                    "emd_off_total": round(model.emd_off_total, 4),
                     "mb_dopamine": round(getattr(model.mushroom, "dopamine", 0.0), 4),
                     "mb_mbon_forward": round(float(model.mushroom.mbon_outputs[0]), 4),
                     "mb_mbon_jump": round(float(model.mushroom.mbon_outputs[3]), 4),
@@ -2315,6 +2357,23 @@ async def run(args) -> None:
                     "visited_cells": memory_ctrl.spatial.visited_cells,
                     "jump_not_active": getattr(control, "jump_rate", 0.0) < 0.04,
                 }, separators=(",", ":")).encode()
+                # P2-3: Serve EVO health trend from the JSONL file (if available)
+                try:
+                    _htp = Path(__file__).resolve().parent.parent / "skills" / "evolution_health_trend.jsonl"
+                    if _htp.exists():
+                        _ht_rows = []
+                        with _htp.open(encoding="utf-8") as _htf:
+                            for _hl in _htf:
+                                _hl = _hl.strip()
+                                if _hl:
+                                    try:
+                                        _ht_rows.append(json.loads(_hl))
+                                    except Exception:
+                                        pass
+                        DashboardHTTP.health_trend_json = json.dumps(
+                            _ht_rows[-200:], default=str).encode()
+                except Exception:
+                    DashboardHTTP.health_trend_json = b"[]"
                 # Log anomaly state transitions to events buffer
                 current_anomaly = memory_ctrl.anomaly_state_name
                 if current_anomaly and current_anomaly != previous_anomaly_state and current_anomaly != "idle":
@@ -2446,6 +2505,8 @@ def parse_args():
     parser.add_argument("--duration", type=float, default=0, help="seconds; zero runs until interrupted")
     parser.add_argument("--http-port", type=int, default=8765)
     parser.add_argument("--ws-port", type=int, default=8766)
+    parser.add_argument("--env", type=str, default="sm64", choices=["sm64", "flygym"],
+                        help="simulation backend (default: sm64)")
     return parser.parse_args()
 
 

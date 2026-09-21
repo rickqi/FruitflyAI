@@ -1,8 +1,13 @@
 # Fly64 果蝇脑模型深度扩展分析 — 产出文件索引
 
-> **项目**: brain-model-deep-expansion (AgentTeams)  
-> **分析日期**: 2026-09-15  
-> **脑模型**: Fly64 v2.13.3 · 166K LIF神经元 · 151.9M突触 · MaleCNS v1.0  
+> **项目**: brain-model-deep-expansion + fly64-comprehensive-fix + fly64-plan-exec + fly64-challenge-analysis + fly64-next-execution (AgentTeams)  
+> **最新分析日期**: 2026-09-21  
+> **脑模型**: Fly64 v2.23.11 · 166K LIF神经元 · 151.9M突触 · MaleCNS v1.0  
+> **BRAIN_VERSION** = 2.23.11  
+> 
+> **重要更新（2026-09-21）**: 本目录分析文档已大幅更新，新增了 2026年9月 最新的 AgentTeams 交付成果。所有交付文档均基于真实对话日志分析，涵盖 11 个 Agent 会话 + 两次完整团队交付。  
+
+> **注意**: 本目录大部分文档为 brain-model-deep-expansion 阶段的历史分析产物，已标记为 🔴 已废弃。当前活跃文档入口为 `session_logs_execution_plan.md`。已实现的文档标记为 🟢 已实现。`insurance/` 子目录保留为历史参考。
 
 ---
 
@@ -27,17 +32,33 @@
 
 ### 可视化文件
 
-| # | 文件 | 技术 | 描述 |
-|---|------|------|------|
-| V1 | `visualizations/architecture_fly64_6layer.html` | HTML/CSS | Fly64 6层通用迁移架构图（Sage Forest） |
-| V2 | `visualizations/architecture_insurance_underwriting.html` | HTML/CSS | 保险核保引擎5层适配架构（Indigo Deep） |
-| V3 | `visualizations/architecture_autonomous_driving.html` | HTML/CSS | 自动驾驶感知系统架构（Slate Dark） |
-| V4 | `visualizations/architecture_multi_agent_system.html` | HTML/CSS | 多Agent自治系统架构（Dusk Glow） |
-| V5 | `visualizations/architecture_medical_diagnosis.html` | HTML/CSS | 医疗诊断新领域架构（Sage Forest） |
-| V6 | `visualizations/radar_chart_10_capabilities.md` | Vega Radar | 10大能力3维度雷达图 |
-| V7 | `visualizations/heatmap_cross_domain_capability.md` | Vega-Lite | 10×13能力-领域热力图 |
-| V8 | `visualizations/roadmap_commercialization.md` | Infographic | 商业化路线图时间线 |
-| V9 | `visualizations/bpmn_causal_chain.md` | PlantUML BPMN | 决策因果链与责任认定流程 |
+| # | 文件 | 技术 | 状态 | 描述 |
+|---|------|------|------|------|
+| V1 | `visualizations/architecture_fly64_6layer.html` | HTML/CSS | 🔴 已废弃 | Fly64 6层通用迁移架构图 |
+| V2 | `visualizations/architecture_insurance_underwriting.html` | HTML/CSS | 🔴 已废弃 | 保险核保引擎5层适配架构 |
+| V3 | `visualizations/architecture_autonomous_driving.html` | HTML/CSS | 🔴 已废弃 | 自动驾驶感知系统架构 |
+| V4 | `visualizations/architecture_multi_agent_system.html` | HTML/CSS | 🔴 已废弃 | 多Agent自治系统架构 |
+| V5 | `visualizations/architecture_medical_diagnosis.html` | HTML/CSS | 🔴 已废弃 | 医疗诊断新领域架构 |
+| V6 | `visualizations/radar_chart_10_capabilities.md` | Vega Radar | 🔴 已废弃 | 10大能力3维度雷达图 |
+| V7 | `visualizations/heatmap_cross_domain_capability.md` | Vega-Lite | 🔴 已废弃 | 10×13能力-领域热力图 |
+| V8 | `visualizations/roadmap_commercialization.md` | Infographic | 🔴 已废弃 | 商业化路线图时间线 |
+| V9 | `visualizations/bpmn_causal_chain.md` | PlantUML BPMN | 🔴 已废弃 | 决策因果链与责任认定流程 |
+
+### motor-expansion/ — 运动能力扩展（🟢 已实现）
+
+| # | 文件 | 描述 |
+|---|------|------|
+| M1 | `motor-expansion/bridge-bz-unlock.md` | 桥接层 B/Z 键解锁 |
+| M2 | `motor-expansion/cpg-motor-primitives.md` | VNC CPG 运动原语层设计 |
+| M3 | `motor-expansion/neural-pools-extension.md` | 新增 B/Z 解码池与 MBON 列扩展 |
+| M4 | `motor-expansion/dashboard-impact-assessment.md` | 监控页面修改影响评估 |
+| M5 | `motor-expansion/execution-plan.md` | 运动能力扩展完整执行计划 |
+| M6 | `motor-expansion/next-optimization-plan.md` | 下一步优化计划 |
+| M7 | `motor-expansion/mbon-learning-evaluation.md` | MBON 原语列学习方向评估 |
+
+### insurance/ — 保险核保历史参考（保留，未标记）
+
+详见 `insurance/` 子目录，共 17 份分析与评审文档，保留为历史参考。
 
 ---
 
@@ -62,6 +83,10 @@
 
 ---
 
+> **注意** ⚠️ 上述推荐阅读路径基于 brain-model-deep-expansion 阶段，所列文档多数已标记为 🔴 已废弃。请以 `session_logs_execution_plan.md` 及 `fly64/` 下最新代码为准。
+
+---
+
 ## 🎨 设计规范
 
 - **调色板**: 深蓝 `#1a237e` · 紫 `#7c4dff` · 青 `#00bfa5` · 橙 `#ff6d00`
@@ -70,5 +95,33 @@
 
 ---
 
+---
+
+## 最新分析文档（2026-09-21）
+
+| 文件名 | 描述 |
+|--------|------|
+| `session_logs_analysis_report.md` | 原始 10 session 对话日志全面分析报告（1763 用户问题）|
+| `session_logs_execution_plan.md` | 基于分析报告的执行计划（10 项 P0-P3 行动）|
+| `session_logs_update_analysis_v2.md` | v2 综合分析报告：涵盖 11 个 session + 两次团队交付（15 项任务）|
+| `next_challenge_analysis_report.md` | 三项紧迫挑战根因分析与行动建议 |
+
+## 最新交付成果总结（2026-09-19 ~ 2026-09-21）
+
+### fly64-comprehensive-fix 团队（5 项治理修复）
+已完成并记录在 session_logs_execution_plan.md 附件中。
+
+### fly64-plan-exec 团队（10 项技术实施）
+所有任务均已完成并验证通过。
+
+### fly64-challenge-analysis 团队（3 项根因分析）
+所有分析报告均已完成。
+
+### fly64-next-execution 团队（6 项实施任务）
+所有实施任务均已完成并验证通过。
+
+---
+
 > **生成**: AgentTeams brain-model-deep-expansion · report-publisher  
-> **依赖**: t1(迁移方案) · t2(新领域) · t3(路线图) · t4(可视化) · t5(演示稿+信息图+思维导图)
+> **生成**: AgentTeams fly64-comprehensive-fix · fly64-plan-exec · fly64-challenge-analysis · fly64-next-execution  
+> **依赖**: t1(迁移方案) · t2(新领域) · t3(路线图) · t4(可视化) · t5(演示稿+信息图+思维导图) · session_logs_* · next_challenge_analysis*

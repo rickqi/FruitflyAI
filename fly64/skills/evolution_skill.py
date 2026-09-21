@@ -21,6 +21,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional, Callable
 
+# P0-1: FixExecutor for auto-fix template execution
+try:
+    from .fix_executor import FixExecutor, FixExecutionReport
+    HAS_FIX_EXECUTOR = True
+except ImportError:
+    HAS_FIX_EXECUTOR = False
+    FixExecutor = None  # type: ignore
+    FixExecutionReport = None  # type: ignore
+
 try:
     from jsonschema import validate, ValidationError
     HAS_JSONSCHEMA = True
@@ -40,6 +49,7 @@ EVOLUTION_HISTORY_PATH = SKILL_DIR / "evolution_history.json"
 SKILL_README_PATH = SKILL_DIR / "README.md"
 FIX_LOG_PATH = SKILL_DIR / "fix_log.json"
 VERIFY_STATE_PATH = SKILL_DIR / "verify_state.json"
+HEALTH_TREND_PATH = SKILL_DIR / "evolution_health_trend.jsonl"
 LOOP_LOCK_PATH = SKILL_DIR / ".evo_loop.lock"
 
 
@@ -150,6 +160,109 @@ def release_loop_lock(path: Path = LOOP_LOCK_PATH) -> None:
         path.unlink(missing_ok=True)
     except Exception:
         pass
+
+
+# ── Concurrent file-access lock for JSON catalogues ────────────────────
+
+
+_CATALOGUE_LOCKS: dict[str, str] = {}  # path -> lock-id
+
+
+def acquire_catalogue_lock(path: Path) -> bool:
+    """Acquire a process-local exclusive lock for a JSON catalogue file.
+
+    This is a thread/process-level advisory lock that serialises concurrent
+    writes to the same catalogue file.  On Windows it uses ``msvcrt.locking``
+    on a side-car ``.lck`` file; on POSIX it would use ``fcntl.flock()``.
+
+    Returns True when the lock was acquired, False when another caller holds it.
+    """
+    global _CATALOGUE_LOCKS
+    key = str(path.resolve())
+    if key in _CATALOGUE_LOCKS:
+        return False  # already held by us
+    lck = path.with_suffix(path.suffix + ".lck")
+    try:
+        # Open or create the .lck file
+        fd = os.open(str(lck), os.O_CREAT | os.O_RDWR)
+        # On Windows use msvcrt.locking; on POSIX use fcntl.flock
+        if sys.platform == "win32":
+            import msvcrt
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _CATALOGUE_LOCKS[key] = str(fd)
+        return True
+    except (BlockingIOError, PermissionError, OSError):
+        try:
+            os.close(fd)
+        except Exception:
+            pass
+        return False
+
+
+def release_catalogue_lock(path: Path) -> None:
+    """Release a previously-acquired catalogue lock."""
+    global _CATALOGUE_LOCKS
+    key = str(path.resolve())
+    fd_str = _CATALOGUE_LOCKS.pop(key, None)
+    if fd_str is None:
+        return
+    try:
+        fd = int(fd_str)
+        if sys.platform == "win32":
+            import msvcrt
+            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+    except Exception:
+        try:
+            os.close(int(fd_str))
+        except Exception:
+            pass
+    # Clean up the .lck side-car file
+    lck = path.with_suffix(path.suffix + ".lck")
+    try:
+        lck.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+def atomic_json_write(path: Path, data: dict) -> None:
+    """Write *data* to *path* using an atomic tmp+replace pattern.
+
+    Acquires the catalogue lock first.  The old content is preserved
+    as a ``.bak`` file (last write only).
+    """
+    acquire_catalogue_lock(path)
+    try:
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), "utf-8")
+        bak = path.with_suffix(path.suffix + ".bak")
+        if path.exists():
+            path.replace(bak)
+        tmp.replace(path)
+    finally:
+        release_catalogue_lock(path)
+
+
+def has_git_conflict(path: Path, proposed_find: str) -> bool:
+    """Check whether *proposed_find* still exists in the file on disk.
+
+    This is a lightweight surrogate for a full ``git diff``: if the anchor
+    text is not found, the file likely drifted since the fix_template was
+    generated, so the edit would be dangerous.
+    """
+    if not path.exists():
+        return False  # file hasn't been touched yet — no conflict
+    try:
+        content = path.read_text("utf-8")
+    except Exception:
+        return False
+    return proposed_find not in content  # True = danger, anchor vanished
 
 
 def compute_funnel(log_path: Path = EVOLUTION_LOG_PATH,
@@ -559,6 +672,11 @@ class SensorSample:
     mb_w_longjump: Optional[float] = None
     # L2: path efficiency — high path_length / net_displacement = wasted motion
     waste_ratio: float = 0.0
+    # ── Phase 6 behavioral fitness (EVO-067/071) ──
+    exploration_entropy: float = 0.0
+    """Diversity of control output distribution: higher = more varied behavior."""
+    displacement_coverage: float = 0.0
+    """Fraction of path that produces net displacement: higher = less wasted motion."""
 
     def to_dict(self) -> dict: return asdict(self)
 
@@ -592,6 +710,9 @@ class CycleResult:
         self.verifications: list[VerificationResult] = []
         self.documented: bool = False
         self.errors: list[str] = []
+        self.fix_execution_reports: list = []  # FixExecutionReport from FixExecutor
+        self._consecutive_fix_failures: int = 0  # watchdog counter
+        self._last_cycle_duration: float = 0.0  # watchdog timer
 
 def metric_score(direction: str, base, post) -> float:
     """Pattern-specific verify_metric scoring (P0-2).  Returns [0, 1].
@@ -717,7 +838,10 @@ class DataCollector:
             mb_w_dive=flow.get("mb_w_dive", None),
             mb_w_groundpound=flow.get("mb_w_groundpound", None),
             mb_w_longjump=flow.get("mb_w_longjump", None),
-            waste_ratio=self._compute_waste())
+            waste_ratio=self._compute_waste(),
+            # Phase 6 behavioral fitness fields
+            exploration_entropy=self.motion_entropy(),
+            displacement_coverage=self._compute_displacement_coverage())
         # Track consecutive motor-vs-motion mismatch frames (wall corners)
         self._decoupled_run = self._decoupled_run + 1 if s.command_decoupled else 0
         self.samples.append(s)
@@ -765,6 +889,28 @@ class DataCollector:
         if total == 0: return 0.0
         probs = [h/total for h in hist if h > 0]
         return -sum(p * math.log2(p) for p in probs)
+
+    def _compute_displacement_coverage(self) -> float:
+        """Ratio of net displacement to total path length over the window.
+        
+        1.0 = perfectly straight line (all movement contributes to displacement).
+        0.0 = returned to start (all movement wasted).
+        Computed from the position buffer: net = distance(first, last),
+        path = sum of segment lengths.  Requires >= 5 positions.
+        """
+        if len(self._positions) < 5:
+            return 1.0  # not enough data = no penalty
+        pts = list(self._positions)
+        dx = pts[-1][1] - pts[0][1]
+        dz = pts[-1][2] - pts[0][2]
+        net = math.hypot(dx, dz)
+        path = sum(math.hypot(pts[i][1]-pts[i-1][1], pts[i][2]-pts[i-1][2])
+                   for i in range(1, len(pts)))
+        if path < 1.0:
+            return 1.0
+        # Clamp to [0, 1]: ratio of net to path.  Values >1 are impossible
+        # (net <= path by triangle inequality), so clamp for floating-point edge.
+        return min(1.0, net / path)
 
     def _mbon_slopes(self) -> dict:
         """M3-default: per-primitive MBON weight-mean slope (units/min).
@@ -862,6 +1008,8 @@ class DataCollector:
         vals["coverage_stagnant_120s"] = self.coverage_stagnant_120s()
         vals["motion_entropy"] = self.motion_entropy()
         vals["waste_ratio"] = self._compute_waste()
+        vals["exploration_entropy"] = self.motion_entropy() if self.samples else 0.0
+        vals["displacement_coverage"] = self._compute_displacement_coverage() if self.samples else 1.0
         return vals
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -954,15 +1102,39 @@ class FixCatalog:
         except: return []
 
     def save(self):
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps({
+        from .fix_executor import parse_fix_template
+        
+        # Check for git-style conflicts: verify all fix_template anchors still exist
+        for f in self.fixes:
+            if f.fix_template:
+                directives = parse_fix_template(f.fix_template)
+                for d in directives:
+                    if d.get("action") in ("replace", "change", "insert_after", "insert_before"):
+                        find_text = d.get("find") or d.get("change") or ""
+                        file_rel = d.get("file", "")
+                        if find_text and file_rel:
+                            file_path = Path(SKILL_DIR).parent / file_rel
+                            if not file_path.exists():
+                                continue
+                            if has_git_conflict(file_path, find_text):
+                                print(
+                                    f"[FixCatalog] Conflict: {f.id} anchor "
+                                    f"{find_text[:60]!r} not found in "
+                                    f"{file_rel} — marking advisory",
+                                    flush=True,
+                                )
+                                f.notes = (f.notes or "") + (
+                                    f"; conflict: anchor vanished from {file_rel}"
+                                )
+        
+        atomic_json_write(self.path, {
             "$catalog_version": "2.0", "meta": {"skill_name": SKILL_NAME, "skill_version": SKILL_VERSION,
                 "total_fixes": len(self.fixes),
                 "effective_count": sum(1 for f in self.fixes if f.effective is True),
                 "ineffective_count": sum(1 for f in self.fixes if f.effective is False),
                 "pending_count": sum(1 for f in self.fixes if f.effective is None),
                 "last_updated": datetime.now(timezone.utc).isoformat()},
-            "fixes": [f.to_dict() for f in self.fixes]}, indent=2, ensure_ascii=False), "utf-8")
+            "fixes": [f.to_dict() for f in self.fixes]})
 
     def record_fix(self, finding: Finding) -> FixEntry:
         self._vc += 1
@@ -1038,6 +1210,127 @@ class FixCatalog:
             self._vc = max((f.version for f in self.fixes), default=self._vc)
             return loaded
         except: return 0
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# P2-3: Health Trend Collector — periodic health snapshot into JSONL
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class HealthTrendCollector:
+    """Collect health metrics on each EVO loop iteration and append structured
+    records to ``evolution_health_trend.jsonl``.
+
+    Each row is a timestamped snapshot of:
+      - health_score, stuck_duration, coverage_pct
+      - fix statistics (total, effective, pending)
+      - evolution statistics (trials, pass rate)
+      - pattern firing counts
+      - verification outcomes
+
+    The file is append-only JSONL so the dashboard can serve the last N rows
+    as a trend without needing a database.
+    """
+
+    def __init__(self, path: Path = HEALTH_TREND_PATH, max_cached: int = 200):
+        self.path = path
+        self.max_cached = max_cached
+        self._cache: list[dict] = []
+        self._load_cache()
+
+    def _load_cache(self):
+        """Load the most recent rows from disk into memory cache."""
+        if not self.path.exists():
+            return
+        try:
+            with self.path.open(encoding="utf-8") as fh:
+                all_rows = []
+                for line in fh:
+                    line = line.strip()
+                    if line:
+                        try:
+                            all_rows.append(json.loads(line))
+                        except Exception:
+                            pass
+            self._cache = all_rows[-self.max_cached:]
+        except Exception:
+            self._cache = []
+
+    @property
+    def trend(self) -> list[dict]:
+        """Most recent cached trend rows (newest last)."""
+        return list(self._cache)
+
+    def snapshot(
+        self,
+        collector: Optional[DataCollector] = None,
+        fix_catalog: Optional[FixCatalog] = None,
+        pipeline: Optional["EvolutionPipeline"] = None,
+        extra: Optional[dict] = None,
+    ) -> dict:
+        """Build and append one health metric snapshot row.
+
+        Returns the appended dict.
+        """
+        row: dict = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+        }
+
+        # Performance / stuck metrics from the collector
+        if collector is not None and collector.samples:
+            m = collector.get_metrics()
+            row["health_score"] = m.get("health_score")
+            row["stuck_duration"] = m.get("stuck_duration")
+            row["coverage_pct"] = m.get("coverage_pct")
+            row["visited_cells"] = m.get("visited_cells")
+            row["anomaly_state"] = m.get("anomaly_state")
+            row["motion_entropy"] = m.get("motion_entropy")
+            row["waste_ratio"] = m.get("waste_ratio")
+        else:
+            row["health_score"] = None
+            row["stuck_duration"] = None
+            row["coverage_pct"] = None
+
+        # Fix catalog statistics
+        if fix_catalog is not None:
+            stats = fix_catalog.get_statistics()
+            row["fixes_total"] = stats["total_fixes"]
+            row["fixes_effective"] = stats["effective"]
+            row["fixes_pending"] = stats["pending"]
+            row["fixes_reverted"] = stats["reverted"]
+            row["fix_effectiveness_rate"] = stats["effectiveness_rate"]
+        else:
+            row["fixes_total"] = 0
+
+        # Evolution (BrainMutator) statistics
+        if pipeline is not None:
+            evo = pipeline.evolution_stats
+            row["evo_trials"] = evo["total_trials"]
+            row["evo_passed"] = evo["passed"]
+            row["evo_pass_rate"] = evo["pass_rate"]
+            row["evo_top_delta"] = evo["top_delta"]
+        else:
+            row["evo_trials"] = 0
+            row["evo_passed"] = 0
+
+        # Extra fields from the caller (e.g. iteration number, pattern count)
+        if extra:
+            row.update(extra)
+
+        self._cache.append(row)
+        if len(self._cache) > self.max_cached:
+            self._cache = self._cache[-self.max_cached:]
+
+        # Append to JSONL file
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with self.path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+
+        return row
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Phase 4: Verify - VerificationEngine
@@ -1447,7 +1740,11 @@ class BrainMutator:
         self._baseline_fitness: Optional[float] = None
         self._baseline_components: Optional[dict] = None   # diagnostics (see below)
         self._baseline_sample = None               # EVO-072: for derived rates
-        self._mutation_rate = 0.12                   # stddev as fraction of range
+        # Phase 6 Bayesian optimisation (EVO-067/071)
+        self._trial_history: list[dict] = []        # {(param_vector, delta)} for GP
+        self._bo_candidates_generated = 0           # explore/exploit counter
+        self._bo_exploration_phase = True           # initial random exploration
+        self._bo_min_points = 15                    # min points before GP kicks in
 
     def _load(self) -> dict:
         try:
@@ -1506,6 +1803,11 @@ class BrainMutator:
         actually used, and `missing_inputs` names any term that had no data — so a
         silently-defaulted field can no longer hide.  `prev` is optional; without
         it the rate terms degrade to absent rather than to a fake constant.
+
+        Phase 6 EVO-067/071 behavioral expansion:
+          - exploration_entropy (+0.05): diversity of control output distribution
+          - displacement_coverage (+0.05): net/total path displacement ratio
+          Weights adjusted: coverage 0.30→0.25, waste_penalty 0.15→0.10 to keep sum.
         """
         if sample is None:
             return {}
@@ -1527,7 +1829,7 @@ class BrainMutator:
 
         # -- coverage: available and used as before -------------------------
         cov_pct = num("coverage_pct", 0.0)
-        coverage = min(cov_pct / 50.0, 1.0) * 0.30
+        coverage = min(cov_pct / 50.0, 1.0) * 0.25  # EVO-071: 0.30→0.25 for behavioral terms
 
         # -- unstuck: available (the only term that always moved) -----------
         coverage_delta = max(0.0, cov_pct - nump("coverage_pct", cov_pct))
@@ -1589,6 +1891,13 @@ class BrainMutator:
         if fcr is None:
             missing.append("first_contact_rate(derived)")
 
+        # -- Phase 6 behavioral terms (EVO-067/071) ------------------------
+        entropy = num("exploration_entropy", None)
+        expl_entropy = (0.0 if entropy is None else min(float(entropy) * 0.5, 1.0)) * 0.05
+
+        disp_cov = num("displacement_coverage", None)
+        displ_cov = (0.0 if disp_cov is None else min(float(disp_cov) * 2.0, 1.0)) * 0.05
+
         raw["stuck_duration"] = stuck
         raw["coverage_pct"] = cov_pct
         raw["health_score"] = getattr(sample, "health_score", None)
@@ -1603,12 +1912,14 @@ class BrainMutator:
                                 if hasattr(sample, "__dict__") else None)
 
         # L2: waste penalty — penalise path_length / displacement ratio > 10x
-        waste = num("waste_ratio", 0.0)
-        waste_penalty = min(max((waste - 10.0) / 200.0, 0.0), 1.0) * 0.15
-        if waste > 0:
-            raw["waste_penalty_factor"] = round(waste_penalty / 0.15, 3)
+        waste = num("waste_ratio", None)
+        if waste is not None and isinstance(waste, (int, float)):
+            waste_penalty = min(max((float(waste) - 10.0) / 200.0, 0.0), 1.0) * 0.10
+            raw["waste_penalty_factor"] = round(waste_penalty / 0.10, 3)
         else:
-            missing.append("waste_ratio")
+            waste_penalty = 0.0
+            if waste is None:
+                missing.append("waste_ratio")
         return {
             "coverage": coverage,
             "unstuck": unstuck,
@@ -1617,6 +1928,8 @@ class BrainMutator:
             "speed": speed,
             "first_contact": first_contact,
             "revisit_penalty": max(0.0, (rr - 0.2) * 2.0) * 0.05,
+            "exploration_entropy": expl_entropy,
+            "displacement_coverage": displ_cov,
             "waste_penalty": waste_penalty,
             "missing_inputs": missing,
             "raw": raw,
@@ -1671,7 +1984,7 @@ class BrainMutator:
         since EVO-072; see :meth:`fitness_components` for the measurement that
         forced the change (40% of the old weight read non-existent attributes and
         was silently zeroed, making the 0.03 pass gate unreachable):
-          - coverage_pct / 50              (×0.30) explored fraction
+          - coverage_pct / 50              (×0.25) explored fraction
           - 1 - min(stuck_duration/120, 1) (×0.20) not-stuck, plus up to +0.20
                                            for cells gained across the window
           - novelty = 1 - revisit/(visit+revisit)   (×0.10)
@@ -1679,6 +1992,8 @@ class BrainMutator:
           - forward_speed                   (×0.10)
           - visited-cell rate (cells/s)     (×0.10)
           - revisit penalty                 (×0.05)
+          - exploration_entropy             (×0.05) EVO-071 behavioral term
+          - displacement_coverage           (×0.05) EVO-071 behavioral term
 
         Implemented as the sum of :meth:`fitness_components`, which is the single
         source of truth for the arithmetic.
@@ -1689,6 +2004,7 @@ class BrainMutator:
         return round(
             c["coverage"] + c["unstuck"] + c["novelty"] + c["health"]
             + c["speed"] + c["first_contact"] - c["revisit_penalty"]
+            + c.get("exploration_entropy", 0.0) + c.get("displacement_coverage", 0.0)
             - c.get("waste_penalty", 0.0), 4)
 
     @staticmethod
@@ -1726,31 +2042,157 @@ class BrainMutator:
         self._write_active_strategy(strat)
         return strat
 
-    def generate_candidate(self) -> dict[str, float]:
-        """Produce a parameter set by adding Gaussian noise to the active
-        strategy's current values, clamped to each param's [min, max].
+    def _normalize(self, pid: str, val: float) -> float:
+        """Map a param value from [min, max] to [0, 1] for GP modelling."""
+        meta = self.live_params.get(pid, {})
+        mn, mx = meta.get("min", 0.0), meta.get("max", 1.0)
+        if mx - mn < 1e-12:
+            return 0.5
+        return (float(val) - mn) / (mx - mn)
 
-        Parameters whose current value is None / unknown start at default.
-        The mutation rate adapts: wider ranges get proportional noise.
+    def _denormalize(self, pid: str, norm: float) -> float:
+        """Map a [0, 1] GP-optimised value back to [min, max]."""
+        meta = self.live_params.get(pid, {})
+        mn, mx = meta.get("min", 0.0), meta.get("max", 1.0)
+        return max(mn, min(mx, mn + norm * (mx - mn)))
+
+    def generate_candidate(self) -> dict[str, float]:
+        """Produce a parameter set using Bayesian optimisation.
+
+        Phase 6 EVO-067/071: replaces the pure Gaussian random search with a
+        two-stage approach:
+          1. **Initial exploration** (< `_bo_min_points` history points):
+             Latin-hypercube-like uniform random sampling across the full range,
+             not local Gaussian noise around the current value.  This builds a
+             diverse initial training set for the GP surrogate.
+          2. **Bayesian optimisation** (>= `_bo_min_points`):
+             Fit a Gaussian Process (scipy-based RBF surrogate) to the history
+             of (normalised_param_vector → delta), then maximise Expected
+             Improvement (EI) to pick the next candidate.  EI balances
+             exploitation (high predicted delta) and exploration (high
+             predictive uncertainty).
+
+        Falls back to uniform random sampling if scipy is unavailable.
         """
         schema = self.live_params
-        current_strat = self._load_active_strategy()
-        candidate: dict[str, float] = {}
-        for pid, meta in schema.items():
-            default = meta.get("default", 0.0)
-            mn, mx = meta.get("min", 0.0), meta.get("max", 1.0)
-            rang = mx - mn
-            # Read current value from the correct section
-            section_key = "exploration"
-            param_name = pid
-            if "." in pid:
-                section_key, param_name = pid.split(".", 1)
-            current_section = current_strat.get(section_key, {}) if isinstance(current_strat, dict) else {}
-            old = current_section.get(param_name, default)
-            # Gaussian mutation with decreasing rate over generations
-            g = random.gauss(0, rang * self._mutation_rate)
-            candidate[pid] = max(mn, min(mx, float(old) + g))
-        return candidate
+        pids = list(schema.keys())
+        ndim = len(pids)
+        if ndim == 0:
+            return {}
+
+        # ── Phase 1: Build training set ──
+        # Normalise history: for each completed trial we have param vector → delta
+        # (the committed or rolled-back delta from the point of view of the
+        # candidate that was tested, i.e. the delta it achieved — rolled-back
+        # trials get negative or near-zero deltas).
+        X, y = [], []
+        for rec in self._trial_history:
+            if rec.get("delta") is not None and rec.get("params"):
+                vec = [self._normalize(pid, rec["params"].get(pid, meta.get("default", 0.0)))
+                       for pid, meta in schema.items()]
+                X.append(vec)
+                y.append(float(rec["delta"]))
+
+        # ── Phase 2: Generate candidate ──
+        if len(X) < min(self._bo_min_points, ndim * 3 + 2):
+            # Exploration phase: uniform random across the whole search space
+            candidate = {}
+            for pid, meta in schema.items():
+                mn, mx = meta.get("min", 0.0), meta.get("max", 1.0)
+                candidate[pid] = random.uniform(mn, mx)
+            self._bo_exploration_phase = True
+            return candidate
+
+        self._bo_exploration_phase = False
+
+        # ── Phase 3: Bayesian optimisation with GP ──
+        try:
+            import numpy as np
+            from scipy.optimize import minimize
+            from scipy.spatial.distance import cdist
+
+            X_arr = np.array(X, dtype=np.float64)
+            y_arr = np.array(y, dtype=np.float64)
+
+            # RBF kernel: k(x,z) = exp(-0.5 * ||x-z||^2 / length_scale^2)
+            # Use median pairwise distance as heuristic length_scale.
+            n_pts = X_arr.shape[0]
+            if n_pts > 1:
+                pairwise = cdist(X_arr, X_arr, metric="sqeuclidean")
+                # Mask the diagonal (zero) before computing median
+                med = np.median(pairwise[pairwise > 0])
+                length_scale = max(np.sqrt(med), 0.1)
+            else:
+                length_scale = 1.0
+
+            # GP prediction: posterior mean and variance at a test point x
+            def gp_predict(x_test: np.ndarray) -> tuple[float, float]:
+                """Returns (mean, variance) at a normalised test point."""
+                x_t = np.asarray(x_test, dtype=np.float64).reshape(1, -1)
+                sq_dists = cdist(x_t, X_arr, metric="sqeuclidean")[0]
+                k_vec = np.exp(-0.5 * sq_dists / (length_scale ** 2))
+                # Noise variance: estimated from data variance
+                noise_var = max(np.var(y_arr) * 0.01, 1e-8) if n_pts > 1 else 1e-4
+                K = np.exp(-0.5 * pairwise / (length_scale ** 2)) if n_pts > 1 else np.eye(n_pts)
+                K_reg = K + noise_var * np.eye(n_pts)
+                try:
+                    K_inv = np.linalg.inv(K_reg)
+                except np.linalg.LinAlgError:
+                    K_inv = np.linalg.pinv(K_reg)
+                mean = k_vec @ K_inv @ y_arr
+                var_t = 1.0 + noise_var - k_vec @ K_inv @ k_vec.T
+                return float(mean), max(float(var_t), 1e-12)
+
+            # Expected Improvement acquisition function
+            y_best = float(np.max(y_arr))
+            def ei(x_norm):
+                mean, var = gp_predict(x_norm)
+                std = np.sqrt(var)
+                if std < 1e-12:
+                    return 0.0
+                imp = mean - y_best
+                from scipy.stats import norm
+                z = imp / std
+                ei_val = imp * norm.cdf(z) + std * norm.pdf(z)
+                return max(ei_val, 0.0)
+
+            # Multi-start optimisation of EI
+            best_ei = -1.0
+            best_x = None
+            n_starts = min(5 + ndim, 20)
+            for _ in range(n_starts):
+                x0 = np.random.uniform(0, 1, ndim)
+                res = minimize(lambda x: -ei(x), x0, method="L-BFGS-B",
+                               bounds=[(0.0, 1.0)] * ndim,
+                               options={"maxiter": 50, "ftol": 1e-6})
+                if res.success and -res.fun > best_ei:
+                    best_ei = -res.fun
+                    best_x = res.x
+
+            # If EI acquisition failed or returned very small improvement,
+            # add a random perturbation to the best point for diversity.
+            if best_x is None or best_ei < 1e-6:
+                # Select the top-3 historical points and perturb them
+                top_k = min(3, n_pts)
+                top_indices = np.argsort(y_arr)[-top_k:]
+                chosen = random.choice(top_indices)
+                best_x = X_arr[chosen] + np.random.randn(ndim) * 0.1
+
+            best_x = np.clip(np.asarray(best_x, dtype=np.float64), 0.0, 1.0)
+            candidate = {}
+            for i, pid in enumerate(pids):
+                candidate[pid] = self._denormalize(pid, float(best_x[i]))
+
+            self._bo_candidates_generated += 1
+            return candidate
+
+        except ImportError:
+            # Fallback: uniform random (scipy unavailable)
+            candidate = {}
+            for pid, meta in schema.items():
+                mn, mx = meta.get("min", 0.0), meta.get("max", 1.0)
+                candidate[pid] = random.uniform(mn, mx)
+            return candidate
 
     def start_trial(self, metrics: SensorSample | None = None):
         """Begin a new mutation trial: generate candidate, write to strategy
@@ -1766,6 +2208,13 @@ class BrainMutator:
     def evaluate(self, metrics: SensorSample | None) -> Optional[dict]:
         """After the verification window, compare current fitness vs baseline.
 
+        Phase 6 EVO-067/071:
+        - **Same-sample short-circuit**: if the collector handed back the SAME
+          sample object (same timestamp), the fitness inputs never refreshed and
+          the trial is immediately failed rather than waiting the full 120 s.
+        - Records every trial outcome to ``_trial_history`` for Bayesian
+          optimisation (surrogate model training).
+
         Returns a result dict on trial completion (or None if still running):
         - passed: fitness improved above threshold
         - delta: fitness change
@@ -1774,28 +2223,68 @@ class BrainMutator:
         if self._trial is None or self._trial_start is None:
             return None
         run_time = 120.0  # trial window: 120 s from start
+
+        # ── Same-sample short-circuit (EVO-071) ──
+        # Check immediately whether the sample has changed since baseline.
+        # If the timestamp matches, the collector has not refreshed and every
+        # subsequent check will also return delta=0.0 — skip the wait.
+        cur_components = self.fitness_components(metrics, self._baseline_sample)
+        cur_ts = (cur_components.get("raw") or {}).get("sample_ts")
+        base_ts = (self._baseline_components or {}).get("raw", {}).get("sample_ts")
+        same_sample = bool(base_ts is not None and base_ts == cur_ts)
+
+        if same_sample:
+            # Short-circuit: immediately fail the trial, record delta=0.0
+            base_components = self._baseline_components or {}
+            result = {"passed": False, "delta": 0.0,
+                      "baseline": round(self._baseline_fitness, 4) if self._baseline_fitness else 0.0,
+                      "current": round(self._baseline_fitness, 4) if self._baseline_fitness else 0.0,
+                      "params": dict(self._trial),
+                      "baseline_components": base_components,
+                      "current_components": cur_components,
+                      "same_sample": True,
+                      "short_circuit": True,
+                      "committed": False}
+            self._trial_history.append({
+                "params": dict(self._trial),
+                "delta": 0.0,
+                "baseline_fitness": self._baseline_fitness,
+                "same_sample": True,
+            })
+            # Rollback
+            self._inject({})
+            self._trial = None
+            self._trial_start = None
+            self._baseline_fitness = None
+            self._baseline_components = None
+            self._baseline_sample = None
+            return result
+
+        # Normal timing check
         if time.time() - self._trial_start < run_time:
             return None
+
         current_fitness = (self.fitness(metrics, self._baseline_sample)
                            if metrics else 0.0)
         delta = current_fitness - self._baseline_fitness
         passed = delta > 0.03  # 3% improvement threshold
-        cur_components = self.fitness_components(metrics, self._baseline_sample)
         base_components = self._baseline_components or {}
-        base_ts = (base_components.get("raw") or {}).get("sample_ts")
-        cur_ts = (cur_components.get("raw") or {}).get("sample_ts")
         result = {"passed": passed, "delta": round(delta, 4),
                   "baseline": round(self._baseline_fitness, 4),
                   "current": round(current_fitness, 4),
                   "params": dict(self._trial),
-                  # Diagnostic surface: the scalar delta alone left 62.5% of
-                  # trials (delta exactly 0.0) unattributable — see
-                  # fitness_components().  `same_sample` is the decisive field:
-                  # True means the collector handed back the SAME sample at both
-                  # ends of the window, so the fitness inputs never refreshed.
                   "baseline_components": base_components,
                   "current_components": cur_components,
-                  "same_sample": bool(base_ts is not None and base_ts == cur_ts)}
+                  "same_sample": False}
+
+        # Record to trial history for Bayesian optimisation
+        self._trial_history.append({
+            "params": dict(self._trial),
+            "delta": round(delta, 4),
+            "baseline_fitness": round(self._baseline_fitness, 4) if self._baseline_fitness else 0.0,
+            "passed": passed,
+        })
+
         if passed:
             self._trial = None
             self._trial_start = None
@@ -1851,6 +2340,15 @@ class EvolutionPipeline:
         self.brain_mutator = BrainMutator()
         self._evolution_results: deque[dict] = deque(maxlen=20)
         self._evolution_recorded: bool = False  # one evolution record per cycle
+
+        # P0-1: FixExecutor for applying fix_template to source files
+        if HAS_FIX_EXECUTOR and self.auto_fix:
+            self.fix_executor = FixExecutor(workspace_root=WORKSPACE, dry_run=False)
+        else:
+            self.fix_executor = None
+
+        # P2-3: Health trend collector — periodic health snapshots into JSONL
+        self.health_trend = HealthTrendCollector()
 
     @property
     def evolution_stats(self) -> dict:
@@ -1916,6 +2414,23 @@ class EvolutionPipeline:
                         self.history.record_fix(entry, f)
                     except Exception as e:
                         result.errors.append(f"History: {e}")
+                    # P0-1: Execute fix_template via FixExecutor when available
+                    try:
+                        if self.fix_executor is not None:
+                            exec_report = self.fix_executor.execute(
+                                fix_id=entry.id,
+                                pattern_id=f.pattern_id,
+                                fix_template=f.fix_template,
+                                fix_files=f.fix_files,
+                            )
+                            result.fix_execution_reports.append(exec_report)
+                            if not exec_report.all_applied and not exec_report.manual_action_needed:
+                                result.errors.append(
+                                    f"FixExecutor: {entry.id} — {len(exec_report.actions)} action(s), "
+                                    f"{sum(1 for a in exec_report.actions if not a.applied)} failed"
+                                )
+                    except Exception as e:
+                        result.errors.append(f"FixExecutor: {entry.id} — {e}")
         except Exception as e: result.errors.append(f"Fix: {e}")
         try:
             v = self.verification_engine.tick()
@@ -1964,6 +2479,35 @@ class EvolutionPipeline:
             self.documenter.update(extra=s, plasticity_metrics=_plasticity)
             result.documented = True
         except Exception as e: result.errors.append(f"Document: {e}")
+        # ── Health watchdog ────────────────────────────────────────────
+        now = time.time()
+        cycle_duration = now - t
+        self._last_cycle_duration = cycle_duration
+        # Detect excessive cycle time
+        interval = getattr(getattr(self, '_args', None), 'interval', 30)
+        if cycle_duration > 3.0 * interval:
+            result.errors.append(
+                f"⏰ Watchdog: cycle took {cycle_duration:.1f}s "
+                f"(>{3*interval:.0f}s interval) — consider raising interval")
+        # Detect consecutive auto-fix failures
+        any_failed = any(
+            not r.all_applied and not r.manual_action_needed
+            for r in result.fix_execution_reports
+        )
+        if any_failed:
+            self._consecutive_fix_failures += 1
+        else:
+            self._consecutive_fix_failures = 0
+        if self._consecutive_fix_failures >= 3:
+            result.errors.append(
+                f"⛔ Watchdog: {self._consecutive_fix_failures} consecutive "
+                f"fix failures — auto-fix paused until next restart")
+            self.auto_fix = False  # pause auto-fix to prevent cascading damage
+        # Persist execution reports for later rollback
+        if hasattr(self, '_last_execution_reports'):
+            self._last_execution_reports = result.fix_execution_reports
+        else:
+            self._last_execution_reports = result.fix_execution_reports
         return result
 
     @property
@@ -1986,6 +2530,16 @@ def on_cycle(result: CycleResult):
     for f in result.findings:
         print(f"    [{f.severity.upper()}] {f.pattern_name} (conf={f.confidence:.0%})")
     for fix in result.applied_fixes: print(f"    Fix {fix.id}: {fix.pattern_name}")
+    for report in result.fix_execution_reports:
+        if report.manual_action_needed:
+            print(f"    ⚠  {report.fix_id}: manual action needed")
+        elif report.all_applied:
+            print(f"    ✓  {report.fix_id}: applied {len(report.actions)} action(s)")
+        else:
+            failed = [a for a in report.actions if not a.applied]
+            print(f"    ✗  {report.fix_id}: {len(failed)}/{len(report.actions)} action(s) failed")
+            for a in failed[:3]:
+                print(f"       └─ {a.error}")
     for v in result.verifications: print(f"    Verify {v.fix_id}: {'OK' if v.passed else 'FAIL'} (score={v.effectiveness_score})")
     evo_trials = [e for e in result.errors if e.startswith("🧬")]
     for e in evo_trials: print(f"    {e}")
@@ -2118,6 +2672,18 @@ def _run_loop(pipe, args):
         print(format_status(sample))
         result = pipe.run_one_cycle(bridge=bridge, memory=memory, flow=flow)
         on_cycle(result)
+        # P2-3: Record health trend snapshot every iteration
+        try:
+            pipe.health_trend.snapshot(
+                collector=pipe.collector,
+                fix_catalog=pipe.fix_catalog,
+                pipeline=pipe,
+                extra={"iteration": i, "findings_count": len(result.findings),
+                       "fixes_applied": len(result.applied_fixes),
+                       "verifications": len(result.verifications)},
+            )
+        except Exception:
+            pass
         try:
             with open(EVOLUTION_LOG_PATH, "a", encoding="utf-8") as lf:
                 lf.write(json.dumps({"timestamp": t, "iteration": i+1,
