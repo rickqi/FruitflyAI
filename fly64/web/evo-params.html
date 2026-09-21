@@ -76,17 +76,14 @@ function renderParams(){
     const cur=allStrategy[meta.section]?.[pid.replace(meta.section+'.','')] ?? meta.default;
     const row=document.createElement('div');row.className='param-row'+(meta.wired===false?' inert':'');
     if(meta.wired===false)inert++;
-    row.appendChild((()=>{
-      const l=document.createElement('label');l.textContent=(meta.label||pid.replace(meta.section+'.',''))+(meta.wired===false?' · ✗':'');
-      const v=document.createElement('span');v.className='val';v.textContent=Number(cur).toFixed(3);
-      const r=document.createElement('input');r.type='range';r.min=meta.min;r.max=meta.max;
-      r.step=(meta.max-meta.min)/100;r.value=cur;
-      const d=document.createElement('div');d.className='desc';d.textContent=(meta.description||'').slice(0,80);
-      if(meta.wired===false){r.disabled=true;r.title='未接线'}
-      else r.oninput=function(){v.textContent=Number(this.value).toFixed(3);
-        setParam(this,pid);}
-      row.append(l,v,r,d);return row;
-    })());
+    const l=document.createElement('label');l.textContent=(meta.label||pid.replace(meta.section+'.',''))+(meta.wired===false?' · ✗':'');
+    const v=document.createElement('span');v.className='val';v.textContent=Number(cur).toFixed(3);
+    const r=document.createElement('input');r.type='range';r.min=meta.min;r.max=meta.max;
+    r.step=(meta.max-meta.min)/100;r.value=cur;
+    const d=document.createElement('div');d.className='desc';d.textContent=(meta.description||'').slice(0,80);
+    if(meta.wired===false){r.disabled=true;r.title='未接线'}
+    else r.oninput=function(){v.textContent=Number(this.value).toFixed(3);setParam(this,pid);}
+    row.append(l,v,r,d);body.appendChild(row);count++;
   }
   $('paramMsg').textContent=inert?(count+' params ('+inert+' ✗ 未接线)'):count+' params';
 }
