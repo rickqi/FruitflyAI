@@ -1301,6 +1301,20 @@ async def run(args) -> None:
                     # Wire reflex adaptive_cooldown_scale into memory_ctrl
                     memory_ctrl._adaptive_cooldown_scale = max(0.01, min(0.15, float(
                         _expl.get("adaptive_cooldown_scale", 1.0 / 120.0))))
+                    # ── Navigation circuit weights (CX goal vectors) ──
+                    _nav = _as_raw.get("navigation", {}) or {}
+                    memory_ctrl.navigation_danger_weight = max(0.0, min(3.0, float(
+                        _nav.get("danger_weight", 1.2))))
+                    memory_ctrl.navigation_frontier_weight = max(0.0, min(3.0, float(
+                        _nav.get("frontier_weight", 0.7))))
+                    # ── Coach reward/penalty circuit (dopamine / DAN) ──
+                    _coach = _as_raw.get("coach", {}) or {}
+                    model._coach_reward_gain = max(0.0, min(1.5, float(
+                        _coach.get("reward_gain", 0.4))))
+                    model._dan_punish_stuck = max(0.0, min(1.0, float(
+                        _coach.get("dan_punish_stuck", 0.30))))
+                    model._dan_punish_loop = max(0.0, min(1.0, float(
+                        _coach.get("dan_punish_loop", 0.35))))
                     _as_path.write_text(json.dumps(_as_raw, indent=2, ensure_ascii=False), "utf-8")
                 except Exception:
                     pass

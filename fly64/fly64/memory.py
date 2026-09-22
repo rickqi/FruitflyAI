@@ -2315,10 +2315,12 @@ class MemoryController:
         vecs: list[tuple[float, float, float]] = []
         to_f = self.failures.nearest_failure_vector(x, z, radius_cells=3)
         if to_f is not None:
-            vecs.append((-to_f[0], -to_f[1], 1.2))   # away from known failure
+            vecs.append((-to_f[0], -to_f[1],
+                         getattr(self, 'navigation_danger_weight', 1.2)))
         gap = self.spatial.coverage_gap_vector(x, z)
         if gap is not None:
-            vecs.append((gap[0], gap[1], 0.7))       # toward unvisited space
+            vecs.append((gap[0], gap[1],
+                         getattr(self, 'navigation_frontier_weight', 0.7)))
         return vecs
 
     @property

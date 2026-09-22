@@ -1373,8 +1373,9 @@ class FlyModel:
             reward = max(reward, self.DAN_REWARD_PROGRESS)
         # Negative: stuck
         if getattr(self, "stuck_duration", 0.0) > 5.0:
-            punishment = max(punishment, min(self.DAN_PUNISH_STUCK,
-                                             self.stuck_duration / 50.0))
+            punishment = max(punishment, min(
+                getattr(self, '_dan_punish_stuck', self.DAN_PUNISH_STUCK),
+                self.stuck_duration / 50.0))
         # Negative: fallen
         if getattr(self, "fallen", False):
             _fallen_punish = self.DAN_PUNISH_FALLEN
@@ -1407,7 +1408,8 @@ class FlyModel:
         # (mirrored here each tick); the LEARNING is purely neural.
         if getattr(self, "anomaly_state_name", "idle") in (
                 "micro_loop", "stuck_ramp", "wall_stuck", "oscillating"):
-            punishment = max(punishment, self.DAN_PUNISH_LOOP_STATES)
+            punishment = max(punishment, getattr(
+                self, '_dan_punish_loop', self.DAN_PUNISH_LOOP_STATES))
         # EVO R15 · Negative: cliff-edge standoff (>20s parked at the edge).
         # Teaches the mushroom body "this scene + forward → bad", biasing
         # subsequent MBON output toward lateral exploration.
@@ -1462,7 +1464,8 @@ class FlyModel:
         # (stuck_duration-based escape success/failure signal) so that the
         # mushroom body learns from both scene-driven and escape-driven signals.
         _behavioral_dop = self._compute_dopamine()
-        _reward_contrib = max(-0.3, min(0.5, self.reward_signal)) * 0.4
+        _reward_contrib = max(-0.3, min(0.5, self.reward_signal)) * getattr(
+            self, '_coach_reward_gain', 0.4)
         # EVO R13: external setback pulses (dialogue blocked, locked door …)
         # join the dopamine sum — one-shot, consumed after this tick.
         _pending = getattr(self, "_pending_dopamine", 0.0)

@@ -153,6 +153,41 @@
       "max": 0.15,
       "description": "Cooldown reduction per second stuck (adaptive cooldown formula). Higher = reflexes fire faster as stuck persists.",
       "wired": true
+    },
+    "navigation.danger_weight": {
+      "default": 1.2,
+      "min": 0.0,
+      "max": 3.0,
+      "description": "CX goal vector: weight of away-from-failure (danger avoidance) in navigation vector sum. 0=ignore known hazards, 3=strong hazard repulsion.",
+      "wired": true
+    },
+    "navigation.frontier_weight": {
+      "default": 0.7,
+      "min": 0.0,
+      "max": 3.0,
+      "description": "CX goal vector: weight of coverage-gap centroid (toward unvisited space). 0=disable frontier seeking, 3=strong pull to unexplored regions.",
+      "wired": true
+    },
+    "coach.reward_gain": {
+      "default": 0.4,
+      "min": 0.0,
+      "max": 1.5,
+      "description": "Coach training reward: scale of reward_signal contribution into dopamine. Higher = MB learns faster from success.",
+      "wired": true
+    },
+    "coach.dan_punish_stuck": {
+      "default": 0.3,
+      "min": 0.0,
+      "max": 1.0,
+      "description": "Coach penalty: DAN punishment ceiling for prolonged stuck. Higher = stronger aversive learning when stuck.",
+      "wired": true
+    },
+    "coach.dan_punish_loop": {
+      "default": 0.35,
+      "min": 0.0,
+      "max": 1.0,
+      "description": "Coach penalty: DAN punishment for circling-family anomaly states (oscillating/micro_loop/wall_stuck). Higher = MB suppresses loop-producing scene-turn associations faster.",
+      "wired": true
     }
   },
   "wired_note": "wired=true means a component in fly64/ or plugin/ actually reads this dotted path from active_strategy.json, so a value written here can change behaviour.  wired=false are documented-but-unimplemented knobs: they were verified to have ZERO occurrences anywhere in the source, so mutating or tuning them cannot affect the fly.  BrainMutator searches only wired params (otherwise ~2/3 of its search dimensions are pure noise and a trial's fitness delta cannot be attributed), and the operator panel shows the rest as inert.  Re-check with scripts/audit_contract_pairs.py before flipping a flag.",
