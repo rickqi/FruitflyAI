@@ -37,6 +37,22 @@ else
     echo DISPLAY_MODE=wslg
     export DISPLAY=:0
     export SDL_VIDEODRIVER=x11
+    export SDL_VIDEO_WINDOW_POS=300,200
+    # 预置窗口位置到 sm64config（SDL 覆盖配置前的 fallback）
+    mkdir -p /root/.local/share/sm64ex
+    cat > /root/.local/share/sm64ex/sm64config.txt << 'SM64CFG'
+fullscreen false
+window_x 300
+window_y 200
+window_w 640
+window_h 771
+vsync true
+texture_filtering 1
+master_volume 127
+music_volume 127
+sfx_volume 127
+env_volume 127
+SM64CFG
     setsid nohup ./build/us_pc/sm64.us.f3dex2e --skip-intro &
 fi
 
