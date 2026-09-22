@@ -2385,6 +2385,9 @@ async def run(args) -> None:
                     "primitive_disp": getattr(memory_ctrl, "disp_60s", None),
                     "cpg_status": cpg.status(),
                     "cliff_conf": round(memory_ctrl.cliff_confidence, 3),
+                    "forward_rate": round(float(getattr(control, "forward_rate", 0.0)), 4),
+                    "turn_rate": round(float(getattr(control, "turn_rate", 0.0)), 4),
+                    "jump_rate": round(float(getattr(control, "jump_rate", 0.0)), 4),
                     "gate_forward": getattr(control, "forward_rate", 0.0) > float(
                         _expl.get("gate_forward_threshold", 0.4)),
                     "gate_jump": getattr(control, "jump_rate", 0.0) > float(

@@ -1594,6 +1594,9 @@ class ReflexController:
                     self._reflex_phase = "burst"
                     self._phase_timer = 0.0
             elif self._reflex_phase == "burst":
+                # R31-fix6: displacement gate — if oscillating burst produced
+                # meaningful displacement (>30u since reflex start), let it run;
+                # otherwise release early so the brain can try something else.
                 if timer >= j(self.oscillating_burst_duration):
                     self._active_reflex = ""
                     self._phase_timer = 0.0
