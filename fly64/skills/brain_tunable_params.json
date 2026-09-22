@@ -258,6 +258,27 @@
       "max": 1.0,
       "description": "勇气突围转向电流：forced-bold 突围时转向池的电流幅度（方向由 bold_turn_bias 符号决定）。推荐 0.25~0.45。",
       "wired": true
+    },
+    "memory.recency_decay": {
+      "default": 0.9995,
+      "min": 0.999,
+      "max": 1.0,
+      "description": "新颖度遗忘率：空间记忆每tick的recency衰减系数。用途：越低忘得越快，重访旧格子更容易被当作新地方（帮助逃出陈腐区）；越接近1记忆越持久。推荐 0.999~0.9998；长期振荡场景建议 0.9992。",
+      "wired": true
+    },
+    "memory.failure_radius_cells": {
+      "default": 3.0,
+      "min": 1.5,
+      "max": 6.0,
+      "description": "失败记忆感知半径：CX导航向量检测已知失败格的格子半径（1格=200u）。用途：越大越早绕开坠落/卡死高发区，但可能过度回避。推荐 2.5~4.0。",
+      "wired": true
+    },
+    "memory.revisit_punish_threshold": {
+      "default": 0.5,
+      "min": 0.2,
+      "max": 0.8,
+      "description": "重访惩罚触发门限：revisit_penalty 超过此值才注入多巴胺惩罚。用途：越低越轻微的重访就会触发蘑菇体学习。推荐 0.4~0.6。",
+      "wired": true
     }
   },
   "wired_note": "wired=true means a component in fly64/ or plugin/ actually reads this dotted path from active_strategy.json, so a value written here can change behaviour.  wired=false are documented-but-unimplemented knobs: they were verified to have ZERO occurrences anywhere in the source, so mutating or tuning them cannot affect the fly.  BrainMutator searches only wired params (otherwise ~2/3 of its search dimensions are pure noise and a trial's fitness delta cannot be attributed), and the operator panel shows the rest as inert.  Re-check with scripts/audit_contract_pairs.py before flipping a flag.",

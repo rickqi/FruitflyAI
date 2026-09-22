@@ -1401,7 +1401,7 @@ class FlyModel:
             punishment = max(punishment, self.DAN_PUNISH_LOOMING)
         # Negative: revisit
         revisit = getattr(self, "_revisit_penalty", 0.0)
-        if revisit > 0.5:
+        if revisit > getattr(self, '_revisit_punish_threshold', 0.5):
             punishment = max(punishment, getattr(
                 self, '_dopamine_revisit_cost',
                 self.DAN_PUNISH_REVISIT))

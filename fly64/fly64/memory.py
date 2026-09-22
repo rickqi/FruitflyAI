@@ -2316,7 +2316,8 @@ class MemoryController:
         (exploration).  Novelty direction is added by the caller.
         """
         vecs: list[tuple[float, float, float]] = []
-        to_f = self.failures.nearest_failure_vector(x, z, radius_cells=3)
+        to_f = self.failures.nearest_failure_vector(
+            x, z, radius_cells=getattr(self, '_failure_radius_cells', 3))
         if to_f is not None:
             vecs.append((-to_f[0], -to_f[1],
                          getattr(self, 'navigation_danger_weight', 1.2)))

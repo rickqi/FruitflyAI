@@ -1312,18 +1312,21 @@ async def run(args) -> None:
                     memory_ctrl.reflex.cooldown_duration = max(1.0, min(15.0, float(
                         _expl.get("stuck_ramp_cooldown", 5.0))))
                     # Wire breakout_forward_bias into model (max escape forward gain)
+                    # NOTE: these five live in escape/reflex sections — read from
+                    # _esc, NOT _expl (registry pids are escape.*/reflex.*).
                     model._max_escape_forward = max(0.15, min(0.60, float(
-                        _expl.get("breakout_forward_bias", 0.50))))
+                        _esc.get("breakout_forward_bias", 0.50))))
                     # Wire escape.commit params into model
                     model._forward_accum_step = max(0.001, min(0.02, float(
-                        _expl.get("forward_accum_step", 0.005))))
+                        _esc.get("forward_accum_step", 0.005))))
                     model._commit_reinforce = max(0.05, min(0.3, float(
-                        _expl.get("commit_reinforce", 0.15))))
+                        _esc.get("commit_reinforce", 0.15))))
                     model._commit_suppress = max(0.02, min(0.25, float(
-                        _expl.get("commit_suppress", 0.10))))
+                        _esc.get("commit_suppress", 0.10))))
                     # Wire reflex adaptive_cooldown_scale into memory_ctrl
+                    _reflex_sec = _as_raw.get("reflex", {}) or {}
                     memory_ctrl._adaptive_cooldown_scale = max(0.01, min(0.15, float(
-                        _expl.get("adaptive_cooldown_scale", 1.0 / 120.0))))
+                        _reflex_sec.get("adaptive_cooldown_scale", 1.0 / 120.0))))
                     # ── Navigation circuit weights (CX goal vectors) ──
                     _nav = _as_raw.get("navigation", {}) or {}
                     memory_ctrl.navigation_danger_weight = max(0.0, min(3.0, float(
@@ -1360,6 +1363,14 @@ async def run(args) -> None:
                         _esc.get("escape_jump_drive", 0.45))))
                     model._bold_turn_drive = max(0.1, min(1.0, float(
                         _esc.get("bold_turn_drive", 0.35))))
+                    # ── Memory circuit (spatial map / failure memory) ──
+                    _mem = _as_raw.get("memory", {}) or {}
+                    memory_ctrl.spatial.recency_decay = max(0.999, min(1.0, float(
+                        _mem.get("recency_decay", 0.9995))))
+                    memory_ctrl._failure_radius_cells = max(1.5, min(6.0, float(
+                        _mem.get("failure_radius_cells", 3.0))))
+                    model._revisit_punish_threshold = max(0.2, min(0.8, float(
+                        _mem.get("revisit_punish_threshold", 0.5))))
                     # P2: log external drift that the self-heal just corrected —
                     # this is what feeds the evo-params history chart.
                     try:
