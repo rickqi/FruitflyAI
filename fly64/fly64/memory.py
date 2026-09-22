@@ -1535,7 +1535,8 @@ class ReflexController:
         self._active_reflex = reflex_type
         self._phase_timer = 0.0
         self._breakout_scale = 1.0 + max(0.0, min(1.0, breakout_hint))
-        adaptive = max(0.25, 1.0 - stuck_duration / 120.0)
+        adaptive = max(0.25, 1.0 - stuck_duration * getattr(
+            self, '_adaptive_cooldown_scale', 1.0 / 120.0))
         self._cooldowns[reflex_type] = (self.cooldown_duration
                                         * self._aggressive_cooldown_factor
                                         * adaptive)

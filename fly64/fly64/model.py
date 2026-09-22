@@ -1653,12 +1653,14 @@ class FlyModel:
             else:
                 self._escape_commit_timer -= 1
                 # Reinforce committed direction, suppress opposite
+                _reinforce = getattr(self, '_commit_reinforce', 0.15)
+                _suppress = getattr(self, '_commit_suppress', 0.10)
                 if self._escape_commit_dir > 0:
-                    self.v[self.turn_right] += 0.15
-                    self.v[self.turn_left] -= 0.10
+                    self.v[self.turn_right] += _reinforce
+                    self.v[self.turn_left] -= _suppress
                 else:
-                    self.v[self.turn_left] += 0.15
-                    self.v[self.turn_right] -= 0.10
+                    self.v[self.turn_left] += _reinforce
+                    self.v[self.turn_right] -= _suppress
             # Adaptive forward gain: scale up when displacement is near-zero
             # to help break out of weave/circle patterns.
             _dx = getattr(self, "_last_disp_x", 0.0)
@@ -1667,7 +1669,8 @@ class FlyModel:
             if _disp < 0.5:
                 self._escape_forward_accum = min(
                     getattr(self, '_max_escape_forward', 0.50),
-                    self._escape_forward_accum + 0.005)
+                    self._escape_forward_accum + getattr(
+                        self, '_forward_accum_step', 0.005))
             else:
                 self._escape_forward_accum = max(0.15, self._escape_forward_accum - 0.01)
             self.v[self.forward] += self._escape_forward_accum

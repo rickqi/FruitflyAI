@@ -103,21 +103,21 @@
       "min": 0.001,
       "max": 0.02,
       "description": "Per-frame increment of adaptive forward gain when displacement is near-zero.",
-      "wired": false
+      "wired": true
     },
     "escape.commit_reinforce": {
       "default": 0.15,
       "min": 0.05,
       "max": 0.3,
       "description": "Current injected into the committed turn direction during escape. Higher = stronger directional commitment.",
-      "wired": false
+      "wired": true
     },
     "escape.commit_suppress": {
       "default": 0.1,
       "min": 0.02,
       "max": 0.25,
       "description": "Current injected to suppress the opposite turn direction during escape commitment.",
-      "wired": false
+      "wired": true
     },
     "escape.fallen_forward": {
       "default": 0.2,
@@ -152,7 +152,7 @@
       "min": 0.01,
       "max": 0.15,
       "description": "Cooldown reduction per second stuck (adaptive cooldown formula). Higher = reflexes fire faster as stuck persists.",
-      "wired": false
+      "wired": true
     }
   },
   "wired_note": "wired=true means a component in fly64/ or plugin/ actually reads this dotted path from active_strategy.json, so a value written here can change behaviour.  wired=false are documented-but-unimplemented knobs: they were verified to have ZERO occurrences anywhere in the source, so mutating or tuning them cannot affect the fly.  BrainMutator searches only wired params (otherwise ~2/3 of its search dimensions are pure noise and a trial's fitness delta cannot be attributed), and the operator panel shows the rest as inert.  Re-check with scripts/audit_contract_pairs.py before flipping a flag.",

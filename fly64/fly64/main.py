@@ -1291,6 +1291,16 @@ async def run(args) -> None:
                     # Wire breakout_forward_bias into model (max escape forward gain)
                     model._max_escape_forward = max(0.15, min(0.60, float(
                         _expl.get("breakout_forward_bias", 0.50))))
+                    # Wire escape.commit params into model
+                    model._forward_accum_step = max(0.001, min(0.02, float(
+                        _expl.get("forward_accum_step", 0.005))))
+                    model._commit_reinforce = max(0.05, min(0.3, float(
+                        _expl.get("commit_reinforce", 0.15))))
+                    model._commit_suppress = max(0.02, min(0.25, float(
+                        _expl.get("commit_suppress", 0.10))))
+                    # Wire reflex adaptive_cooldown_scale into memory_ctrl
+                    memory_ctrl._adaptive_cooldown_scale = max(0.01, min(0.15, float(
+                        _expl.get("adaptive_cooldown_scale", 1.0 / 120.0))))
                     _as_path.write_text(json.dumps(_as_raw, indent=2, ensure_ascii=False), "utf-8")
                 except Exception:
                     pass
