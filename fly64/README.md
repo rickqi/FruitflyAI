@@ -264,7 +264,8 @@ cat runtime/phase2_gate.json      # 连续稳定 ≥12h 后由 scripts/phase2_ga
 |------|------|------|
 | **布局预览** | `/monitor-preview.html` | 模拟数据驱动的实时面板演示：单列/两列手动切换、区块标注（`--row-*` 变量与数值）、causal-off 模拟复选框；500ms 动画刷新，可暂停 |
 | **布局线框图** | `/layout-wireframe.html` | 全部 8 个组件区块的线框图：双布局模式 + 四档响应式断点条（<650 / 650–1100 / 1100–1400 / ≥1400）+ grid-template-areas 原文 |
-| **轨迹回放** | `/trajectory.html` | 马里奥运动轨迹回放 |
+| **轨迹回放** | `/trajectory.html` | 马里奥运动轨迹 3D 回放：平滑主路径（Line2 2.5px）+ 原始细节层开关 + 时间渐隐 + 海拔着色记忆热毯（蓝→红=低→高，亮度=新鲜度）+ 高频会话快照（重启最多丢 ~2s）；网格与轨迹默认均为**本次脑模型启动后**数据，历史轨迹经下拉单独加载 |
+| **进化参数面板** | `/evo-params.html` | 39 参数六分区滑块实时调参（热重载 ~12s）+ 进化试验历史 + 参数漂移监测 + 中文说明（详见 `skills/brain_tunable_params.json`） |
 | **空间记忆热力图**（组件） | `web/memory-heatmap.js` | 独立热力图组件：1s 自刷新，消费 `/memory.json` + `/flow.json`，可嵌入其他页面 |
 
 **页面模块化**：主面板逻辑集中在 `web/dashboard.js`（60KB，含 `explain()` 因果派生与四泳道时间轴），样式单一来源 `web/dashboard.css`，热力图可独立复用。
@@ -290,7 +291,11 @@ cat runtime/phase2_gate.json      # 连续稳定 ≥12h 后由 scripts/phase2_ga
 | `/history.json` | 信号历史（stuck/coverage/光流时序） | 60s 趋势图 |
 | `/evolution.json` | EVO 轮次与 findings | 仪表板 EVO 胶囊 |
 | `/help.json` | 求助快照（SEEK-HELP 分支） | Coach 面板 |
-| `/active_strategy.json` | 教官写入的策略（脑模型热加载） | Coach 策略消费 |
+| `/active_strategy.json` | 教官/EVO/面板共写的策略（脑模型热加载，含 clamp+自愈写回） | Coach 策略消费 |
+| `POST /active_strategy-update` | 点分路径参数写入（`{"exploration.turn_bias": 0.2}`），自动落位嵌套 section，响应含 applied/rejected；写入同时记入参数漂移历史 | evo-params 面板、EVO Phase 6、人工调参 |
+| `/brain_tunable_params.json` | **39 参数注册表**（六分区：范围/默认/中文说明/wired 状态）——Coach 与 EVO 的单一参数事实源 | evo-params 面板、BrainMutator |
+| `/evolution-log.json` | 最近 50 条 Phase 6 进化试验（delta/passed/params） | evo-params 散点图 |
+| `/param-history.json` | 最近 300 条参数漂移记录（manual/self-heal，含 from→to） | evo-params 历史曲线 |
 | `/coach_advice.json` | 教官建议全文（Coach 面板折叠展示） | 仪表板 Coach 面板 |
 | `/metadata.json` · `/trajectory.json` · `/trajectory-list.json` | 元数据 / 实时轨迹 / 轨迹清单 | 轨迹回放页 |
 | `ws://127.0.0.1:8766/` | F643 二进制 packet（`causal_schema=1`；tick 行含 `decision_source`/`cliff_conf`/`stuck_conf`/`gate_forward`/`gate_jump`，帧行含 `sector_active`/`sector_contrast`） | 仪表板实时渲染 |
@@ -318,11 +323,12 @@ cat runtime/phase2_gate.json      # 连续稳定 ≥12h 后由 scripts/phase2_ga
        ▲                                        ▲
        │ 只读遥测 (JSON)                         │ 状态/建议
 ┌──────┴───────────────────┐          ┌─────────┴──────────────────────┐
-│ EvolutionSkill v3.0.0    │          │ MHR 教官层插件 (10s 周期)      │
+│ EvolutionSkill v3.5.0    │          │ MHR 教官层插件 (10s 周期)      │
 │ Monitor→Diagnose→Fix→    │          │ runner → check_help_needed →   │
-│ Verify→Document          │          │ GLM-5.3-flash 多模态咨询 →     │
-│ 13 patterns · fix_catalog│          │ active_strategy.json (热加载)  │
-│ 常驻循环 (auto-fix)      │          │ + coach_advice.json (展示)     │
+│ Verify→Evolve→Document   │          │ GLM-5.3-flash 多模态咨询 →     │
+│ 16+ patterns · fix_catalog│         │ active_strategy.json (热加载)  │
+│ Phase 6 BrainMutator:    │          │ + coach_advice.json (展示)     │
+│ 39 参数注册表·k≤5 子集搜索│          │ 与 EVO 共写同一参数宇宙        │
 └──────────────────────────┘          └────────────────────────────────┘
        ▲                                        ▲
        └──────── scripts/consolidate.sh（制度化重启，含自治服务）────────┘
@@ -334,16 +340,19 @@ cat runtime/phase2_gate.json      # 连续稳定 ≥12h 后由 scripts/phase2_ga
 
 | 模块 | 行数 | 职责 |
 |------|-----:|------|
-| `main.py` | 1365 | 主循环：视觉帧 → 脑模型 → 控制闭环；控制级联与归因、遥测发布、HTTP/WS 服务、`active_strategy.json` 热加载（每 600 tick） |
-| `model.py` | 1538 | LIF 连接组模型（166,700 神经元 / 25.6M 突触）、视觉编码、运动解码、CX 接入、增益调制接入、TurnAdaptation |
-| `memory.py` | 1610 | 空间记忆网格、StuckDetector、四类反射回路、CliffDetector、FailureMemory、SceneDatabase、健康评分 |
+| `main.py` | ~2700 | 主循环：视觉帧 → 脑模型 → 控制闭环；控制级联与归因、遥测发布、HTTP/WS 服务、`active_strategy.json` 热加载（每 600 tick，含 39 参数镜像/clamp/自愈写回）+ **脱困直行爆发**（escape+oscillating 时 frontier 导向 200t 前冲） |
+| `model.py` | ~2150 | LIF 连接组模型（166,700 神经元 / 25.6M 突触）、视觉编码、运动解码、CX 接入、增益调制接入、TurnAdaptation、DAN 奖惩（coach 可调增益/惩罚） |
+| `memory.py` | ~2380 | 空间记忆网格（3D 无界哈希格）、StuckDetector、四类反射回路、CliffDetector、FailureMemory、SceneDatabase、健康评分（stall_ratio v2）、`frontier_direction`/`navigation_vectors`（权重 coach 可调） |
+| `instinct_bindings.py` | ~200 | P4.4 场景→策略本能固化：显著量化签名 + 晋级/降级证据规则（首个本能晋级已实测，EVO-070） |
+| `motor_primitives.py` | ~400 | VNC 式 CPG 运动原语层（级联优先级 4.5）：长跳/后空翻/砸地/踢墙跳等 12+ 原语 |
+| `scene_context.py` | ~300 | 五层结构化场景上下文协议（what_i_see 聚合器，17 条标签规则） |
 | `retina.py` | 1269 | 球面复眼采样（1,536 细胞 × 7 锥形采样）+ 多通道视网膜（on/off/sustained/四向 edge）+ T4/T5 式 HRC、LC4 looming |
 | `scene_recognition.py` | 772 | 场景识别：用 P05/P50/P95 分位特征分布匹配 SM64 关卡 profile，输出关卡名/置信度/标签，支持在线校准与未知场景记账 |
-| `mushroom_body.py` | 406 | 多巴胺蘑菇体学习（2000 KC · 5 MBON · top-5% 稀疏编码 · KC→MBON 可塑）+ **R17** 饱和稳态突触缩放 |
+| `mushroom_body.py` | 406 | 多巴胺蘑菇体学习（2000 KC · 9 MBON · top-5% 稀疏编码 · KC→MBON 可塑）+ R17 饱和稳态突触缩放；学习率/多巴胺门限 coach 可调 |
 | `gain_modulation.py` | 275 | 多巴胺门控通路增益（`visual`/`forward`/`turn`/`jump`/`recurrent`；`GAIN_MIN=0.5`/`GAIN_MAX=2.5`，三因子规则 Δgain=η·R·E·(1−gain)） |
-| `central_complex.py` | 217 | 中央复合体：EB 环形吸引子朝向罗盘 + FB 目标方向存储与比较 + PB 双侧朝向表征 → 转向偏置注入转向池 |
+| `central_complex.py` | ~620 | 中央复合体：EB 环形吸引子朝向罗盘 + FB 目标方向存储与比较 + PB 双侧朝向表征 → 转向偏置注入转向池 + CX 断环跳转（stuck 门限可调） |
 | `data.py` | 203 | MaleCNS 脑数据下载与预处理（`python -m fly64.data --prepare`） |
-| `bridge.py` | 112 | 共享内存桥接（mmap + seqlock，跨进程帧/控制交换） |
+| `bridge.py` | 112 | 共享内存桥接（mmap + seqlock，跨进程帧/控制交换 + Z 触发/B 键扩展区） |
 | `telemetry.py` | 105 | 只读观测仪：F643 packet 发布（池率/流信号/扇区叠加/因果归因，`causal_schema=1`） |
 | `replay.py` | 35 | 无需 SM64 的逐 tick 神经回放 |
 
@@ -351,7 +360,7 @@ cat runtime/phase2_gate.json      # 连续稳定 ≥12h 后由 scripts/phase2_ga
 
 | 组件 | 说明 |
 |------|------|
-| `skills/evolution_skill.py` | **EVO v3.0.0**：Monitor→Diagnose→Fix→Verify→Document 五阶段闭环 + 常驻循环 + pattern 匹配 + fix 效果量化 + **`EvolutionHistory` 进化记录器**（脑模型版本变化自动补录 + fix/verification 记录 + `--history-check` 强制校验） |
+| `skills/evolution_skill.py` | **EVO v3.5.0**：Monitor→Diagnose→Fix→Verify→**Evolve**→Document 六阶段闭环 + 常驻循环 + pattern 匹配 + fix 效果量化 + **Phase 6 BrainMutator**（39 参数注册表贝叶斯优化，k≤5 子集变异，waste_ratio 路径效率惩罚）+ **`EvolutionHistory` 进化记录器**（`--history-check` 强制校验） |
 | `skills/default_patterns.json` | pattern 目录（15 条，JSON Schema draft-07 校验），含 `telemetry_gap` 遥测自诊断与运动原语 `primitive_timeout`/`primitive_zero_disp` |
 | `skills/fix_catalog.json` · `skills/evolution_log.jsonl` | 修复条目（基线/结果/effective 判定）与逐轮执行日志 |
 | `skills/evolution_history.json` | **进化权威记录**：R1→R21 全部轮次的结构化档案（版本/时间/触发/变更/测试/来源，32 条），agent.md 规则 15 强制契约的数据载体 |
@@ -360,7 +369,8 @@ cat runtime/phase2_gate.json      # 连续稳定 ≥12h 后由 scripts/phase2_ga
 | `skills/skills.md` | EVO 操作手册（七步制度、pattern 细则、门禁与部署约定） |
 | `web/dashboard.js` · `dashboard.css` · `index.html` | 主面板前端：渲染 + `explain()` 因果链派生 + 四泳道时间轴 + `?noviz=1` 降级开关 |
 | `web/memory-heatmap.js` | 空间记忆热力图组件（1s 自刷新，消费 `/memory.json` + `/flow.json`） |
-| `web/trajectory.html` | 马里奥运动轨迹回放页面 |
+| `web/trajectory.html` | 马里奥运动轨迹回放页面（vendor 自托管 three.js r160；Line2 2.5px 主路径 + 原始细节层 + 海拔着色记忆热毯 + 会话 fresh 网格 + follow-flag 回放） |
+| `web/evo-params.html` | **🧬 进化参数面板**：39 参数六分区滑块（exploration/escape/reflex/navigation/coach/memory，全中文用途+推荐范围）+ 进化试验散点（pass/fail 过滤）+ turn_bias 历史曲线（后端持久化）+ 漂移告警 |
 | `web/monitor-preview.html` · `layout-wireframe.html` | 布局预览页（模拟数据）与线框图页 |
 | `plugin/` | LLM 教官层插件包（详见下一节） |
 | `scripts/` | 运维脚本（consolidate 重启、门禁、soak 监控、因果校验等） |
@@ -410,7 +420,7 @@ cat runtime/phase2_gate.json      # 连续稳定 ≥12h 后由 scripts/phase2_ga
 
 ```bash
 cd fly64
-python3 -m pytest -q                      # 全量套件（当前 452 项，pytest.ini: pythonpath=. testpaths=tests）
+python3 -m pytest -q                      # 全量套件（当前 600+ 项，pytest.ini: pythonpath=. testpaths=tests）
 python3 -m pytest tests/test_invariants.py -q          # 不变量（连接组/LIF 数值契约）
 python3 -m pytest tests/test_evolution_capability.py -q # EVO 能力回归
 python3 -m pytest tests/test_service.py tests/test_autonomy_regression.py -q  # 自治服务与看门狗
@@ -434,7 +444,7 @@ fly64/
 ├── plugin/           # MHR 插件：LLM 教官层 + 自治服务 + 看门狗 + 部署文档
 ├── web/              # 仪表板前端（含预览页/线框图/热力图/轨迹页）
 ├── scripts/          # consolidate / 门禁 / soak / 因果校验 / 录制
-├── tests/            # 452 项测试 + 在线抽查脚本
+├── tests/            # 600+ 项测试 + 在线抽查脚本
 ├── docs/             # 20+ 篇设计与评审文档 + screenshots/
 ├── patches/          # sm64ex-fly64 补丁
 ├── config/           # sm64config.txt
@@ -670,7 +680,9 @@ jump = jump_rate > 0.04 AND 距离上次跳跃 >= 800ms
 | τ（time-to-contact） | `< 0.5` 急转 · `< 1.0` 减速 · `< 2.0` 谨慎 | `TAU_SHARP_TURN`/`TAU_DECELERATE`/`TAU_NEAR` |
 | 门控虚线（仪表板） | 0.4 / 2 Hz | 前进池与跳跃池的参考门控线 |
 | 悬崖判定 `ground_angle` | `< 0.3` 判真悬崖（斜坡不触发） | 防"斜坡被当成悬崖"误触发 |
-| 反射自适应冷却 | `max(0.25, 1 − stuck/120) × 基准` | 卡得越久冷却越短（下限 25%） |
+| 反射自适应冷却 | `max(0.25, 1 − stuck×scale) × 基准`（scale 可调，默认 1/120） | 卡得越久冷却越短（下限 25%） |
+| 探索停滞判定 `coverage_rate` | `< 0.05`（三处：L2a 求助 / reflex_ineffective 绕圈 / coverage_stalled） | 原 0.01 门控过严——高速振荡+慢速扩张（333× 浪费）曾永久绕过升级 |
+| 脱困直行爆发 | `escape ∧ oscillating ∧ (stuck>60s ∨ loop>可调阈值0.90)` → frontier 导向 200t 前冲，300t 冷却 | 打破"反射覆写逃逸+CX 零新颖度"三重死锁；方向朝最近未探索格 |
 | 激进模式 | `health < 0.3` → 冷却减半 | 低健康度时更频繁尝试 |
 | 异常态 `micro_loop` | `visited_cells < 5` 且 `loop_score > 0.5` 且 `stuck > 30s` | StuckDetector 判定条件 |
 | 空间网格 | 50×50 单元 · 200 游戏单位/单元 | 覆盖度以 2500 格为分母 |
@@ -784,7 +796,7 @@ Unlocated: 26,062 (15.6%)
 
 由此形成当前可观测的行为瓶颈：**锁门前 stuck→escape 死循环**（stuck 101s+，coverage 0%），逃脱逻辑在语义死角内无法自解。
 
-### 技能自我进化闭环（EVO Round 1–21，Brain v1.0.0 → v2.13.3，Skill v3.0.0）
+### 技能自我进化闭环（EVO Round 1–21 → EVO-071，Brain v1.0.0 → **v2.23.12**，Skill v3.0.0 → **v3.5.0**）
 
 EvolutionSkill 具备**自我更新迭代**能力，七步循环已制度化：
 
@@ -798,11 +810,9 @@ EvolutionSkill 具备**自我更新迭代**能力，七步循环已制度化：
 7. RECORD       agent.md 闭环总结 + 推送；仪表板 /evolution.json 实时展示
 ```
 
-#### v3.0.0 五阶段执行管线（Monitor → Diagnose → Fix → Verify → Document）
+#### v3.0.0 五阶段执行管线（Monitor → Diagnose → Fix → Verify → Document；v3.2.0 起扩展为六阶段，见下）
 
-七步是**轮次级制度**，v3.0.0 起每个轮次内部由一条五阶段管线自动执行（`fly64/skills/evolution_skill.py`）：
-
-| 阶段 | 组件 | 行为 |
+七步是**轮次级制度**，v3.0.0 起每个轮次内部由一条五阶段管线自动执行（`fly64/skills/evolution_skill.py`）：| 阶段 | 组件 | 行为 |
 |------|------|------|
 | ① Monitor | `DataCollector` | 轮询 `/bridge-status.json`、`/memory.json`、`/flow.json`、`/events.json` 等端点，维护 120s 滚动窗口（位置/控制/stuck/覆盖率） |
 | ② Diagnose | `DiagnosisEngine` + `PatternCatalog` | 按 `default_patterns.json` 的 **15 条 pattern** 逐条匹配（JSON Schema draft-07 校验），条件字段缺失时**主动生成 `telemetry_gap` finding**（不再静默失效） |
@@ -819,7 +829,21 @@ python3 fly64/skills/evolution_skill.py --auto-fix --interval 10 --max-iteration
 
 > **修复语义**：`--auto-fix` 负责"记录 + 量化验证"，即把 pattern 的 `fix_template`（精确到文件与代码块）写入 catalog 并测量效果；**实际代码改动仍需按 fix_template 执行**（人工或 agent），brain 侧改动经重启（CONSOLIDATE）后生效——这正是"验证窗口横跨重启会导致 verdict 失效"这一已知口径问题的来源，跨会话的旧 fix 会被标记 `reverted` 以免污染有效率统计。
 
+#### v3.2.0+ Phase 6：Evolve — BrainMutator 参数进化（39 维注册表 · 子集搜索）
+
+六阶段管线（第五阶段 Evolve 于 v3.2.0 加入）：
+
+| 组件 | 行为 |
+|------|------|
+| `BrainMutator.generate_candidate()` | 从 `skills/brain_tunable_params.json` 注册表读取全部 wired 参数（**39 维 / 6 分区**），贝叶斯优化（GP+EI）：前 15 点拉丁超立方探索，之后 GP 期望改进选点；**每次试验只随机变异 k≤5 维子集**（其余参数保持现值——保证 delta 可归因、GP 在低维子空间内可解） |
+| `start_trial()` / `evaluate()` | 120s 试验窗：写候选参数 → 测 baseline/current 适应度 → delta≥+3% 提交，否则回滚；试验记录（含参数值）进 `evolution_log.jsonl` |
+| `fitness_components()` | 八项加权：coverage(0.30) + unstuck(0.20+0.20) + novelty(0.10) + health(0.15) + speed(0.10) + first_contact(0.10) − revisit(0.05) − **waste_penalty(≤0.15，路径长度/位移比>10× 开始扣分——专治振荡绕圈的"高速度零进展"假阳性)** |
+| 触发条件 | stuck>60s ∧ loop>0.6，2% 随机概率/周期；自适应 fitness 已修复 EVO-071 的"40% 权重读不存在字段"根因 |
+
+**参数注册表（单一事实源）**：`skills/brain_tunable_params.json` v1.1.0+——39 个参数 / 6 分区（exploration 11 · escape 10 · reflex 2 · navigation 4 · coach 9 · memory 3），全部 `wired:true`（每个都有 AST 审计过的消费点），全部含中文用途+推荐范围。**Coach（教官层）、EVO（Phase 6）、面板（`/evo-params.html`）三方共写同一参数宇宙**，脑模型每 600 tick 热加载并 clamp+自愈写回（防越界值滞留）。
+
 **进化记录强制契约（`skills/evolution_history.json`，agent.md 规则 15）**：每次脑模型/Skill 进化必须产生一条完整结构化记录——版本、时间、触发原因、变更清单、测试、来源，全部留档：
+
 
 | 记录方式 | 内容 | 义务 |
 |---------|------|------|
@@ -1068,7 +1092,7 @@ Round 4/5 正是**能力边界判定的实战示范**：钥匙门的"行为层"�
 | 六级决策级联 | ✅ | 对话→悬崖反射→异常反射→逃脱→跳跃→神经转向，附 `decision_source` 归因审计（碰撞/突破分支已随 P1 神经接管退役，见上表注） |
 | 因果链路可视化 | ✅ | 决策解释卡/扇区叠加/时间轴/回放（本变更） |
 | 场景识别与命名 | ✅ | 分位特征 profile 匹配 + 在线校准 + `scene_label`（如"致命熔岩地 #f3f9"）/`scene_id`/`revisit_count` |
-| 技能自我进化闭环 | ✅ | 七步制度化循环（EXECUTE→DETECT→LEARN→PIN→VERSION→CONSOLIDATE→RECORD）+ v3.0.0 五阶段执行管线（Monitor→Diagnose→Fix→Verify→Document，13 条 pattern / 60s 效果验证 / `telemetry_gap` 自诊断 / 常驻循环），已完成 21 轮（Brain v1.0.0→**v2.13.3**，Skill v3.0.0），每轮能力经回归测试固化、重启生效、仪表板 `/evolution.json` 实时展示；**进化记录强制契约**：全量逐轮记录见 `skills/evolution_history.json`（agent.md 规则 15） |
+| 技能自我进化闭环 | ✅ | 七步制度化循环（EXECUTE→DETECT→LEARN→PIN→VERSION→CONSOLIDATE→RECORD）+ 六阶段执行管线（Monitor→Diagnose→Fix→Verify→**Evolve**→Document，16+ 条 pattern / 60s 效果验证 / `telemetry_gap` 自诊断 / 常驻循环 / **Phase 6 BrainMutator 39 参数进化**），已完成 71+ 记录轮（Brain v1.0.0→**v2.23.12**，Skill v3.0.0→**v3.5.0**），每轮能力经回归测试固化、重启生效、仪表板 `/evolution.json` 实时展示；**进化记录强制契约**：全量逐轮记录见 `skills/evolution_history.json`（agent.md 规则 15） |
 | LLM 教官层（多模态） | ✅ | MHR 插件 10s 周期：求助判定 → GLM-5.3-flash 看帧咨询 → 策略热加载 + 仪表板展示；不可用时降级本地诊断 |
 | 自治常驻服务 | ✅ | `plugin/service.py` 心跳自检 + watchdog 自动重启 + `consolidate.sh` 联动；二期门禁要求连续稳定 ≥12h |
 | 社交寻助能力 | 🔧 制度化 | SEEK-HELP 分支 + 结构化求助单 + 社交三指标自训练（Skill v2.4.0 引入，随教官层插件落地，待实战触发） |
@@ -1166,13 +1190,13 @@ Round 4/5 正是**能力边界判定的实战示范**：钥匙门的"行为层"�
 | 任务 | 层 | 状态 | 落地形态 / 遗留 |
 |:----|:----|:----:|:------|
 | **P4.1** 对话文字理解 | 教官 | ✅ 形态演进 | 未走"对话框裁剪+OCR"，直接由 GLM-5.3-flash 多模态读整帧（t21 显式读屏指令 `what_i_see` 逐条列出可见文字，全链路落盘 `coach_advice.json`）；帧留存可回溯（2.13.3）。遗留：无对话自动触发裁剪的精细通道（依赖 60s stuck 阈值或对话检测触发） |
-| **P4.2** 教官指令通道 | 教官→果蝇 | ✅ 已落地 | R11：`active_strategy.json` 热重载三键已被行为管线消费——`bold_explore_stuck_s`（任意持续异常突围）、`turn_bias`（bold 转向幅度，钳位 0.2–1.0）、`escape.stuck_threshold_s`（时长型逃脱条件）；对话决策走 `press_a/b` 按键通道（2.4.0）。"instructor 优先级层"以调制电流实现而非级联新层 |
+| **P4.2** 教官指令通道 | 教官→果蝇 | ✅ 已落地 | R11 三键起步 → **39 参数注册表**（t6 策略透传根修 EVO-054 + 本轮全接线）：exploration/escape/reflex/navigation/coach/memory 六段全部有消费点，Coach/EVO/面板三方共写，600 tick 热加载 + clamp 自愈；对话决策走 `press_a/b` 按键通道（2.4.0） |
 | **P4.3** 课程与奖励塑形 | 教官 | 🔧 部分 | 单键建议→生效已通（t13 根修四断点 + t20 阈值 60s + t21 读屏）；**分阶段课程编排与 VLM 场景问答决定下一课尚未实现**——当前是"单次求助单次建议"，无跨轮课程状态 |
-| **P4.4** 本能回路巩固 | 果蝇 | 🔧 部分 | 负向巩固已落地：位移惩罚（R11 `report_movement`）、对话挫折多巴胺（R13b `add_setback`，PPL1 样负 DA 教"该场景+前进→坏"）、悬崖对峙惩罚（R15）；**正向路径固化**（教官引导的成功路径经签名固化减少介入）未做 |
+| **P4.4** 本能回路巩固 | 果蝇 | ✅ 已落地 | 负向巩固（位移惩罚 R11、对话挫折 R13b、悬崖对峙 R15）+ **正向固化已实测**：`instinct_bindings.py` 显著量化签名 + 晋级规则（EVO-058 四重死因修复），EVO-070 记录**首个本能晋级**（场景'山坡·天空'，无人工干预端到端验证）；负 DA 挫折多巴胺权重 coach 可调（`dan_punish_*`） |
 | **P4.5** 道具行为原语 | 果蝇 | ❌ 未做 | 拾取/开门动作原语未进入控制级联 |
 | **P4.6** 社交能力自训练 | 技能 | 🔧 制度化 | SEEK-HELP 结构化求助单 + `reflex_ineffective_stuck` 升级判据已实战可用（R12）；求助时机/请求质量/一次响应率/成果转化的**三指标评分闭环尚未运转**（无评分数据积累） |
 
-**Phase 4 小结**：6 项中 ✅2 / 🔧3 / ❌1。教官层"看得见、说得出、果蝇接得住"已闭环；缺的是"教得有章法"（课程状态）与"学得会正向"（路径固化）、道具原语。
+**Phase 4 小结**：6 项中 ✅3 / 🔧2 / ❌1。教官层"看得见、说得出、果蝇接得住"已闭环，"教得有章法"（课程三态判定已通，编排待做）与"学得会正向"（本能晋级已实测）大幅推进；剩道具原语。
 
 ### 评估指标（原计划 → 实测现状）
 
@@ -1189,7 +1213,7 @@ Round 4/5 正是**能力边界判定的实战示范**：钥匙门的"行为层"�
 
 ## 🔧 常见问题
 
-> 以下按"游戏与画面 / 部署与同步 / 版本与进化记录 / EVO 循环与 pattern / 教官层 / 测试"分类，全部来自实战事故与当前代码实况（**Brain v2.17.0**，2026-09-16）。
+> 以下按"游戏与画面 / 部署与同步 / 版本与进化记录 / EVO 循环与 pattern / 教官层 / 测试"分类，全部来自实战事故与当前代码实况（**Brain v2.23.12 / Skill v3.5.0**，2026-09）。
 
 ### 游戏与画面
 
@@ -1353,14 +1377,54 @@ protocol.py 定义了 VisionSource（read_frame/reset/close）和 MotorTarget（
 ### 新增 8：第二验证场景（P3-2）
 - FlyGym 果蝇身体仿真环境 + CPG 步态生成器
 
+## 🔓 探索死锁根治与参数化调控体系（2026-09 · Brain v2.23.12 / Skill v3.5.0）
+
+### 探索三重死锁（已根治）
+
+实机观测（4.9h 会话）：单格被访问 1524 次、路径/位移比 333×、stuck 27 分钟——根因是三个回路失效相互锁死：
+
+| 失效环节 | 根因 | 修复 |
+|---------|------|------|
+| ① CX 新颖度方向恒 0 | 局部格子全部陈腐（novelty→0），四方向无差异 | **frontier 导向爆发**：脱困直行朝最近未探索格（`frontier_direction` 半径 50）+ `recency_decay` 可调（忘得快→旧格重获新颖度） |
+| ② turn_bias 放大振荡 | 教官/EVO 持续推高转向偏置 → 满舵交替 | **clamp 0.25 + 自愈写回**：任何写入者越界，12s 内被钳位并回写文件 |
+| ③ 逃逸被反射覆写 | `anomaly_reflex` 每 tick 覆写逃逸指令 | **脱困直行爆发**：`escape ∧ oscillating ∧ (stuck>60 ∨ loop>阈值)` → 抑制反射 200 tick 直行前冲（frontier 导向），300 tick 冷却；另对 `turn_bias`/`bold_explore_stuck_s` 等 5 处 **coverage_rate 门控 0.01→0.05**（高速振荡+慢扩张不再绕过升级） |
+
+实测效果：30s 净位移 5-100u → **394-756u**，cells 增长率 18→33/8min，loop 0.99→0.94，escape 持续激活。
+
+### 参数化调控体系（39 参数 / 6 分区 / 三方共写）
+
+```
+                skills/brain_tunable_params.json（单一事实源，39 参数全部 wired）
+                     ▲                    ▲                    ▲
+        🧑‍🏫 Coach 教官层      🧬 EVO Phase 6        🎛️ /evo-params.html 面板
+        （语义建议，事件驱动）  （GP+EI，k≤5 子集/试验）  （人工滑块，中文推荐范围）
+                     └────────────┬───────────────┘
+                                  ▼
+              main.py 每 600 tick 热加载 → clamp → 镜像到脑回路 → 自愈写回
+```
+
+- **六分区**：exploration 11 · escape 10 · reflex 2 · navigation 4 · coach 9 · memory 3（含 `recency_decay`/`failure_radius_cells`/`revisit_punish_threshold` 记忆回路）
+- **接线审计制度**：每个参数 `wired:true` 必须有 AST 可查的消费点（`scripts/audit_contract_pairs.py`）；本轮修复 5 个"注册在 escape/reflex 分区但误从 exploration 字典读取"的死参数
+- **漂移溯源**：`artifacts/param_history.jsonl` 记录每次变更（manual/self-heal、from→to），`/param-history.json` 供面板绘制跨重启历史曲线
+
 ## ⏳ 剩余待办任务
+
 
 ### P0 — 紧急
 
+| 任务 | 说明 | 预估 | 状态 |
+|-----|------|------|------|
+| ~~EVO auto-fix 常驻运行验证~~ | ~~启动 --auto-fix --interval 30 并追踪 24h~~ | ~~1 天~~ | ✅ **已完成**：常驻循环 WSL 运行中（`--interval 10`），Phase 6 已实证 39 维搜索 + k≤5 子集变异 + waste_penalty 适应度；待积累首个跨新参数的全自动提交试验记录 |
+| FlyGym 端到端集成运行 | 实际启动 FlyGym 仿真 + 脑模型视觉/控制闭环 | 2-3 天 | ⏳ 待做 |
+
+### 新增待办（2026-09 探索闭环会话）
+
 | 任务 | 说明 | 预估 |
 |-----|------|------|
-| EVO auto-fix 常驻运行验证 | 启动 --auto-fix --interval 30 并追踪 24h 效果 | 1 天 |
-| FlyGym 端到端集成运行 | 实际启动 FlyGym 仿真 + 脑模型视觉/控制闭环 | 2-3 天 |
+| CX 方向信号恢复验证 | 死锁修复后 `cx_novelty_dir` 仍为 0——需 frontier_weight/recency_decay 调参下 15-20 分钟观察窗确认恢复 | 0.5 天 |
+| Coach 写入走注册表校验 | 教官插件建议值经 `brain_tunable_params.json` min/max 前置校验（现依赖脑端 clamp 兜底） | 0.5 天 |
+| Phase 6 适应度分项面板化 | evo-params 散点图下展示每次试验 coverage/unstuck/novelty 分项（数据已在 evolution_log） | 1 天 |
+| 参数历史多参数曲线 | turn_bias 单参数曲线 → 可选参数下拉（数据模型已支持任意 key） | 0.5 天 |
 
 ### P1 — 高优先级
 
