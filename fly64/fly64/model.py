@@ -1366,11 +1366,13 @@ class FlyModel:
         punishment = 0.0
         # Positive: scene novelty
         if self.scene_change_rate > 0.1:
-            reward = max(reward, self.DAN_REWARD_EXPLORATION)
+            reward = max(reward, getattr(
+                self, '_dan_reward_exploration', self.DAN_REWARD_EXPLORATION))
         # Positive: forward progress
         fwd = getattr(self, "filtered_y", 0.0)
         if fwd > 20.0:
-            reward = max(reward, self.DAN_REWARD_PROGRESS)
+            reward = max(reward, getattr(
+                self, '_dan_reward_progress', self.DAN_REWARD_PROGRESS))
         # Negative: stuck
         if getattr(self, "stuck_duration", 0.0) > 5.0:
             punishment = max(punishment, min(
@@ -1378,7 +1380,8 @@ class FlyModel:
                 self.stuck_duration / 50.0))
         # Negative: fallen
         if getattr(self, "fallen", False):
-            _fallen_punish = self.DAN_PUNISH_FALLEN
+            _fallen_punish = getattr(
+                self, '_dan_punish_fallen', self.DAN_PUNISH_FALLEN)
             # New scene exploration: reduce fallen punishment — falling
             # while exploring a novel environment is expected exploratory
             # behaviour, not a signal to suppress forward.
@@ -1391,7 +1394,8 @@ class FlyModel:
             punishment = max(punishment, _fallen_punish)
         # Negative: cliff
         if getattr(self, "cliff_confirmed", False):
-            punishment = max(punishment, self.DAN_PUNISH_CLIFF)
+            punishment = max(punishment, getattr(
+                self, '_dan_punish_cliff', self.DAN_PUNISH_CLIFF))
         # Negative: looming
         if self.tau < 1.0 and np.isfinite(self.tau):
             punishment = max(punishment, self.DAN_PUNISH_LOOMING)
@@ -1628,7 +1632,8 @@ class FlyModel:
         # → mirrored turn-pool current.  The LIF competition — not a Python
         # control write — executes the escape manoeuvre.
         if self.escape_jump_drive:
-            self.v[self.jump_nodes] += self.ESCAPE_JUMP_DRIVE
+            self.v[self.jump_nodes] += getattr(
+                self, '_escape_jump_drive', self.ESCAPE_JUMP_DRIVE)
             # EVO R32: time-share fallen forward with steering.  Constant
             # forward current suppresses turn-pool competition (counterfactual
             # report #1: |x| -95% at 2.5x amplitude — pushing harder straight
@@ -1641,10 +1646,11 @@ class FlyModel:
             if _forward_phase:
                 self.v[self.forward] += self._fallen_forward
         if self.bold_turn_drive:
+            _bold = getattr(self, '_bold_turn_drive', self.BOLD_TURN_DRIVE)
             if self.bold_turn_drive > 0:
-                self.v[self.turn_right] += self.BOLD_TURN_DRIVE * min(1.0, self.bold_turn_drive)
+                self.v[self.turn_right] += _bold * min(1.0, self.bold_turn_drive)
             else:
-                self.v[self.turn_left] += self.BOLD_TURN_DRIVE * min(1.0, -self.bold_turn_drive)
+                self.v[self.turn_left] += _bold * min(1.0, -self.bold_turn_drive)
 
         # P1 escape direction commit: choose a turn direction and hold it
         # for ~1s instead of alternating every tick, producing net displacement.

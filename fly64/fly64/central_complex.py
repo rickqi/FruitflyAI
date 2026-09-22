@@ -294,7 +294,8 @@ class MultiSourceGoalCompetition:
         # ---- Loop-break jump ----
         stuck = float(stuck_duration or 0.0)
         self._ticks_since_jump += 1
-        if (stuck > CX_LOOP_BREAK_STUCK_S and _no_goal
+        if (stuck > getattr(self, '_loop_break_stuck_s', CX_LOOP_BREAK_STUCK_S)
+                and _no_goal
                 and self._ticks_since_jump >= CX_LOOP_BREAK_COOLDOWN_TICKS):
             self._jump_seq += 1
             _h = (self._jump_seq * 2654435761) & 0xFFFFFFFF

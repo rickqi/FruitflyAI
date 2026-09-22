@@ -1315,6 +1315,28 @@ async def run(args) -> None:
                         _coach.get("dan_punish_stuck", 0.30))))
                     model._dan_punish_loop = max(0.0, min(1.0, float(
                         _coach.get("dan_punish_loop", 0.35))))
+                    # ── Coach DAN reward/punish extension + MB learning ──
+                    model._dan_reward_exploration = max(0.0, min(1.0, float(
+                        _coach.get("dan_reward_exploration", 0.20))))
+                    model._dan_reward_progress = max(0.0, min(1.0, float(
+                        _coach.get("dan_reward_progress", 0.30))))
+                    model._dan_punish_fallen = max(0.0, min(1.0, float(
+                        _coach.get("dan_punish_fallen", 0.80))))
+                    model._dan_punish_cliff = max(0.0, min(1.0, float(
+                        _coach.get("dan_punish_cliff", 0.40))))
+                    model.mushroom.learning_rate = max(0.0001, min(0.02, float(
+                        _coach.get("mb_learning_rate", 0.001))))
+                    model.mushroom.dopamine_threshold = max(0.05, min(0.9, float(
+                        _coach.get("mb_dopamine_threshold", 0.3))))
+                    # ── Navigation steering / drives ──
+                    model.cx.steering_gain = max(0.01, min(0.5, float(
+                        _nav.get("steering_gain", 0.12))))
+                    model.cx._loop_break_stuck_s = max(10.0, min(120.0, float(
+                        _nav.get("loop_break_stuck_s", 45.0))))
+                    model._escape_jump_drive = max(0.1, min(1.0, float(
+                        _esc.get("escape_jump_drive", 0.45))))
+                    model._bold_turn_drive = max(0.1, min(1.0, float(
+                        _esc.get("bold_turn_drive", 0.35))))
                     _as_path.write_text(json.dumps(_as_raw, indent=2, ensure_ascii=False), "utf-8")
                 except Exception:
                     pass

@@ -188,6 +188,76 @@
       "max": 1.0,
       "description": "Coach penalty: DAN punishment for circling-family anomaly states (oscillating/micro_loop/wall_stuck). Higher = MB suppresses loop-producing scene-turn associations faster.",
       "wired": true
+    },
+    "coach.dan_reward_exploration": {
+      "default": 0.2,
+      "min": 0.0,
+      "max": 1.0,
+      "description": "DAN reward for scene novelty (scene_change_rate > 0.1). Higher = stronger dopamine when entering fresh terrain.",
+      "wired": true
+    },
+    "coach.dan_reward_progress": {
+      "default": 0.3,
+      "min": 0.0,
+      "max": 1.0,
+      "description": "DAN reward for sustained forward movement (filtered_y > 20). Higher = locomotion progress reinforces active motor pathways faster.",
+      "wired": true
+    },
+    "coach.dan_punish_fallen": {
+      "default": 0.8,
+      "min": 0.0,
+      "max": 1.0,
+      "description": "DAN punishment for fallen state (strongest aversive). Decays 0.3x in novel scenes and 0.5x after 120s stuck.",
+      "wired": true
+    },
+    "coach.dan_punish_cliff": {
+      "default": 0.4,
+      "min": 0.0,
+      "max": 1.0,
+      "description": "DAN punishment when cliff confirmed ahead.",
+      "wired": true
+    },
+    "coach.mb_learning_rate": {
+      "default": 0.001,
+      "min": 0.0001,
+      "max": 0.02,
+      "description": "Mushroom body three-factor learning rate (eta). The master knob: all reward/penalty learning speed scales with it.",
+      "wired": true
+    },
+    "coach.mb_dopamine_threshold": {
+      "default": 0.3,
+      "min": 0.05,
+      "max": 0.9,
+      "description": "Dopamine magnitude must exceed this to trigger synaptic plasticity. Lower = weaker signals also teach.",
+      "wired": true
+    },
+    "navigation.steering_gain": {
+      "default": 0.12,
+      "min": 0.01,
+      "max": 0.5,
+      "description": "CX compass-to-goal comparison gain: overall steering sensitivity of the ring attractor output.",
+      "wired": true
+    },
+    "navigation.loop_break_stuck_s": {
+      "default": 45.0,
+      "min": 10.0,
+      "max": 120.0,
+      "description": "CX escape-jump: seconds stuck with no goal before the CX fires a random heading-reset jump.",
+      "wired": true
+    },
+    "escape.escape_jump_drive": {
+      "default": 0.45,
+      "min": 0.1,
+      "max": 1.0,
+      "description": "Base jump-pool current burst when fallen (fallen_jump_boost adds on top).",
+      "wired": true
+    },
+    "escape.bold_turn_drive": {
+      "default": 0.35,
+      "min": 0.1,
+      "max": 1.0,
+      "description": "Turn current amplitude during forced-bold breakout (direction from bold_turn_bias sign).",
+      "wired": true
     }
   },
   "wired_note": "wired=true means a component in fly64/ or plugin/ actually reads this dotted path from active_strategy.json, so a value written here can change behaviour.  wired=false are documented-but-unimplemented knobs: they were verified to have ZERO occurrences anywhere in the source, so mutating or tuning them cannot affect the fly.  BrainMutator searches only wired params (otherwise ~2/3 of its search dimensions are pure noise and a trial's fitness delta cannot be attributed), and the operator panel shows the rest as inert.  Re-check with scripts/audit_contract_pairs.py before flipping a flag.",
