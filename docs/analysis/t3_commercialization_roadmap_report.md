@@ -1,5 +1,8 @@
 # Fly64 果蝇脑模型商业化路径详细实施路线图
 
+> **状态**: 🔴 已废弃 (Deprecated)  
+> 此文档为 brain-model-deep-expansion 阶段的历史分析产物（t3），内容已过时。请以当前执行计划 `docs/analysis/session_logs_execution_plan.md` 及最新代码为准。
+>
 > **分析者**: roadmap-planner  
 > **团队**: brain-model-deep-expansion  
 > **依赖输入**: t1(深度技术迁移方案设计) · t5(跨领域应用分析) · t6(最终综合报告) · t2(新领域挖掘)  

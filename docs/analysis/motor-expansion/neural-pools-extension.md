@@ -2,6 +2,10 @@
 
 依据：`model.py:423`（motor_nodes 组织）、`model.py:1595-1813`（解码窗）、`mushroom_body.py`（2000 KC · 5 MBON · top-5% 稀疏）、`gain_modulation.py`
 
+> **状态**: 🟢 已实现 (Implemented)  
+> 此文档中的设计方案已编码实现并部署。实现详情参见对应代码文件与测试。
+>
+
 ## 1. 现状
 
 - 解码池 4 个：forward(60, DNg100) / turn_left(40) / turn_right(40) / jump(20, DNp01/DNp10)，共 160 神经元；`motor_splits` 前缀和切分 history 窗口（model.py:1598）。

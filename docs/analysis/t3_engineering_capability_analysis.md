@@ -1,5 +1,8 @@
 # Fly64 果蝇脑模型工程化能力综合分析报告
 
+> **状态**: 🔴 已废弃 (Deprecated)  
+> 此文档为 brain-model-deep-expansion 阶段的历史分析产物（t3），内容已过时。请以当前执行计划 `docs/analysis/session_logs_execution_plan.md` 及最新代码为准。
+>
 > 基于代码库 (fly64/) 逐模块深度盘点的系统化工程能力分析
 > 
 > Brain Version: 2.13.3 | Skill Version: 3.0.0

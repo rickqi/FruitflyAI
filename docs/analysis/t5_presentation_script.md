@@ -1,5 +1,8 @@
 # Fly64 果蝇脑模型深度扩展 — 20页演示文稿脚本
 
+> **状态**: 🔴 已废弃 (Deprecated)  
+> 此文档为 brain-model-deep-expansion 阶段的历史分析产物（t5），内容已过时。请以当前执行计划 `docs/analysis/session_logs_execution_plan.md` 及最新代码为准。
+>
 > **受众**: 技术决策者(CTO/VP Engineering) 与 管理层(CEO/CIO)  
 > **风格**: 科技感 · 蓝紫色系 · 数据驱动 · 决策导向  
 > **设计语言**: 深蓝(#1a237e) + 紫(#7c4dff) + 青色(#00bfa5) + 橙色(#ff6d00)  

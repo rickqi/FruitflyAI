@@ -1,5 +1,8 @@
 # Fly64 果蝇脑模型深度技术迁移方案设计 — 全7领域
 
+> **状态**: 🔴 已废弃 (Deprecated)  
+> 此文档为 brain-model-deep-expansion 阶段的历史分析产物（t1），内容已过时。请以当前执行计划 `docs/analysis/session_logs_execution_plan.md` 及最新代码为准。
+
 > **分析者**: deep-analyst  
 > **依赖输入**: t5(跨领域应用报告) · t6(综合技术白皮书) · t3(工程化能力分析) · t2/t4(Web研究)  
 > **脑模型版本**: BRAIN_VERSION = 2.13.3 | SKILL_VERSION = 3.0.0  

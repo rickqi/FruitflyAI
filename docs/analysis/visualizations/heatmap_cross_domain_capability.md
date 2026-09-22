@@ -1,5 +1,8 @@
 ## 🔥 Fly64 10大能力 × 13领域 跨领域能力迁移热力图
 
+> **状态**: 🔴 已废弃 (Deprecated)  
+> 此可视化文档为 brain-model-deep-expansion 阶段的历史分析产物，内容已过时。
+
 ```vega-lite
 {
   "$schema": "https://vega.github.io/schema/vega-lite/v5.json",

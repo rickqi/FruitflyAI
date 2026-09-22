@@ -1,5 +1,8 @@
 # Fly64 果蝇脑模型 — 深度技术迁移演示文稿包
 
+> **状态**: 🔴 已废弃 (Deprecated)  
+> 此文档为 brain-model-deep-expansion 阶段的历史分析产物（t6），内容已过时。请以当前执行计划 `docs/analysis/session_logs_execution_plan.md` 及最新代码为准。
+>
 > **完整技术演示材料 · 20页PPT脚本 + 可视化引用 + 演讲者指南**  
 > **版本**: v2.0 | **日期**: 2026-09-15  
 > **生成**: report-publisher (AgentTeams brain-model-deep-expansion)  

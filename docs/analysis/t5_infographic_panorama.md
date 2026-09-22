@@ -1,5 +1,8 @@
 # Fly64 果蝇脑模型能力全景 — 信息图集
 
+> **状态**: 🔴 已废弃 (Deprecated)  
+> 此文档为 brain-model-deep-expansion 阶段的历史分析产物（t5），内容已过时。请以当前执行计划 `docs/analysis/session_logs_execution_plan.md` 及最新代码为准。
+>
 > 执行摘要信息图 — 整合13大领域深度技术迁移方案  
 > 输出: domain-architect | 依赖: t1全7领域迁移方案 + t2新领域挖掘报告
 

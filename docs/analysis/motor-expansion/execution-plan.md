@@ -2,6 +2,10 @@
 
 汇总：`bridge-bz-unlock.md`(R-A) · `cpg-motor-primitives.md`(R-C/R-D) · `neural-pools-extension.md`(R-B) · `dashboard-impact-assessment.md`
 
+> **状态**: 🟢 已实现 (Implemented)  
+> 此文档中的设计方案已编码实现并部署。实现详情参见对应代码文件与测试。
+>
+
 ## 0. 交叉一致性检查（已核对）
 
 | 接口 | t1 桥接 | t2 CPG | t3 神经池 | t4 监控 | 结论 |

@@ -1,6 +1,9 @@
 ## 🔗 Fly64 5级决策仲裁链因果可视化 — 保险核保与自动驾驶场景
 
-### BPMN 决策因果链: 保险核保场景
+> **状态**: 🔴 已废弃 (Deprecated)  
+> 此可视化文档为 brain-model-deep-expansion 阶段的历史分析产物，内容已过时。
+>
+> ### BPMN 决策因果链: 保险核保场景
 
 ```plantuml
 @startuml

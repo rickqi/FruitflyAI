@@ -1,5 +1,8 @@
 # Fly64 跨领域能力树 — 思维导图
 
+> **状态**: 🔴 已废弃 (Deprecated)  
+> 此文档为 brain-model-deep-expansion 阶段的历史分析产物（t5），内容已过时。请以当前执行计划 `docs/analysis/session_logs_execution_plan.md` 及最新代码为准。
+>
 > PlantUML `@startmindmap` 格式 — 展示从Fly64核心引擎到13大领域的完整能力分支
 
 ## 全局能力树

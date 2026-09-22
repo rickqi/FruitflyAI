@@ -1,6 +1,9 @@
 ## 🗺️ Fly64 商业化路径实施全景路线图 (0-12月)
 
-### Phase 1: 快速验证 (Month 1-2) — 工业质检 + 游戏AI
+> **状态**: 🔴 已废弃 (Deprecated)  
+> 此可视化文档为 brain-model-deep-expansion 阶段的历史分析产物，内容已过时。
+>
+> ### Phase 1: 快速验证 (Month 1-2) — 工业质检 + 游戏AI
 
 ```infographic
 infographic sequence-timeline-rounded-rect-node

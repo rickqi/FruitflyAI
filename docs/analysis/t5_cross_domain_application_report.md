@@ -1,5 +1,8 @@
 # Fly64 果蝇脑模型跨领域应用专项分析报告
 
+> **状态**: 🔴 已废弃 (Deprecated)  
+> 此文档为 brain-model-deep-expansion 阶段的历史分析产物（t5），内容已过时。请以当前执行计划 `docs/analysis/session_logs_execution_plan.md` 及最新代码为准。
+>
 > **分析者**: cross-domain-analyst  
 > **依赖输入**: t1(代码库盘点) · t2/t4(Web研究) · t3(工程能力综合) · t7(仪表盘指标)  
 > **覆盖领域**: 金融 · 保险 · 机器人控制 · 自动驾驶 · 工业质检 · 多Agent系统  

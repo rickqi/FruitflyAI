@@ -1,5 +1,8 @@
 # T1: 全量瓶颈根因分析报告
 
+> **状态**: 🔴 已废弃 (Deprecated)  
+> 此文档为 brain-model-deep-expansion 阶段的历史分析产物（t1），内容已过时。请以当前执行计划 `docs/analysis/session_logs_execution_plan.md` 及最新代码为准。
+>
 > 作者: data-analyst (瓶颈深度分析师)
 > 日期: 2026-09-16
 > 团队: fly64-bottleneck-roundup

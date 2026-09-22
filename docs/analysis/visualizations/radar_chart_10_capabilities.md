@@ -1,5 +1,8 @@
 ## 🎯 Fly64 10大核心能力成熟度 × 泛化潜力雷达图
 
+> **状态**: 🔴 已废弃 (Deprecated)  
+> 此可视化文档为 brain-model-deep-expansion 阶段的历史分析产物，内容已过时。
+
 ```vega
 {
   "$schema": "https://vega.github.io/schema/vega/v6.json",

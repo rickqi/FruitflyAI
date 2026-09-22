@@ -2,6 +2,10 @@
 
 依据：`web/dashboard.js`（60KB，8 区块）、`web/dashboard.css`、`telemetry.py`（F643 causal_schema=1 packet）、HTTP 端点（README API 表）、布局体系（`--row-*` 变量 + 单列/两列 grid areas）
 
+> **状态**: 🟢 已实现 (Implemented)  
+> 此文档中的设计方案已编码实现并部署。实现详情参见对应代码文件与测试。
+>
+
 ## 1. 结论先行
 
 **必须改的最小集合很小：4 处加法演进，全部兼容旧 schema（`.get()` 容错），无布局重构。** 现有"Neurons→controls 四泳道曲线"是唯一需要新增曲线的区块；因果链组件按取值表自动扩展。

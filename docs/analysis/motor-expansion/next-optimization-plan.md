@@ -1,6 +1,10 @@
 # 运动能力扩展 · 下一步优化计划（分步实施）
 
 基准：Brain v2.16.0 / Skill v3.0.0（五阶段 motor expansion 已落地，见本目录 execution-plan.md）
+
+> **状态**: 🟢 已实现 (Implemented)  
+> 此文档中的设计方案已编码实现并部署。实现详情参见对应代码文件与测试。
+>
 验收锚点沿用实机标准：锁门场景首破 stuck 死循环（PUNCH）、小目标 DIVE 命中率、`evolution_history.json` 中新 pattern 首条自动修复记录。
 
 ---

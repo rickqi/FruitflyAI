@@ -2,6 +2,10 @@
 
 依据：`main.py` 六级控制级联、`memory.py`（StuckDetector/FailureMemory/CliffDetector 信号）、`model.py`（pose 输入、escape_jump_drive）、t4 §7 文献（MaleCNS VNC CPG / subsumption 分层）
 
+> **状态**: 🟢 已实现 (Implemented)  
+> 此文档中的设计方案已编码实现并部署。实现详情参见对应代码文件与测试。
+>
+
 ## 1. 设计原则（与文献及现有架构对齐）
 
 - **脑发门控、CPG 出时序**：LIF 脑模型只输出"启动某原语"的低维门控信号（同 CX 只注入转向偏置、不写指令的分层原则一致）；节律/时序由确定性 CPG 振荡器完成——对应文献中 VNC CPG 独立于脑生成节律行走。

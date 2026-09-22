@@ -1,5 +1,8 @@
 # Fly64 技术白皮书封面 — 信息卡片
 
+> **状态**: 🔴 已废弃 (Deprecated)  
+> 此文档为 brain-model-deep-expansion 阶段的历史分析产物（t5），内容已过时。请以当前执行计划 `docs/analysis/session_logs_execution_plan.md` 及最新代码为准。
+>
 > 使用 `infocard` 技能创建 — 科技感 · 蓝紫色系 · 决策者导向
 
 <div class="card-frame">

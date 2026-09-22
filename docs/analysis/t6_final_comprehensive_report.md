@@ -1,6 +1,9 @@
 # Fly64 果蝇脑模型能力全景图与跨领域展望
 ## 技术白皮书
 
+> **状态**: 🔴 已废弃 (Deprecated)  
+> 此文档为 brain-model-deep-expansion 阶段的历史分析产物（t6），内容已过时。请以当前执行计划 `docs/analysis/session_logs_execution_plan.md` 及最新代码为准。
+>
 > **版本**: v1.0 | **分析日期**: 2025-07-16  
 > **分析团队**: brain-model-capability-analysis  
 > **依赖输入**: t1(代码库盘点) · t2/t4(Web研究) · t3(工程能力综合) · t5(跨领域应用分析)  

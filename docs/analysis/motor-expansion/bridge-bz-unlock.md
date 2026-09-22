@@ -2,6 +2,10 @@
 
 依据：`patches/sm64ex-fly64.patch`、`fly64/fly64/bridge.py`、`tests/test_bridge.py`
 
+> **状态**: 🟢 已实现 (Implemented)  
+> 此文档中的设计方案已编码实现并部署。实现详情参见对应代码文件与测试。
+>
+
 ## 1. 现状盘点（实测代码）
 
 | 环节 | A 键 | B 键 | Z 键 |
