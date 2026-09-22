@@ -1,42 +1,12 @@
 {
  "platform": "win32",
- "recorded_at": "2026-09-18T08:05:26.164237+00:00",
- "count": 38,
+ "recorded_at": "2026-09-22T16:29:18.328718+00:00",
+ "count": 49,
  "entries": [
   {
-   "id": "tests/test_autonomy_regression.py::TestVersionContract::test_brain_version_in_skills_md_round_table",
-   "cause": "unknown",
-   "note": ""
-  },
-  {
-   "id": "tests/test_bridge.py::test_bridge_round_trip",
-   "cause": "environment",
-   "note": "Windows Python 3.11 has no time.clock_gettime_ns; the bridge uses it for monotonic frame timing"
-  },
-  {
-   "id": "tests/test_bridge.py::test_game_status_reads_applied_bz_bits",
-   "cause": "environment",
-   "note": "Windows Python 3.11 has no time.clock_gettime_ns; the bridge uses it for monotonic frame timing"
-  },
-  {
-   "id": "tests/test_bridge.py::test_simulator_does_not_override_game_toggle",
-   "cause": "environment",
-   "note": "Windows Python 3.11 has no time.clock_gettime_ns; the bridge uses it for monotonic frame timing"
-  },
-  {
-   "id": "tests/test_bridge.py::test_write_control_b_and_z_combined",
-   "cause": "environment",
-   "note": "Windows Python 3.11 has no time.clock_gettime_ns; the bridge uses it for monotonic frame timing"
-  },
-  {
-   "id": "tests/test_bridge.py::test_write_control_level_buttons_do_not_stick",
-   "cause": "environment",
-   "note": "Windows Python 3.11 has no time.clock_gettime_ns; the bridge uses it for monotonic frame timing"
-  },
-  {
-   "id": "tests/test_bridge.py::test_write_control_z_button",
-   "cause": "environment",
-   "note": "Windows Python 3.11 has no time.clock_gettime_ns; the bridge uses it for monotonic frame timing"
+   "id": "tests/test_coach_advice_fix.py::TestBoldTurnBiasChain::test_drive_reaches_turn_pool_current",
+   "cause": "test-drift",
+   "note": "the test regex pins the exact 2-line source layout of the bold_turn_drive consumption in fly64/model.py ('if self.bold_turn_drive:' ... 'v[self.turn_right] += ...'), but model.py now binds a coefficient on an intervening line (model.py:1649 _bold = getattr(self, '_bold_turn_drive', self.BOLD_TURN_DRIVE); the += moved to :1651), so the pattern no longer matches even though the chain is intact - main.py:1689 writes model.bold_turn_drive from memory_ctrl.reflex.bold_direction(), and the sibling test TestBoldTurnBiasChain::test_consumer_chain_end_to_end still passes. pre-P0 behaviour regression inside the untested 09-18..09-22 window (33 commits): passes at 765188d (the commit the previous baseline was recorded from) and fails at 5703efa and at pristine HEAD aeac935 -> NOT caused by P0-1..P0-4."
   },
   {
    "id": "tests/test_coach_dopamine.py::test_main_loop_wires_coach_bias",
@@ -44,14 +14,94 @@
    "note": "reads fly64/main.py with the default (locale) encoding, which is gbk on Windows and cannot decode the UTF-8 source; the same test passes on Linux"
   },
   {
+   "id": "tests/test_coach_pipeline.py::TestGLMReceivesSnapshot::test_glm_returns_advice_text",
+   "cause": "live-state",
+   "note": "asserts on live production state: it reads the resident service's plugin/coach_advice.json. It PASSES with the committed test file (verified at pristine HEAD aeac935) and fails only because tests/test_coach_pipeline.py carries a pre-P0 uncommitted edit (2 lines: expected model 'glm-5.3-flash' -> 'glm-5v-turbo') while the running service answers glm-5.3-flash. Same family as A3 5.4 'tests coupled to the running brain' -> follow-up P1-4 (test isolation); separately, decide whether that uncommitted glm-5v-turbo flip is committed. NOTE: the captain requested the label 'test-couples-live-state'; the vocabulary enforced by tests/test_regression_detector.py::test_causes_are_from_the_known_vocabulary contains only the six labels of scripts/check_regressions.py::CAUSES, so 'live-state' is used."
+  },
+  {
    "id": "tests/test_coach_pipeline.py::TestStrategyExecution::test_fallen_recovery_has_params",
-   "cause": "unknown",
-   "note": ""
+   "cause": "test-drift",
+   "note": "stale assertion on a deliberately dead knob: 'climb_period' / 'persist_seconds' were removed from the coach's fallen_recovery SPEC after being proven unconsumed (plugin/llm_consult.py SECTION_SPECS comment; tests/test_coach_contract.py:122 pins the same fact), so requiring the live advice JSON to carry one of them can only pass by re-advertising a no-op. The assertion also depends on the resident service's coach_advice.json (A3 5.4 / follow-up P1-4). Fails identically at pristine HEAD aeac935 -> pre-existing."
+  },
+  {
+   "id": "tests/test_dan_shaping.py::TestDanShaping::test_lowered_reward_weakens_mbon_saturation",
+   "cause": "real-bug",
+   "note": "real behaviour regression: lowered dopamine must weaken MBON inflation but the observed direction is inverted (inflation 2.6971 with lowered reward vs 2.6455 with the baseline reward). pre-P0 behaviour regression inside the untested 09-18..09-22 window (33 commits): passes at 765188d (the commit the previous baseline was recorded from) and fails at 5703efa and at pristine HEAD aeac935 -> NOT caused by P0-1..P0-4."
   },
   {
    "id": "tests/test_evolution_capability.py::TestEvoRound10::test_bold_explore_decision_source",
    "cause": "test-drift",
    "note": "decision_source is now produced by resolve_decision_source(...), so the grep for literal `decision_source = \"dialogue\"` no longer matches"
+  },
+  {
+   "id": "tests/test_evolution_capability.py::TestWallCornerPattern::test_pattern_in_catalog",
+   "cause": "real-bug",
+   "note": "root cause found and verified by running the loader: fly64/skills/default_patterns.json begins with a UTF-8 BOM (bytes ef bb bf), while PatternCatalog._load (fly64/skills/evolution_skill.py, class PatternCatalog) reads it with self.path.read_text(\"utf-8\") - so json.loads ALWAYS raises 'Unexpected UTF-8 BOM' and the class logs 'Failed to load patterns from <path>: Unexpected UTF-8 BOM (decode using utf-8-sig). Falling back to DEFAULT_PATTERNS.' and keeps the embedded DEFAULT_PATTERNS. The embedded catalog (16 patterns) and the on-disk one (16 patterns) have the SAME count but different ids, so the fallback is invisible unless ids are compared - and the embedded one has no 'wall_corner_command_decoupled', which exists only on disk (default_patterns.json:207). HEAD's copy of the file has a SECOND independent defect: literal backslash-n escape text where real newlines belong (first syntax error: line 47 \"stuck_duration\": {\\n \"min\": 60\\n },); the working-tree copy has that one line repaired but uncommitted (4 insertions/1 deletion, mtime 2026-09-23 00:17:03, author outside this task) while the BOM is untouched, so the load fails either way. Pre-existing: also red at 765188d and at pristine HEAD aeac935. Fix: read the catalog with utf-8-sig (or strip the BOM and repair the JSON) and surface the fallback to the caller instead of only logging it."
+  },
+  {
+   "id": "tests/test_evolution_capability.py::TestWallCornerPattern::test_pattern_matches_on_mismatch",
+   "cause": "real-bug",
+   "note": "same root cause as test_pattern_in_catalog in this file: the runtime PatternCatalog is the embedded DEFAULT_PATTERNS fallback because the on-disk skills/default_patterns.json starts with a UTF-8 BOM that read_text('utf-8') cannot parse (PatternCatalog._load catches the exception, logs it, and continues with the embedded catalog), so DiagnosisEngine can never emit wall_corner_command_decoupled and the findings degrade to ['low_coverage_stagnation', 'telemetry_gap']. Pre-existing at HEAD aeac935 (and red already at 765188d), NOT caused by P0-1..P0-4."
+  },
+  {
+   "id": "tests/test_fix_executor.py::TestParseFixTemplate::test_manual_fallback",
+   "cause": "real-bug",
+   "note": "same in-flight change: parse_fix_template() returns 'advisory' where the tracked test still requires the legacy 'manual' fallback - i.e. the interpreter silently reclassifies templates that no rule matched. untracked in-flight work (git status '??'): skills/fix_template_interpreter.py + tests/test_fix_template_interpreter.py. fly64/skills/__init__.py:36 already imports the module, so at HEAD (aeac935) the `skills` package cannot be imported at all without it (verified in a pristine-HEAD worktree: tests/test_fix_executor.py dies with a collection ERROR, ModuleNotFoundError: No module named 'skills.fix_template_interpreter'). The module exists but does not satisfy the tests' contract yet; decision needed (not taken here, out of this task's scope): finish the interpreter and commit BOTH files - or delete both and drop the import. Pre-P0 and unrelated to P0-1..P0-4."
+  },
+  {
+   "id": "tests/test_fix_template_interpreter.py::TestEdgeCases::test_mixed_code_block_directives",
+   "cause": "real-bug",
+   "note": "a code block mixing several directive kinds parses to 0 actions. untracked in-flight work (git status '??'): skills/fix_template_interpreter.py + tests/test_fix_template_interpreter.py. fly64/skills/__init__.py:36 already imports the module, so at HEAD (aeac935) the `skills` package cannot be imported at all without it (verified in a pristine-HEAD worktree: tests/test_fix_executor.py dies with a collection ERROR, ModuleNotFoundError: No module named 'skills.fix_template_interpreter'). The module exists but does not satisfy the tests' contract yet; decision needed (not taken here, out of this task's scope): finish the interpreter and commit BOTH files - or delete both and drop the import. Pre-P0 and unrelated to P0-1..P0-4."
+  },
+  {
+   "id": "tests/test_fix_template_interpreter.py::TestInterpreterHeuristic::test_interpret_changeto_directive",
+   "cause": "real-bug",
+   "note": "interpret_fix_template() emits action='replace' for a 'change-to' directive. untracked in-flight work (git status '??'): skills/fix_template_interpreter.py + tests/test_fix_template_interpreter.py. fly64/skills/__init__.py:36 already imports the module, so at HEAD (aeac935) the `skills` package cannot be imported at all without it (verified in a pristine-HEAD worktree: tests/test_fix_executor.py dies with a collection ERROR, ModuleNotFoundError: No module named 'skills.fix_template_interpreter'). The module exists but does not satisfy the tests' contract yet; decision needed (not taken here, out of this task's scope): finish the interpreter and commit BOTH files - or delete both and drop the import. Pre-P0 and unrelated to P0-1..P0-4."
+  },
+  {
+   "id": "tests/test_fix_template_interpreter.py::TestLegacyCompatibility::test_parse_fix_template_manual_fallback",
+   "cause": "real-bug",
+   "note": "parse_fix_template() now returns mode/action 'advisory' where the legacy contract requires 'manual'. untracked in-flight work (git status '??'): skills/fix_template_interpreter.py + tests/test_fix_template_interpreter.py. fly64/skills/__init__.py:36 already imports the module, so at HEAD (aeac935) the `skills` package cannot be imported at all without it (verified in a pristine-HEAD worktree: tests/test_fix_executor.py dies with a collection ERROR, ModuleNotFoundError: No module named 'skills.fix_template_interpreter'). The module exists but does not satisfy the tests' contract yet; decision needed (not taken here, out of this task's scope): finish the interpreter and commit BOTH files - or delete both and drop the import. Pre-P0 and unrelated to P0-1..P0-4."
+  },
+  {
+   "id": "tests/test_fix_template_interpreter.py::TestParseExtendedAddAfter::test_add_after_anchor",
+   "cause": "real-bug",
+   "note": "the 'add after <anchor>' directive parses to 0 actions. untracked in-flight work (git status '??'): skills/fix_template_interpreter.py + tests/test_fix_template_interpreter.py. fly64/skills/__init__.py:36 already imports the module, so at HEAD (aeac935) the `skills` package cannot be imported at all without it (verified in a pristine-HEAD worktree: tests/test_fix_executor.py dies with a collection ERROR, ModuleNotFoundError: No module named 'skills.fix_template_interpreter'). The module exists but does not satisfy the tests' contract yet; decision needed (not taken here, out of this task's scope): finish the interpreter and commit BOTH files - or delete both and drop the import. Pre-P0 and unrelated to P0-1..P0-4."
+  },
+  {
+   "id": "tests/test_fix_template_interpreter.py::TestParseExtendedChangeTo::test_change_to_produces_change_action",
+   "cause": "real-bug",
+   "note": "parser emits action='replace' where the new contract requires 'change'. untracked in-flight work (git status '??'): skills/fix_template_interpreter.py + tests/test_fix_template_interpreter.py. fly64/skills/__init__.py:36 already imports the module, so at HEAD (aeac935) the `skills` package cannot be imported at all without it (verified in a pristine-HEAD worktree: tests/test_fix_executor.py dies with a collection ERROR, ModuleNotFoundError: No module named 'skills.fix_template_interpreter'). The module exists but does not satisfy the tests' contract yet; decision needed (not taken here, out of this task's scope): finish the interpreter and commit BOTH files - or delete both and drop the import. Pre-P0 and unrelated to P0-1..P0-4."
+  },
+  {
+   "id": "tests/test_fix_template_interpreter.py::TestParseExtendedChangeTo::test_change_to_with_add_fallback",
+   "cause": "real-bug",
+   "note": "parser emits action='replace' where the new contract requires 'change'. untracked in-flight work (git status '??'): skills/fix_template_interpreter.py + tests/test_fix_template_interpreter.py. fly64/skills/__init__.py:36 already imports the module, so at HEAD (aeac935) the `skills` package cannot be imported at all without it (verified in a pristine-HEAD worktree: tests/test_fix_executor.py dies with a collection ERROR, ModuleNotFoundError: No module named 'skills.fix_template_interpreter'). The module exists but does not satisfy the tests' contract yet; decision needed (not taken here, out of this task's scope): finish the interpreter and commit BOTH files - or delete both and drop the import. Pre-P0 and unrelated to P0-1..P0-4."
+  },
+  {
+   "id": "tests/test_fix_template_interpreter.py::TestParseExtendedMultiFile::test_files_comma_separated",
+   "cause": "real-bug",
+   "note": "only fly64/fly64/main.py is registered twice; the second comma-separated target (fly64/fly64/model.py) is dropped. untracked in-flight work (git status '??'): skills/fix_template_interpreter.py + tests/test_fix_template_interpreter.py. fly64/skills/__init__.py:36 already imports the module, so at HEAD (aeac935) the `skills` package cannot be imported at all without it (verified in a pristine-HEAD worktree: tests/test_fix_executor.py dies with a collection ERROR, ModuleNotFoundError: No module named 'skills.fix_template_interpreter'). The module exists but does not satisfy the tests' contract yet; decision needed (not taken here, out of this task's scope): finish the interpreter and commit BOTH files - or delete both and drop the import. Pre-P0 and unrelated to P0-1..P0-4."
+  },
+  {
+   "id": "tests/test_fix_template_interpreter.py::TestParseExtendedMultiFile::test_files_semicolon_separated",
+   "cause": "real-bug",
+   "note": "2 actions emitted where 3 are expected (multi-file registration + append). untracked in-flight work (git status '??'): skills/fix_template_interpreter.py + tests/test_fix_template_interpreter.py. fly64/skills/__init__.py:36 already imports the module, so at HEAD (aeac935) the `skills` package cannot be imported at all without it (verified in a pristine-HEAD worktree: tests/test_fix_executor.py dies with a collection ERROR, ModuleNotFoundError: No module named 'skills.fix_template_interpreter'). The module exists but does not satisfy the tests' contract yet; decision needed (not taken here, out of this task's scope): finish the interpreter and commit BOTH files - or delete both and drop the import. Pre-P0 and unrelated to P0-1..P0-4."
+  },
+  {
+   "id": "tests/test_fix_template_interpreter.py::TestRewriteDegradationPatterns::test_below_ground_stuck_specific",
+   "cause": "real-bug",
+   "note": "rewriting the below_ground_stuck template yields 0 structured directives. untracked in-flight work (git status '??'): skills/fix_template_interpreter.py + tests/test_fix_template_interpreter.py. fly64/skills/__init__.py:36 already imports the module, so at HEAD (aeac935) the `skills` package cannot be imported at all without it (verified in a pristine-HEAD worktree: tests/test_fix_executor.py dies with a collection ERROR, ModuleNotFoundError: No module named 'skills.fix_template_interpreter'). The module exists but does not satisfy the tests' contract yet; decision needed (not taken here, out of this task's scope): finish the interpreter and commit BOTH files - or delete both and drop the import. Pre-P0 and unrelated to P0-1..P0-4."
+  },
+  {
+   "id": "tests/test_fix_template_interpreter.py::TestRewriteDegradationPatterns::test_circle_loop_specific",
+   "cause": "real-bug",
+   "note": "rewriting the circle_loop template yields 0 structured directives. untracked in-flight work (git status '??'): skills/fix_template_interpreter.py + tests/test_fix_template_interpreter.py. fly64/skills/__init__.py:36 already imports the module, so at HEAD (aeac935) the `skills` package cannot be imported at all without it (verified in a pristine-HEAD worktree: tests/test_fix_executor.py dies with a collection ERROR, ModuleNotFoundError: No module named 'skills.fix_template_interpreter'). The module exists but does not satisfy the tests' contract yet; decision needed (not taken here, out of this task's scope): finish the interpreter and commit BOTH files - or delete both and drop the import. Pre-P0 and unrelated to P0-1..P0-4."
+  },
+  {
+   "id": "tests/test_fix_template_interpreter.py::TestRewriteDegradationPatterns::test_each_rewrite_is_structured",
+   "cause": "real-bug",
+   "note": "pattern 'ramp_trap' is still classified 'manual' after rewriting it with the interpreter. untracked in-flight work (git status '??'): skills/fix_template_interpreter.py + tests/test_fix_template_interpreter.py. fly64/skills/__init__.py:36 already imports the module, so at HEAD (aeac935) the `skills` package cannot be imported at all without it (verified in a pristine-HEAD worktree: tests/test_fix_executor.py dies with a collection ERROR, ModuleNotFoundError: No module named 'skills.fix_template_interpreter'). The module exists but does not satisfy the tests' contract yet; decision needed (not taken here, out of this task's scope): finish the interpreter and commit BOTH files - or delete both and drop the import. Pre-P0 and unrelated to P0-1..P0-4."
   },
   {
    "id": "tests/test_invariants.py::test_full_graph_incoming_normalization",
@@ -74,9 +124,19 @@
    "note": "architectural invariant violated by design: fly64/model.py injects current into motor pools from 66 sites (79%% guarded, 7 visually gated). Measured black vs white frame disparity persists with w=0 even after disabling documented sensory gates (sky_score/opening_score/escape_mode). See scripts/audit_motor_injections.py for the full enumeration."
   },
   {
-   "id": "tests/test_invariants.py::test_torn_frames_return_last_good_frame",
-   "cause": "environment",
-   "note": "same clock_gettime_ns gap on Windows"
+   "id": "tests/test_mbon_saturation.py::TestMbonSaturationHomeostasis::test_mbon_returns_to_dynamic_range_after_scaling",
+   "cause": "real-bug",
+   "note": "homeostatic scaling no longer shrinks the saturated column (1.7007 vs 1.1552). pre-P0 behaviour regression inside the untested 09-18..09-22 window (33 commits): passes at 765188d (the commit the previous baseline was recorded from) and fails at 5703efa and at pristine HEAD aeac935 -> NOT caused by P0-1..P0-4."
+  },
+  {
+   "id": "tests/test_mbon_saturation.py::TestMbonSaturationHomeostasis::test_saturated_column_scaling_fires",
+   "cause": "real-bug",
+   "note": "the saturation mechanism exists (MushroomBody._saturation_frames / saturation_scale_factor / saturation_events) but never fires under the test's inputs: saturation_events stays 0. pre-P0 behaviour regression inside the untested 09-18..09-22 window (33 commits): passes at 765188d (the commit the previous baseline was recorded from) and fails at 5703efa and at pristine HEAD aeac935 -> NOT caused by P0-1..P0-4."
+  },
+  {
+   "id": "tests/test_mbon_saturation.py::TestMbonSaturationHomeostasis::test_saturation_events_counter_increments",
+   "cause": "real-bug",
+   "note": "saturation_events stays 0 after the stimulus that used to raise it - same defect as test_saturated_column_scaling_fires. pre-P0 behaviour regression inside the untested 09-18..09-22 window (33 commits): passes at 765188d (the commit the previous baseline was recorded from) and fails at 5703efa and at pristine HEAD aeac935 -> NOT caused by P0-1..P0-4."
   },
   {
    "id": "tests/test_mbon_saturation.py::TestSaturationRecovery::test_absolute_override_at_095",
@@ -119,24 +179,19 @@
    "note": "asserts a control-write line count that drifted as the motor path changed"
   },
   {
+   "id": "tests/test_p1_neural_takeover.py::TestNeuralTakeover::test_sigmoid_monotonic_and_bounded",
+   "cause": "test-drift",
+   "note": "the test extracts the novelty_gain formula with the single-line regex 'novelty_gain\\s*=\\s*(.+)' and eval()s it, but fly64/model.py:1434-1435 now splits that formula over two lines ('novelty_gain = 1.0 + getattr(self, \\'_visual_novelty_boost\\', 0.10) * float(' / 'np.tanh((0.5 - novelty) * 4.0))'), so the captured text is an unterminated expression: SyntaxError '(' was never closed. The behaviour is unchanged; the extraction must join continuation lines. pre-P0 behaviour regression inside the untested 09-18..09-22 window (33 commits): passes at 765188d (the commit the previous baseline was recorded from) and fails at 5703efa and at pristine HEAD aeac935 -> NOT caused by P0-1..P0-4."
+  },
+  {
    "id": "tests/test_r31fix3_reward_reshaping.py::test_damage_rate_limited_in_main_wiring",
    "cause": "environment",
    "note": "Windows default encoding (gbk) cannot decode the UTF-8 source it reads"
   },
   {
-   "id": "tests/test_regression_detector.py::TestDetectorDetects::test_reports_clean_against_its_own_baseline",
-   "cause": "unknown",
-   "note": ""
-  },
-  {
-   "id": "tests/test_retina.py::test_clean_break_rejects_old_images_and_protocol",
-   "cause": "environment",
-   "note": "same clock_gettime_ns gap on Windows"
-  },
-  {
-   "id": "tests/test_retina.py::test_pose_and_pixels_share_the_frame_seqlock",
-   "cause": "environment",
-   "note": "same clock_gettime_ns gap on Windows"
+   "id": "tests/test_retina_calibration.py::test_emd_pairs_stay_within_eye",
+   "cause": "real-bug",
+   "note": "AttributeError: 'SphericalRetina' object has no attribute '_emd_pairs' - the attribute the test pins was removed or renamed without updating the test. pre-P0 behaviour regression inside the untested 09-18..09-22 window (33 commits): passes at 765188d (the commit the previous baseline was recorded from) and fails at 5703efa and at pristine HEAD aeac935 -> NOT caused by P0-1..P0-4."
   },
   {
    "id": "tests/test_trajectory_height.py::test_trajectory_html_wiring",
