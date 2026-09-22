@@ -224,6 +224,16 @@ class DashboardHTTP(BaseHTTPRequestHandler):
                 body, mime = json.dumps(_entries).encode(), "application/json"
             except Exception:
                 body, mime = b"[]", "application/json"
+        elif path == "/param-history.json":
+            # Last 300 parameter-drift records (manual + self-heal) for the
+            # evo-params history chart — survives page reloads.
+            _php = Path(__file__).resolve().parent.parent / "artifacts" / "param_history.jsonl"
+            try:
+                _lines = _php.read_text("utf-8").strip().split("\n")
+                body, mime = json.dumps(
+                    [json.loads(_l) for _l in _lines[-300:]]).encode(), "application/json"
+            except Exception:
+                body, mime = b"[]", "application/json"
         elif path == "/help.json":
             body, mime = self.help_json, "application/json"
         elif path == "/coach_advice.json":
@@ -380,6 +390,17 @@ class DashboardHTTP(BaseHTTPRequestHandler):
             cur = json.loads(_skp.read_text("utf-8")) if _skp.exists() else {}
             applied, rejected = apply_strategy_update(cur, updates)
             _skp.write_text(json.dumps(cur, indent=2, ensure_ascii=False), "utf-8")
+            # P2: persist manual panel changes to the drift-history log so the
+            # evo-params chart survives page reloads and shows who changed what.
+            try:
+                _ph = Path(__file__).resolve().parent.parent / "artifacts" / "param_history.jsonl"
+                _ph.parent.mkdir(parents=True, exist_ok=True)
+                for _k, _v in updates.items():
+                    with open(_ph, "a", encoding="utf-8") as _f:
+                        _f.write(json.dumps({"ts": time.time() * 1000, "key": _k,
+                            "to": _v, "source": "manual"}, ensure_ascii=False) + "\n")
+            except Exception:
+                pass
             body = json.dumps({"status":"ok","updated":list(updates.keys()),
                                "applied":applied,"rejected":rejected}).encode()
             self.send_response(200)
@@ -1269,6 +1290,8 @@ async def run(args) -> None:
                 try:
                     _as_path = project / "skills" / "active_strategy.json"
                     _as_raw = json.loads(_as_path.read_text("utf-8"))
+                    # Capture pre-clamp values to detect external overwrites
+                    _prev_e = dict(_as_raw.get("exploration", {}) or {})
                     _as_raw.setdefault("exploration", {}).update({
                         "turn_bias": _expl.get("turn_bias", 0.25),
                         "bold_explore_stuck_s": _expl.get("bold_explore_stuck_s", 60),
@@ -1337,6 +1360,21 @@ async def run(args) -> None:
                         _esc.get("escape_jump_drive", 0.45))))
                     model._bold_turn_drive = max(0.1, min(1.0, float(
                         _esc.get("bold_turn_drive", 0.35))))
+                    # P2: log external drift that the self-heal just corrected —
+                    # this is what feeds the evo-params history chart.
+                    try:
+                        _ph = project / "artifacts" / "param_history.jsonl"
+                        _ph.parent.mkdir(parents=True, exist_ok=True)
+                        for _k, _new in _as_raw["exploration"].items():
+                            _old = _prev_e.get(_k)
+                            if (_old is not None and isinstance(_new, (int, float))
+                                    and abs(float(_old) - float(_new)) > 1e-9):
+                                with open(_ph, "a", encoding="utf-8") as _f:
+                                    _f.write(json.dumps({"ts": time.time() * 1000,
+                                        "key": _k, "from": float(_old), "to": float(_new),
+                                        "source": "self-heal"}, ensure_ascii=False) + "\n")
+                    except Exception:
+                        pass
                     _as_path.write_text(json.dumps(_as_raw, indent=2, ensure_ascii=False), "utf-8")
                 except Exception:
                     pass

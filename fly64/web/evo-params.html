@@ -137,7 +137,8 @@ function drawParamHistory(){
   const d=Math.min(devicePixelRatio||1,2),w=cv.clientWidth,h=45;cv.width=w*d;cv.height=h*d;
   const ctx=cv.getContext('2d');ctx.setTransform(d,0,0,d,0,0);ctx.clearRect(0,0,w,h);
   const left=4,right=w-2,top=6,bottom=h-2;
-  const vals=paramHistory.map(p=>p.turn_bias);const mn=0,mx=Math.max(...vals,0.1),span=Math.max(mx-mn,0.01);
+  const vals=paramHistory.map(p=>p.turn_bias);
+  const mn=Math.min(...vals),mx=Math.max(...vals),span=Math.max(mx-mn,0.01);
   const x=i=>left+i/(paramHistory.length-1)*(right-left),y=v=>bottom-(v-mn)/span*(bottom-top);
   ctx.strokeStyle=COLORS.CYAN;ctx.lineWidth=1;ctx.beginPath();
   paramHistory.forEach((p,i)=>{const yy=y(p.turn_bias);i?ctx.lineTo(x(i),yy):ctx.moveTo(x(i),yy);});ctx.stroke();
@@ -145,6 +146,9 @@ function drawParamHistory(){
   ctx.fillText('turn_bias: '+vals[vals.length-1].toFixed(2),left+2,top+7);
 }
 async function load(){
+  try{const h=await get('/param-history.json');
+    if(Array.isArray(h)&&h.length){paramHistory=h.filter(e=>e.key==='turn_bias').map(e=>({t:e.ts,turn_bias:e.to}));drawParamHistory();}
+  }catch(e){}
   try{const t=await get('/brain_tunable_params.json');
     tunables={};const secTabs=$('paramSecTabs');const secs=new Set();
     for(const[pid,meta]of Object.entries(t.params||{})){
