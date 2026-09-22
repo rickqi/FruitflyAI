@@ -195,3 +195,147 @@ class TestLegacyOracleIsKept:
                      + new["health"] + new["speed"] + new["first_contact"]
                      - new["revisit_penalty"])
         assert new_total >= legacy_total - 1e-9
+
+
+# ── Phase 6 EVO-067/071: behavioral fitness + Bayesian opt + short-circuit ──
+
+class TestBehavioralFitnessTerms:
+    """EVO-067: displacement coverage and exploration entropy drive fitness."""
+
+    def test_exploration_entropy_in_components(self):
+        m = BrainMutator()
+        s = _sample(exploration_entropy=0.8)
+        c = m.fitness_components(s)
+        assert "exploration_entropy" in c, (
+            "exploration_entropy term must exist in fitness_components")
+        assert c["exploration_entropy"] > 0
+
+    def test_displacement_coverage_in_components(self):
+        m = BrainMutator()
+        s = _sample(displacement_coverage=0.9)
+        c = m.fitness_components(s)
+        assert "displacement_coverage" in c, (
+            "displacement_coverage term must exist in fitness_components")
+        assert c["displacement_coverage"] > 0
+
+    def test_behavioral_terms_respond_to_input(self):
+        m = BrainMutator()
+        high = _sample(exploration_entropy=1.0, displacement_coverage=1.0)
+        low = _sample(exploration_entropy=0.0, displacement_coverage=0.0)
+        ch = m.fitness_components(high)
+        cl = m.fitness_components(low)
+        assert ch["exploration_entropy"] > cl["exploration_entropy"]
+        assert ch["displacement_coverage"] > cl["displacement_coverage"]
+
+    def test_behavioral_terms_affect_total_fitness(self):
+        m = BrainMutator()
+        high = _sample(exploration_entropy=1.0, displacement_coverage=1.0)
+        low = _sample(exploration_entropy=0.0, displacement_coverage=0.0)
+        assert m.fitness(high) > m.fitness(low)
+
+    def test_components_sum_to_fitness_with_behavioral_terms(self):
+        m = BrainMutator()
+        s = _sample(exploration_entropy=0.7, displacement_coverage=0.5)
+        c = m.fitness_components(s)
+        total = (c["coverage"] + c["unstuck"] + c["novelty"] + c["health"]
+                 + c["speed"] + c["first_contact"] - c["revisit_penalty"]
+                 + c["exploration_entropy"] + c["displacement_coverage"])
+        assert m.fitness(s) == round(total, 4), (
+            "fitness must equal the sum of ALL components including behavioral terms")
+
+
+class TestSameSampleShortCircuit:
+    """EVO-071: same-sample trial is immediately failed."""
+
+    def test_same_sample_short_circuits(self):
+        import time
+        m = BrainMutator()
+        s = _sample(timestamp=100.0)
+        m._trial = {"exploration.turn_bias": 0.3}
+        m._trial_start = time.time() - 200.0  # expired window
+        m._baseline_fitness = m.fitness(s)
+        m._baseline_components = m.fitness_components(s)
+        m._baseline_sample = s
+        res = m.evaluate(s)  # same object -> same_sample=True
+        assert res is not None
+        assert res.get("short_circuit") is True, (
+            "same-sample must short-circuit the trial")
+        assert res.get("delta") == 0.0
+        assert res.get("committed") is False
+
+    def test_short_circuit_clears_trial_state(self):
+        import time
+        m = BrainMutator()
+        s = _sample(timestamp=200.0)
+        m._trial = {"exploration.turn_bias": 0.3}
+        m._trial_start = time.time() - 200.0
+        m._baseline_fitness = m.fitness(s)
+        m._baseline_components = m.fitness_components(s)
+        m._baseline_sample = s
+        m.evaluate(s)
+        assert m._trial is None
+        assert m._baseline_sample is None
+
+    def test_different_sample_does_not_short_circuit(self):
+        import time
+        m = BrainMutator()
+        base = _sample(timestamp=100.0)
+        cur = _sample(timestamp=200.0, coverage_pct=50.0)
+        m._trial = {"exploration.turn_bias": 0.3}
+        m._trial_start = time.time() - 200.0
+        m._baseline_fitness = m.fitness(base)
+        m._baseline_components = m.fitness_components(base)
+        m._baseline_sample = base
+        res = m.evaluate(cur)
+        assert res is not None
+        assert res.get("short_circuit") is None or res.get("short_circuit") is False, (
+            "different samples must NOT short-circuit")
+        assert res.get("same_sample") is False
+
+
+class TestBayesianOptimization:
+    """EVO-071: generate_candidate uses BO when enough history exists."""
+
+    def test_exploration_phase_gives_uniform_random(self):
+        m = BrainMutator()
+        c = m.generate_candidate()
+        assert isinstance(c, dict)
+        assert len(c) > 0
+        assert m._bo_exploration_phase is True, (
+            "first call with no history must be in exploration phase")
+
+    def test_bo_phase_activates_with_sufficient_history(self):
+        m = BrainMutator()
+        pids = list(m.live_params.keys())
+        for i in range(20):
+            params = {pid: 0.1 + 0.8 * (i % 5) / 4.0 for pid in pids}  # varied history
+            m._trial_history.append({
+                "params": params, "delta": 0.02 * (i % 3),
+                "passed": (i % 3) == 0,
+            })
+        c = m.generate_candidate()
+        assert isinstance(c, dict)
+        assert len(c) > 0
+
+    def test_candidates_stay_within_param_bounds(self):
+        m = BrainMutator()
+        for _ in range(10):
+            c = m.generate_candidate()
+            for pid, meta in m.live_params.items():
+                mn, mx = meta.get("min", 0.0), meta.get("max", 1.0)
+                assert mn <= c[pid] <= mx, (
+                    "%s value %.4f outside [%.4f, %.4f]" % (pid, c[pid], mn, mx))
+
+    def test_history_is_recorded_after_trial(self):
+        import time
+        m = BrainMutator()
+        before = len(m._trial_history)
+        s = _sample(timestamp=300.0)
+        m._trial = {"exploration.turn_bias": 0.3}
+        m._trial_start = time.time() - 200.0
+        m._baseline_fitness = m.fitness(s)
+        m._baseline_components = m.fitness_components(s)
+        m._baseline_sample = s
+        m.evaluate(s)  # same-sample -> short-circuit -> records to history
+        assert len(m._trial_history) == before + 1, (
+            "trial must be recorded in _trial_history even when short-circuited")

@@ -1,7 +1,7 @@
 {
   "$schema": "fly64/evolution-history/1.0",
   "canonical_versions": {
-    "brain": "2.23.6",
+    "brain": "2.23.11",
     "skill": "3.4.2",
     "as_of": "2026-09-18T01:08:22.683057+08:00"
   },
