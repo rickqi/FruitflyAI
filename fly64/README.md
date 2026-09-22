@@ -133,11 +133,15 @@ source venv/bin/activate
 > 
 > **🚀 推荐方案（从 v1.0.0 起）**：使用 `scripts/wsl_launcher.sh` **tmux 守护启动器**。它在 setsid nohup 基础上增加 tmux 守护会话层，启动 shell 退出或终端窗口关闭后进程仍然存活。详见 [`docs/wsl-launcher-deployment.md`](docs/wsl-launcher-deployment.md)。
 
-> **WSLg 显示（Windows 弹出游戏窗口）**：SM64 使用 `DISPLAY=:0` 可在 Windows 桌面显示游戏窗口。需要先安装 `xrandr` 以解决 SDL2 屏幕尺寸检测问题：
-> ```bash
-> sudo apt install x11-xserver-utils   # 提供 xrandr
-> ```
-> 启动时设置 `SDL_VIDEODRIVER=x11` 强制 X11 后端。一键启动脚本见 `scripts/launch_full.sh`。
+> **🖥️ 双显示模式支持（`scripts/launch_full.sh`）**：
+> 
+> | 模式 | 命令 | 窗口 | 帧数据 | 适用场景 |
+> |------|------|------|--------|---------|
+> | **WSLg**（默认） | `bash launch_full.sh` 或 `bash launch_full.sh wslg` | ✅ Windows桌面弹出SM64窗口 | ✅ 实时渲染 | 交互调试/观察马里奥行为 |
+> | **xvfb** | `bash launch_full.sh xvfb` | ❌ 无窗口 | ✅ 96%+有效像素 | 服务器/CI/无桌面环境 |
+> 
+> 前置依赖：`sudo apt install x11-xserver-utils xdotool`（WSLg模式需要 xrandr 和窗口检测）。  
+> 启动后自动检测窗口位置，如果屏幕外则尝试修复。详见 [`docs/wslg-display-verification-report.md`](docs/wslg-display-verification-report.md)。
 
 ```bash
 # 常驻启动（契约方式，WSL）：
@@ -150,7 +154,7 @@ cd /root/fly64/.cache/sm64ex
 DISPLAY=:0 SDL_VIDEODRIVER=x11 FLY64_BRIDGE=/tmp/f64b_traj \
   setsid nohup ./build/us_pc/sm64.us.f3dex2e --skip-intro > /tmp/sm64.log 2>&1 < /dev/null &
 
-# xvfb 虚拟显示（无窗口，适用于无桌面环境）：
+# xvfb 虚拟显示（无窗口，适用于无桌面环境／CI）：
 cd /root/fly64/.cache/sm64ex
 FLY64_BRIDGE=/tmp/f64b_traj \
   setsid nohup xvfb-run -s '-screen 0 640x480x24' --auto-servernum \

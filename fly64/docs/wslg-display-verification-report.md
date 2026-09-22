@@ -326,6 +326,35 @@ env DISPLAY=:0 \
 
 **SM64 WSLg 窗口显示功能正常。** 游戏窗口在 Windows 桌面上正确弹出，标题为 "Super Mario 64 EX (OpenGL)"，位置在屏幕左上方区域。
 
+## 8a. 双显示模式支持
+
+`launch_full.sh` 支持两种显示模式，默认 WSLg：
+
+| 模式 | 启动参数 | 窗口可见 | 帧渲染 | 适用场景 |
+|------|---------|---------|--------|---------|
+| **WSLg**（默认） | `bash launch_full.sh` 或 `bash launch_full.sh wslg` | ✅ Windows桌面弹出窗口 | ✅ 正常 | 需观察游戏画面的交互调试 |
+| **xvfb** | `bash launch_full.sh xvfb` | ❌ 无窗口 | ✅ 正常（已实测96%+有效像素） | 无桌面环境/服务器/CI 自动化 |
+
+### 窗口可见性监控
+
+WSLg模式启动后 `launch_full.sh` 自动执行：
+1. `xdotool search --name "Super Mario"` — 检测窗口是否存在
+2. `xdotool getwindowgeometry` — 读取窗口位置
+3. 若位置在屏幕外，自动尝试 `windowmove` 修复
+
+手动检查：`DISPLAY=:0 bash scripts/verify_window_state.sh`
+
+### 已知问题：窗口被放置屏幕外
+
+SM64 在 WSLg下偶尔被置于屏幕外（如 `-32692,-32650`）。原因：XWayland 在窗口初次映射时分配位置，`xdotool windowmove` 受 XWayland 架构限制可能无效。
+
+**排除步骤**：
+```bash
+wsl -d Ubuntu-22.04 -- bash -c 'export DISPLAY=:0; WID=$(xdotool search --name "Super Mario" | head -1); if [ -n "$WID" ]; then xdotool windowmove $WID 200 200; xdotool windowactivate $WID; fi'
+```
+
+---
+
 ## 9. 附录：WSLg 架构详解
 
 ### 9.1 进程关系
