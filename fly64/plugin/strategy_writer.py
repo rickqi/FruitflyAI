@@ -49,7 +49,7 @@ class StrategyWriter:
 
     # ── strategy ──────────────────────────────────────────────────────
     def write_strategy(self, strategy: dict, advice: str = "",
-                       source: str = "glm-5.3-flash",
+                       source: str = "glm-5v-turbo",
                        what_i_see: Optional[list] = None) -> dict:
         """Write active_strategy.json (brain hot-reloads every 600 ticks).
 
@@ -60,6 +60,25 @@ class StrategyWriter:
         payload top level.
         """
         payload = dict(strategy or {})
+        # RULE-19 contract fix (EVO-072): merge with the on-disk strategy
+        # instead of wholesale replace, so EVO-owned state survives a coach
+        # write — previously the coach erased `__generation` and any evolved
+        # param the coach's strategy dict did not mention, silently resetting
+        # the Phase 6 search (机制存在、报告成功、无法生效).
+        try:
+            with open(self.strategy_path, "r", encoding="utf-8") as fh:
+                existing = json.load(fh)
+            if isinstance(existing, dict):
+                merged = dict(existing)
+                for sec, body in payload.items():
+                    if (isinstance(body, dict) and isinstance(merged.get(sec), dict)):
+                        # section merge: coach keys win, EVO keys preserved
+                        merged[sec] = {**merged[sec], **body}
+                    else:
+                        merged[sec] = body
+                payload = merged
+        except (OSError, ValueError):
+            pass  # no existing file / corrupt — coach payload stands alone
         if what_i_see:
             payload["what_i_see"] = list(what_i_see)
         payload["coach_advice"] = advice
@@ -69,7 +88,7 @@ class StrategyWriter:
         return payload
 
     def write_dialogue_decision(self, action: str, reason: str = "",
-                                source: str = "glm-5.3-flash",
+                                source: str = "glm-5v-turbo",
                                 wait_seconds: Optional[float] = None,
                                 timed_out: bool = False) -> dict:
         """Merge a ``dialogue_decision`` block into active_strategy.json.
@@ -111,7 +130,7 @@ class StrategyWriter:
 
     def write_advice(self, advice: str, context: Optional[dict] = None,
                      strategy: Optional[dict] = None,
-                     model: str = "glm-5.3-flash",
+                     model: str = "glm-5v-turbo",
                      what_i_see: Optional[list] = None) -> dict:
         """Update coach_advice.json with the latest advice + history entry.
 

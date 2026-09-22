@@ -2010,9 +2010,27 @@ class BrainMutator:
     @staticmethod
     def _load_active_strategy() -> dict:
         try:
-            return json.loads((SKILL_DIR / "active_strategy.json").read_text("utf-8"))
+            strat = json.loads((SKILL_DIR / "active_strategy.json").read_text("utf-8"))
         except Exception:
             return {"exploration": {}}
+        # RULE-19 contract fix (EVO-072): migrate dot-prefixed dead keys inside
+        # each section (e.g. exploration["exploration.gate_jump_threshold"]) to
+        # the clean nested key the brain reader consumes
+        # (main.py: _expl.get("gate_jump_threshold")).  Without this the EVO
+        # evolved value was written but never read — "机制存在、报告成功、无法生效".
+        if isinstance(strat, dict):
+            for sec in list(strat.keys()):
+                body = strat[sec]
+                if not isinstance(body, dict):
+                    continue
+                prefix = sec + "."
+                for key in list(body.keys()):
+                    if key.startswith(prefix):
+                        clean = key[len(prefix):]
+                        if clean not in body:      # clean key wins if present
+                            body[clean] = body[key]
+                        del body[key]              # dead key removed either way
+        return strat
 
     @staticmethod
     def _write_active_strategy(cfg: dict):
@@ -2094,10 +2112,18 @@ class BrainMutator:
                 y.append(float(rec["delta"]))
 
         # ── Phase 2: Generate candidate ──
+        # Registry grew to 39 wired params — a full-dim mutation makes the
+        # fitness delta unattributable and the GP hopelessly under-determined.
+        # Mutate a random subset (k dims) per trial; unlisted dims keep their
+        # current values in active_strategy.json.
+        _subset_k = min(5, ndim)
+        _subset = set(random.sample(pids, _subset_k))
         if len(X) < min(self._bo_min_points, ndim * 3 + 2):
             # Exploration phase: uniform random across the whole search space
             candidate = {}
             for pid, meta in schema.items():
+                if pid not in _subset:
+                    continue
                 mn, mx = meta.get("min", 0.0), meta.get("max", 1.0)
                 candidate[pid] = random.uniform(mn, mx)
             self._bo_exploration_phase = True
@@ -2181,7 +2207,8 @@ class BrainMutator:
             best_x = np.clip(np.asarray(best_x, dtype=np.float64), 0.0, 1.0)
             candidate = {}
             for i, pid in enumerate(pids):
-                candidate[pid] = self._denormalize(pid, float(best_x[i]))
+                if pid in _subset:
+                    candidate[pid] = self._denormalize(pid, float(best_x[i]))
 
             self._bo_candidates_generated += 1
             return candidate
@@ -2190,6 +2217,8 @@ class BrainMutator:
             # Fallback: uniform random (scipy unavailable)
             candidate = {}
             for pid, meta in schema.items():
+                if pid not in _subset:
+                    continue
                 mn, mx = meta.get("min", 0.0), meta.get("max", 1.0)
                 candidate[pid] = random.uniform(mn, mx)
             return candidate

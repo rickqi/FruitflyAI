@@ -318,13 +318,20 @@ class TestBayesianOptimization:
         assert len(c) > 0
 
     def test_candidates_stay_within_param_bounds(self):
+        # EVO-072 update: generate_candidate mutates a random SUBSET (k=5 of
+        # 39 wired dims); unlisted dims intentionally keep their current
+        # active_strategy values.  Assert bounds only for dims the candidate
+        # actually mutates — the old full-dim assertion predates subset
+        # sampling and KeyError'd on every unselected dim.
         m = BrainMutator()
         for _ in range(10):
             c = m.generate_candidate()
-            for pid, meta in m.live_params.items():
+            assert len(c) > 0, "candidate must mutate at least one dim"
+            for pid, val in c.items():
+                meta = m.live_params[pid]
                 mn, mx = meta.get("min", 0.0), meta.get("max", 1.0)
-                assert mn <= c[pid] <= mx, (
-                    "%s value %.4f outside [%.4f, %.4f]" % (pid, c[pid], mn, mx))
+                assert mn <= val <= mx, (
+                    "%s value %.4f outside [%.4f, %.4f]" % (pid, val, mn, mx))
 
     def test_history_is_recorded_after_trial(self):
         import time

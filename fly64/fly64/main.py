@@ -1273,6 +1273,21 @@ async def run(args) -> None:
                 # EVO R11 follow-up: push coach-tunable keys into the memory
                 # controller so GLM strategy advice tunes the escape/breakout
                 # behaviour (consumed in memory.py + bold breakout below).
+                # RULE-19 contract fix (EVO-072): normalize dot-prefixed dead
+                # keys (exploration["exploration.gate_jump_threshold"]) to the
+                # clean keys readers consume — previously EVO evolved values
+                # were written but never read ("无法生效" defect family).
+                for _sec in ("exploration", "escape", "reflex"):
+                    _body = _active_strategy.get(_sec)
+                    if not isinstance(_body, dict):
+                        continue
+                    _prefix = _sec + "."
+                    for _k in list(_body.keys()):
+                        if _k.startswith(_prefix):
+                            _clean = _k[len(_prefix):]
+                            if _clean not in _body:
+                                _body[_clean] = _body[_k]
+                            del _body[_k]
                 _expl = _active_strategy.get("exploration", {}) or {}
                 _esc = _active_strategy.get("escape", {}) or {}
                 # Clamp turn_bias to [0, 0.4] — the EVO loop/plugin may write
