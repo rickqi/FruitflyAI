@@ -11,252 +11,252 @@
       "default": 0.25,
       "min": 0.0,
       "max": 0.4,
-      "description": "Novelty-driven turn bias multiplier injected into CX goal columns. Higher = stronger response to fresher ground.",
+      "description": "新颖度转向偏置：CX根据四方向新颖度采样向转向池注入电流的强度。用途：越新鲜的地方吸引力越大。推荐 0.05~0.15（稳定探索）；>0.3 会放大振荡反射，禁止超过 0.4。",
       "wired": true
     },
     "exploration.bold_explore_stuck_s": {
       "default": 60.0,
       "min": 15.0,
       "max": 180.0,
-      "description": "Seconds of stuck before forced bold-explore (breakout) activates. Lower = faster breakout but more erratic.",
+      "description": "勇气探索门限：卡死持续多少秒后强制触发突围。用途：控制脱困灵敏度。推荐 5~15（快速脱困）；默认60过保守，振荡场景建议 5~10。",
       "wired": true
     },
     "exploration.revisit_penalty_scale": {
       "default": 0.4,
       "min": 0.0,
       "max": 0.8,
-      "description": "Weight of revisit_penalty in health_score. Higher = more aggressive avoidance of familiar ground.",
+      "description": "重访惩罚权重：revisit_penalty 在健康分计算中的缩放系数。用途：越高越强烈回避走过的地方。推荐 0.3~0.5；过低导致反复走旧路，过高探索初期过度扣分。",
       "wired": true
     },
     "exploration.gate_forward_threshold": {
       "default": 0.4,
       "min": 0.1,
       "max": 0.8,
-      "description": "Forward pool firing rate gate (Hz). Lower = easier to trigger forward motion.",
+      "description": "前进池门限：LIF前进运动池的触发频率(Hz)。用途：低于此频率不产生前进指令。推荐 0.3~0.5；调低=更易前进但悬崖风险升高，调高=反应迟钝。",
       "wired": true
     },
     "exploration.gate_jump_threshold": {
       "default": 2.0,
       "min": 0.5,
       "max": 4.0,
-      "description": "Jump pool firing rate gate (Hz). Lower = jump triggers more easily.",
+      "description": "跳跃池门限：LIF跳跃运动池的触发频率(Hz)。用途：控制跳跃触发的难易。推荐 1.5~3.0；过低频繁跳跃浪费动量，过高撞墙不跳。",
       "wired": true
     },
     "exploration.cliff_tangent_gain": {
       "default": 1.0,
       "min": 0.0,
       "max": 3.0,
-      "description": "How strongly the cliff tangent bias influences turn pools. 0 = disable detour, 3 = strong swerve.",
+      "description": "悬崖切线增益：悬崖回避时切向绕行偏置的放大倍数。用途：0=无视已知悬崖，3=剧烈躲闪。推荐 1.0~2.0；坠落频繁场景（如熔岩地）建议 1.5~2.0。",
       "wired": true
     },
     "exploration.loop_breakout_threshold": {
       "default": 0.6,
       "min": 0.3,
       "max": 0.95,
-      "description": "loop_score above this activates forced escape behavior when stuck. Lower = escape from milder loops.",
+      "description": "振荡爆发门限：loop_score 超过此值触发强制直行爆发（覆盖振荡反射）。用途：振荡干预灵敏度。推荐 0.85~0.92；过低爆发过频打断正常探索，过高错过干预窗口。",
       "wired": true
     },
     "exploration.stuck_ramp_cooldown": {
       "default": 5.0,
       "min": 1.0,
       "max": 15.0,
-      "description": "Seconds stuck_ramp reflex stays suppressed after firing. Longer = less reflex thrashing.",
+      "description": "斜坡反射冷却：stuck_ramp 反射触发后的抑制秒数。用途：防止反射连发抖动。推荐 3~8；过短=反射抖动，过长=错失脱困时机。",
       "wired": true
     },
     "exploration.visual_gain_novelty_boost": {
       "default": 0.1,
       "min": -0.2,
       "max": 0.5,
-      "description": "Sensor gain boost per unit novelty (applied at model.step). Positive = stronger response to novel visual input.",
+      "description": "新颖度视觉增益：新颖度高时视觉输入的额外增益。用途：正值=对新区域感知更敏锐，负值=保守抑制。推荐 0.05~0.15；过高会在新区域过度兴奋。",
       "wired": true
     },
     "exploration.dopamine_revisit_cost": {
       "default": 0.5,
       "min": 0.0,
       "max": 1.0,
-      "description": "Dopamine punishment threshold for revisit_penalty. Higher = MB learns faster to avoid loops.",
+      "description": "多巴胺重访惩罚：revisit_penalty>0.5 时注入蘑菇体的惩罚强度。用途：让蘑菇体学会抑制产生重访的场景-转向关联。推荐 0.3~0.6；过高导致熟悉区域全面停滞。",
       "wired": true
     },
     "exploration.breakout_forward_bias": {
       "default": 0.5,
       "min": 0.15,
       "max": 0.6,
-      "description": "Fraction of forward drive during escape behavior (vs. turning). Higher = straighter breakout runs.",
+      "description": "逃逸前向偏置上限：逃逸时自适应前向增益的天花板。用途：数值越大突围冲刺越强。推荐 0.35~0.55；过高过冲撞墙，过低转圈不前冲。",
       "wired": true
     },
     "escape.commit_ticks": {
       "default": 50,
       "min": 10,
       "max": 150,
-      "description": "Direction commit duration in ticks (50=1s at 50Hz). Higher = longer committed turns, more net displacement.",
+      "description": "方向提交时长：逃逸时选定转向方向后保持的tick数（50=1秒@50Hz）。用途：更长的定向产生净位移。推荐 40~80；过短接近振荡，过长被墙堵死。",
       "wired": true
     },
     "escape.forward_accum_max": {
       "default": 0.5,
       "min": 0.2,
       "max": 0.8,
-      "description": "Maximum adaptive forward gain during zero-displacement escape. Higher = stronger push through obstacles.",
+      "description": "前向累积上限：零位移逃逸时自适应前向增益的最大值。用途：控制顶障碍物的推力上限。推荐 0.35~0.55。",
       "wired": true
     },
     "escape.forward_accum_step": {
       "default": 0.005,
       "min": 0.001,
       "max": 0.02,
-      "description": "Per-frame increment of adaptive forward gain when displacement is near-zero.",
+      "description": "前向累积步长：位移近零时每帧前向增益的增量。用途：越大的数值越快达到最大推力。推荐 0.003~0.01；过低墙角停滞，过高过冲。",
       "wired": true
     },
     "escape.commit_reinforce": {
       "default": 0.15,
       "min": 0.05,
       "max": 0.3,
-      "description": "Current injected into the committed turn direction during escape. Higher = stronger directional commitment.",
+      "description": "方向强化电流：逃逸中被选定的转向方向注入的加强电流。用途：锁定转向方向不被噪声干扰。推荐 0.10~0.20。",
       "wired": true
     },
     "escape.commit_suppress": {
       "default": 0.1,
       "min": 0.02,
       "max": 0.25,
-      "description": "Current injected to suppress the opposite turn direction during escape commitment.",
+      "description": "方向抑制电流：逃逸中未选定方向注入的抑制电流。用途：压制反方向。应略低于 commit_reinforce。推荐 0.05~0.15。",
       "wired": true
     },
     "escape.fallen_forward": {
       "default": 0.2,
       "min": 0.05,
       "max": 0.5,
-      "description": "Forward current injected during fallen state. Higher = more forward movement while fallen.",
+      "description": "坠落前向电流：坠落状态注入前进池的电流。用途：帮助边坠落边前进爬出。推荐 0.15~0.30；熔岩/深坑场景过高会加速坠落。",
       "wired": true
     },
     "escape.fallen_jump_boost": {
       "default": 0.35,
       "min": 0.2,
       "max": 0.6,
-      "description": "Additional jump current during fallen state, on top of ESCAPE_JUMP_DRIVE.",
+      "description": "坠落跳跃增强：坠落状态下叠加在基础跳跃驱动上的额外电流。推荐 0.30~0.40；过高连续跳浪费动量。",
       "wired": true
     },
     "escape.fallen_switch_s": {
       "default": 3.0,
       "min": 1.0,
       "max": 10.0,
-      "description": "Seconds between primitive switches during fallen recovery (LONG_JUMP vs BACKFLIP).",
+      "description": "坠落原语切换周期：坠落恢复中 LONG_JUMP 与 BACKFLIP 的切换间隔秒数。推荐 2~5；过快原语无效，过慢失去适应性。",
       "wired": true
     },
     "reflex.cooldown_min": {
       "default": 2.0,
       "min": 0.5,
       "max": 5.0,
-      "description": "Minimum reflex cooldown duration in seconds. Lower = faster re-trigger but more thrashing.",
+      "description": "反射最小冷却：所有反射触发后的最短冷却秒数。用途：平衡响应速度与稳定性。推荐 1.5~3.0。",
       "wired": true
     },
     "reflex.adaptive_cooldown_scale": {
       "default": 0.05,
       "min": 0.01,
       "max": 0.15,
-      "description": "Cooldown reduction per second stuck (adaptive cooldown formula). Higher = reflexes fire faster as stuck persists.",
+      "description": "自适应冷却缩减率：卡死每持续1秒冷却缩短的比例。公式：cooldown×max(0.25, 1-stuck×scale)。推荐 0.03~0.08；默认0.05时卡死15秒冷却减半。",
       "wired": true
     },
     "navigation.danger_weight": {
       "default": 1.2,
       "min": 0.0,
       "max": 3.0,
-      "description": "CX goal vector: weight of away-from-failure (danger avoidance) in navigation vector sum. 0=ignore known hazards, 3=strong hazard repulsion.",
+      "description": "危险回避权重：CX目标向量中远离已知失败格向量的权重。用途：0=无视已知危险（反复冲向失败点），3=强斥力。推荐 1.0~2.0。",
       "wired": true
     },
     "navigation.frontier_weight": {
       "default": 0.7,
       "min": 0.0,
       "max": 3.0,
-      "description": "CX goal vector: weight of coverage-gap centroid (toward unvisited space). 0=disable frontier seeking, 3=strong pull to unexplored regions.",
+      "description": "前沿寻索权重：CX目标向量中朝向未探索空间（覆盖缺口质心）的权重。用途：0=关闭前沿寻索（cx_novelty_dir 难以恢复），3=强烈被新区域吸引。推荐 1.0~2.0；探索恢复期建议 1.5。",
       "wired": true
     },
     "coach.reward_gain": {
       "default": 0.4,
       "min": 0.0,
       "max": 1.5,
-      "description": "Coach training reward: scale of reward_signal contribution into dopamine. Higher = MB learns faster from success.",
+      "description": "教练奖励增益：reward_signal 注入多巴胺的缩放系数。用途：越大成功行为学得越快。推荐 0.3~0.6；过高过拟合单一场景。",
       "wired": true
     },
     "coach.dan_punish_stuck": {
       "default": 0.3,
       "min": 0.0,
       "max": 1.0,
-      "description": "Coach penalty: DAN punishment ceiling for prolonged stuck. Higher = stronger aversive learning when stuck.",
+      "description": "卡死惩罚上限：卡死>5秒时的DAN惩罚天花板（随卡死时长线性上升到该值）。推荐 0.2~0.4。",
       "wired": true
     },
     "coach.dan_punish_loop": {
       "default": 0.35,
       "min": 0.0,
       "max": 1.0,
-      "description": "Coach penalty: DAN punishment for circling-family anomaly states (oscillating/micro_loop/wall_stuck). Higher = MB suppresses loop-producing scene-turn associations faster.",
+      "description": "振荡惩罚：振荡/micro_loop/wall_stuck 状态的DAN惩罚。用途：让蘑菇体抑制产生绕圈的场景-转向关联。推荐 0.3~0.5；与 dopamine_revisit_cost 互补（前者管重访、这个管振荡）。",
       "wired": true
     },
     "coach.dan_reward_exploration": {
       "default": 0.2,
       "min": 0.0,
       "max": 1.0,
-      "description": "DAN reward for scene novelty (scene_change_rate > 0.1). Higher = stronger dopamine when entering fresh terrain.",
+      "description": "探索奖励：进入新场景（scene_change_rate>0.1）时的多巴胺奖励。用途：强化探索行为。推荐 0.15~0.30。",
       "wired": true
     },
     "coach.dan_reward_progress": {
       "default": 0.3,
       "min": 0.0,
       "max": 1.0,
-      "description": "DAN reward for sustained forward movement (filtered_y > 20). Higher = locomotion progress reinforces active motor pathways faster.",
+      "description": "进展奖励：持续前进（filtered_y>20）时的多巴胺奖励。用途：强化有效位移。推荐 0.25~0.40。",
       "wired": true
     },
     "coach.dan_punish_fallen": {
       "default": 0.8,
       "min": 0.0,
       "max": 1.0,
-      "description": "DAN punishment for fallen state (strongest aversive). Decays 0.3x in novel scenes and 0.5x after 120s stuck.",
+      "description": "坠落惩罚：坠落状态的多巴胺惩罚（最强厌恶源；新场景0.3倍、卡死>120秒0.5倍衰减）。推荐 0.6~0.9。",
       "wired": true
     },
     "coach.dan_punish_cliff": {
       "default": 0.4,
       "min": 0.0,
       "max": 1.0,
-      "description": "DAN punishment when cliff confirmed ahead.",
+      "description": "悬崖惩罚：确认悬崖在前方时的多巴胺惩罚。推荐 0.3~0.5。",
       "wired": true
     },
     "coach.mb_learning_rate": {
       "default": 0.001,
       "min": 0.0001,
       "max": 0.02,
-      "description": "Mushroom body three-factor learning rate (eta). The master knob: all reward/penalty learning speed scales with it.",
+      "description": "蘑菇体学习率(η)：三因子学习规则的核心步长——所有奖惩的最终有效力度都乘以它。用途：学习速度总开关。推荐 0.001~0.003；过大会灾难性遗忘，过小学不动。",
       "wired": true
     },
     "coach.mb_dopamine_threshold": {
       "default": 0.3,
       "min": 0.05,
       "max": 0.9,
-      "description": "Dopamine magnitude must exceed this to trigger synaptic plasticity. Lower = weaker signals also teach.",
+      "description": "多巴胺可塑门限：多巴胺幅度超过此值才触发突触可塑性。用途：过滤噪声信号。推荐 0.2~0.4；调低=弱信号也参与学习。",
       "wired": true
     },
     "navigation.steering_gain": {
       "default": 0.12,
       "min": 0.01,
       "max": 0.5,
-      "description": "CX compass-to-goal comparison gain: overall steering sensitivity of the ring attractor output.",
+      "description": "CX转向总增益：罗盘-目标比较输出到转向偏置的全局灵敏度。用途：放大/缩小所有CX转向信号。推荐 0.10~0.20；与 turn_bias 相乘生效。",
       "wired": true
     },
     "navigation.loop_break_stuck_s": {
       "default": 45.0,
       "min": 10.0,
       "max": 120.0,
-      "description": "CX escape-jump: seconds stuck with no goal before the CX fires a random heading-reset jump.",
+      "description": "CX断环卡死门限：卡死且无目标时CX触发随机朝向重置跳跃的秒数。用途：CX自带的最后一道逃生机制。推荐 30~60。",
       "wired": true
     },
     "escape.escape_jump_drive": {
       "default": 0.45,
       "min": 0.1,
       "max": 1.0,
-      "description": "Base jump-pool current burst when fallen (fallen_jump_boost adds on top).",
+      "description": "逃逸跳跃基础驱动：坠落时跳跃池的基础电流脉冲（fallen_jump_boost 叠加其上）。推荐 0.35~0.55。",
       "wired": true
     },
     "escape.bold_turn_drive": {
       "default": 0.35,
       "min": 0.1,
       "max": 1.0,
-      "description": "Turn current amplitude during forced-bold breakout (direction from bold_turn_bias sign).",
+      "description": "勇气突围转向电流：forced-bold 突围时转向池的电流幅度（方向由 bold_turn_bias 符号决定）。推荐 0.25~0.45。",
       "wired": true
     }
   },
