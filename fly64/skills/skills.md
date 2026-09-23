@@ -1,6 +1,6 @@
 # EvolutionSkill — Self-Evolving Motion Diagnosis
 
-> 当前版本：BRAIN_VERSION **2.23.12** / SKILL_VERSION **3.5.0**（EVO-066 契约审计（死旋钮清理、Phase 6 搜索空间 21→7）→ EVO-067 双环实测（Phase 6 提交率 2.27%、62.5% 试验精确零 delta → 已补分量与 same_sample 仪表）→ EVO-068 验证基线（回归可探测：36 条带成因，新回归以 NEW 冒头）→ EVO-071 Phase 6 根因修复（适应度 40% 权重读的是 SensorSample 上不存在的字段，被 getattr 静默归零，0.03 门槛不可达；现从真实字段派生 + missing_inputs 上报）＋两处测试误判更正＋“已声明未实现”30 项登记册 → EVO-072（`879d983`）active_strategy 键名归一化 + coach 合并写入（点号死键静默吞掉进化值 → 读取端迁移；coach 整体覆盖 → 逐 section 合并保留 EVO 键），7 条 PIN 见 `tests/test_strategy_key_contract.py`。完整逐轮记录见 skills/evolution_history.json）
+> 当前版本：BRAIN_VERSION **2.24.0** / SKILL_VERSION **3.5.1**（EVO-066 契约审计（死旋钮清理、Phase 6 搜索空间 21→7）→ EVO-067 双环实测（Phase 6 提交率 2.27%、62.5% 试验精确零 delta → 已补分量与 same_sample 仪表）→ EVO-068 验证基线（回归可探测：36 条带成因，新回归以 NEW 冒头）→ EVO-071 Phase 6 根因修复（适应度 40% 权重读的是 SensorSample 上不存在的字段，被 getattr 静默归零，0.03 门槛不可达；现从真实字段派生 + missing_inputs 上报）＋两处测试误判更正＋“已声明未实现”30 项登记册 → EVO-072（`879d983`）active_strategy 键名归一化 + coach 合并写入（点号死键静默吞掉进化值 → 读取端迁移；coach 整体覆盖 → 逐 section 合并保留 EVO 键），7 条 PIN 见 `tests/test_strategy_key_contract.py`。完整逐轮记录见 skills/evolution_history.json）
 
 **Version**: 3.0.0
 **Status**: Active
@@ -67,7 +67,7 @@ skill 具备**自我更新迭代**能力，通过受控进化循环固定能力�
 
 进化迭代历史在仪表板实时可见（`/evolution.json`：Brain 版本徽章、EVO 计数、每轮能力列表）。
 
-> 当前版本：BRAIN_VERSION **2.23.12** / SKILL_VERSION **3.5.0**（… → 2.23.9 t27 MBON 饱和陡峭稳态缩放：|MBON|>0.99 三倍缩放强制回落<0.8，恢复蘑菇体学习分辨力 → 2.23.10 t28 动作熵探索：novelty<0.1+loop>0.7 时 stick 注入 N(0,min(30,stuck/10)) 高斯噪声，decision_source 追加 '+action_entropy' → 2.23.12 / 3.5.0 EVO-072 键名归一化 + coach 合并写入（`879d983`，见上）。完整逐轮记录见 **skills/evolution_history.json**）。
+> 当前版本：BRAIN_VERSION **2.24.0** / SKILL_VERSION **3.5.1**（… → 2.23.9 t27 MBON 饱和陡峭稳态缩放：|MBON|>0.99 三倍缩放强制回落<0.8，恢复蘑菇体学习分辨力 → 2.23.10 t28 动作熵探索：novelty<0.1+loop>0.7 时 stick 注入 N(0,min(30,stuck/10)) 高斯噪声，decision_source 追加 '+action_entropy' → 2.24.0 / 3.5.1 EVO-072 键名归一化 + coach 合并写入（`879d983`，见上）。完整逐轮记录见 **skills/evolution_history.json**）。
 
 ## 二期门禁：12 小时稳定自动聘雇（2026-09-14 决策）
 

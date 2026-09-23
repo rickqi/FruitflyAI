@@ -47,6 +47,57 @@
     - 与规则 19 的分工：规则 19 管“证据不受损”，规则 20 管“回归可探测”——共同堵住“机制存在、报告成功、无法生效”的盲区
 
 
+## 2026-09-23: 运动池机动动态范围恢复 + gate 单位契约统一（t1–t9 团队修复轮）
+
+**根因（t1 只读定位；证据 `docs/analysis/motor-pool-saturation-findings.md`）**
+
+1. **forward 池贴顶 46.15–50 Hz 的主因不是 MBON**。MBON 注入在漏电之前（`model.py` 注入 < 漏电）且放电后硬复位，单路上限仅 **8.2 Hz**（解析 T=6 tick + 离线实测）。真正的地板是 **post-leak 恒流 0.88 V/tick** = `TurnAdaptation` 的 stuck boost `0.500`（`stuck_duration > 30 s` 即全额支付，**与疲劳水平无关**）+ `tonic` `0.180` + **粘滞** `reflex_forward` `0.200`；模型对池占用率**零负反馈**（15 个 forward 写点穷举无一读占用率）。
+2. **steering 池 0.000 Hz**：同一 boost 对左右池各 **−0.25 V/tick 对称钳位**；除 `escape_current`/tonic/OU 外所有 steering 驱动都是成对反号推挽项 ⇒ 两池在线实测**从不共放电**；`TurnAdaptation` 疲劳由池放电自身积分 ⇒ 双池静默时无复活电流（自锁）。
+3. **`gate_jump` 恒假**：per-tick 比例（0..1）与 **Hz** 阈值（2.0 / 活体 3.082）直接比较；同一 tick 的 WS packet `gate_jump=True` 与 flow.json `gate_jump=False` 并存 26/26。
+
+**变更清单（两条实现线，合并后无冲突）**
+
+| 文件 | 线 | 变更 |
+|---|---|---|
+| `fly64/fly64/model.py` | t2 + t8（+399/−28） | ① forward 池占用率 homeostat（`forward_homeo_gain`：0.30 起抑制 / 0.60 触底 / 下限 0.25）作用于 MBON→forward 与 forward 池 intrinsic tonic；② 新增 `_aux_forward_current()`：escape_current 前向片、escape accumulator、R16 breakout 前向腿、reflex 前向桥四腿的**占用率增益 + 聚合上限 0.20 V/tick**；③ `breakout_split()`：双侧 turn 钳位乘真实交替量（静默飞行 → 0，前向突破保留 0.25 下限）；④ 反射标志**到期**（`__setattr__` 写戳 + `reflex_flag_scale()`，ttl 0.30 s / τ 0.20 s）；⑤ `_last_disp_x/_z` 死读中性化（无信号不 ramp）；⑥ `blend_reflex_control()` + `reflex_network_share=0.25`（反射期保留 LIF 份额，待 main.py 接线） |
+| `fly64/fly64/main.py` | t3（+95） | `rate_per_tick_to_hz()` 单点换算 + `gate_open_hz()` 同量纲严格 `>`；flow.json 发布 `forward/turn/jump_rate_hz`、`gate_*_threshold_hz`，`gate_forward/gate_jump` 由 Hz vs Hz 得出；旧 per-tick 比较删除 |
+| `fly64/skills/brain_tunable_params.json` | t3 | 两条 gate 阈值改为 **Hz** 域：forward `0.4..8.0`/默认 `2.0`；jump `2.0..20.0`/默认 `8.0`（maxima < Nyquist 50 Hz） |
+| `fly64/docs/declared-not-implemented.md` | t3 | §2 未接线项 → 0 条；新增 §2b「Closed decisions」登记两个 gate pid（Hz 单位契约、真实 reader、PIN） |
+| `fly64/contract_registry.json` | **t7**（v1.0.0 → v1.1.0） | flow_json 增 `rate_gate_group`（9 键）、`unit_contract`（per-tick/HZ 键、换算点、比较点、阈值单位、残留分歧）、零容忍条目 `RULE-19k`；meta.changelog 记录本轮 |
+| `fly64/tests/test_motor_pool_dynamics.py` | t2 + t8 | 新增 22 测试：占用率与单调性、负反馈（纯映射 + 实跑）、视觉驱动差、steering 双侧非零、osc=1 与 live-like escape < 50%、dead-read、反射到期/归零、AST 穷举写点契约、聚合上限、无未播种 RNG |
+| `fly64/tests/test_gate_units.py` | t3 | 新增单位/边界/可达性 PIN（阈值标定锚在 model.py 解码参照，禁止放宽） |
+| `docs/analysis/motor-pool-saturation-findings.md` | t1/t8/t7 | t1 根因报告（538 行）+ t8 §7.4 范围映射 + **t7 §8 修复对照/集成回归/残留/待确认部署步骤** |
+
+**测试结果（t7 集成回归）**
+
+- `pytest tests/test_motor_pool_dynamics.py tests/test_gate_units.py tests/test_strategy_key_contract.py -q` → **44 passed，exit 0**
+- `pytest tests/test_mushroom_body.py tests/test_brain_alternation.py tests/test_cpg_priority.py tests/test_dashboard_protocol.py -q` → **66 passed，exit 0**
+- `pytest tests/test_phase6_fitness_inputs.py tests/test_memory.py tests/test_optic_flow.py --deselect tests/test_optic_flow.py::test_flow_computation_performance -q` → **148 passed, 1 deselected，exit 0**
+- 全量套件 + **规则 20 门禁**（`scripts/check_regressions.py` 自带运行）：`failing now 37 / still failing 35 (known) / NEW failures 2 / baseline-now-PASS 1`，**exit 1**
+  - 2 条 NEW 全在 `tests/test_plugin_mhr.py`（`test_manifest_valid`、`TestCycle::test_frame_captured_into_request`），同一根因：断言要求 LLM 型号 `glm-5v-turbo`，而已提交的 `plugin/manifest.json` 为 `qwen3.8-27b-uncensored`（测试 45/169 行）
+  - **非本轮引入**：`git show HEAD:tests/test_plugin_mhr.py` 原样运行同样 2 failed/44 passed（A/B 实测）；该文件不 import `fly64.model`，t2/t3/t8 diff 面不含 `fly64/plugin/**`；基线记录于 `2026-09-23T01:09`，型号切换是其后提交的 `78b3175` ⇒ **基线陈旧**（`test-drift`），需 plugin/LLM 线修期望值或基线归属方 `--update` 登记
+  - 1 条基线转通过：`test_fix_executor::TestParseFixTemplate::test_manual_fallback`（他人并发改动）
+- 契约审计（t7 自研探针 `fly64/.tmp/t7_contract_audit.py`，21 项检查）：**21/21 PASS**（registry 的 9 个 rate/gate 键在 producer 中全部存在；`*_hz` 键双侧存在；fallback 与 schema 默认 2.0/8.0 一致；maxima < Nyquist；docs §2b 一致；`telemetry.py` 2.0 vs schema 8.0 的残留分歧已登记在 `unit_contract.known_divergence`）
+- `scripts/contract_gate.py` 现仍 **FAIL（8 blocker，全为 ZT-1）**：全部来自 `audit_contract_pairs.py` 对 `skills/scene_strategy_bindings.json` 与 `plugin/.consult_{request,response}.json` 的 DEAD-WRITE/SILENT-DEFAULT，**与 registry/单位契约无关**；A/B（HEAD registry vs 工作区 registry）显示 registry 相关检查（ZT-5 / bridge / completeness）**均为 0 findings** ⇒ 该 FAIL 为**预存状态**，非本轮引入
+
+**版本轨判定（规则 17 / 18）**
+
+- **判定：行为变更（minor）**。运动池注入结构、反射腿到期、以及反射期 LIF 份额语义都是**行为变更/新增能力**，按规则 17 取 minor。
+- **建议递增**：`BRAIN_VERSION` **2.23.12 → 2.24.0**（main.py）；t3 的 `skills/brain_tunable_params.json` 属规则 18 的 Skill 版本变更（参数域修正、无新能力）→ `SKILL_VERSION` **3.5.0 → 3.5.1**（`skills/evolution_skill.py` 与 main.py 镜像同步）。
+- ⚠️ **本轮 t7 未执行递增**：`fly64/fly64/main.py`、`fly64/skills/*` 均在 t7 的 out-of-scope 内（改动由 t3 持有、合并由 captain 裁定）。因此上述递增与规则 15 记录**必须由持有 main.py/skills 的任务线或 captain 执行**；**禁止**只递增版本不补记录（`python fly64/skills/evolution_skill.py --history-check` 会失败，现基线为 `BRAIN_VERSION=2.23.12 / SKILL_VERSION=3.5.0 OK`）。
+- **规则 15 记录要求**：向 `fly64/skills/evolution_history.json` 追加一条完整记录（`round`=本轮团队修复、`date`/`time`、`kind`=`brain`（含 skill 侧变更时另记一条 `skill`）、`brain_version`=2.24.0、`skill_version`=3.5.1、`trigger`（t1 三条根因）、`changes`（上表清单）、`tests`（上述命令与结果）、`source`（本文件本节 + `docs/analysis/motor-pool-saturation-findings.md` §8）），并与 `agent.md`、`skills/skills.md` 轮次表三处同步；README 的进化历史表用 `python fly64/skills/evolution_skill.py --history-md` 再生成（只替换标记间内容）。规则 8 的三处版本同步校验：`python fly64/tests/check_version.py` 必须通过。
+
+**待用户确认的部署步骤（t7 产出，未执行；详见 `docs/analysis/motor-pool-saturation-findings.md` §8.5）**
+
+1. 记录 WSL 现状 md5 作为回滚锚点；2. `rsync` 同步 `model.py`/`main.py`/`brain_tunable_params.json` 到 `/root/fly64`（规则 12 方向：Windows→WSL 下发修复；证据文件禁止反向推送）；3. `scripts/launch_full.sh`（或 `consolidate.sh`）重启脑模型+SM64；4. `python scripts/probe_pools.py` 复测 `forward/left/right/jump` Hz + `GET /flow.json` 检查 `*_hz` 键；5. 判据：forward 稳态占用率 < 0.5（目标 ≈20–22 Hz，修复前恒 50 Hz）、定向驱动下 left/right 均非零、gate 两路同量纲；6. 异常即按第 1 步回滚。
+**注意**：规则 9——部署/重启需显式用户确认；本页只给清单，**未执行**。git 提交亦未执行（由用户决定）。
+
+### 应勘误
+
+- **t2 台账 `acceptanceResults[1].evidence`** 原文本"model 侧注入不粘滞（main 侧待接线）"与 t8 实况不符。正确描述：`reflex_flag_scale()` 就地实现（ttl 0.30 s / τ 0.20 s，`step_count·dt` 计时，回放安全）；一次性写入 eff 70→3.97；刷新恒 70；raw attr ∞（不越权改生产者）。该文本因 t2 已终态无法更新，以本条为准。
+- **t9 二轮审查**确认 round-1 的 F1 blocker / F2 high 全部闭合。审查详情见 `docs/analysis/motor-pool-review-t8.md`。
+- **`check_regressions.py` 基线更新**（#1 门禁登记）：`tests/test_plugin_mhr.py` 两 FAIL（`test_glm_returns_advice_text` / `test_fallen_recovery_has_params`）因 plugin/manifest.json 模型字符串 `glm-5v-turbo→qwen3.8-27b-uncensored` 漂移（他人 commit `78b3175`），已登记为 `cause=test-drift`。A/B 对照：HEAD 版同文件原样运行 = 同 2 FAIL / 44 PASS。
+
 ## 2026-09-19: WSL 完整全链路启动（脑模型 + SM64 WSLg 显示）
 
 **目标**：在 WSL2 中完整启动 Fly64 神经系统闭环——脑模型（MaleCNS 166,700 神经元）对接 SM64 游戏，通过共享内存桥接实现视觉→神经→运动控制。

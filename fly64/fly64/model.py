@@ -639,6 +639,88 @@ class FlyModel:
         self.mbon_gain_jump = self.mbon_jump_weight
         self.mbon_gain_explore = self.mbon_explore_weight
 
+        # ---- T2: forward-pool homeostatic occupancy feedback ----
+        # t1 root-cause evidence (docs/analysis/motor-pool-saturation-findings.md
+        # §A4/§A5): *no* current injection into the forward pool reads that pool's
+        # own occupancy, so once the post-leak floor pins it at the 50 Hz ceiling
+        # it can never down-regulate itself.  This is the missing negative
+        # feedback on the MBON→forward pathway (post-synaptic gain analogue),
+        # bounded below so the pathway can never go fully silent.
+        self.fwd_occ_tau = 0.15          # s: occupancy low-pass time constant
+        self.fwd_occ_ref = 0.30          # occupancy where suppression starts
+        self.fwd_occ_full = 0.60         # occupancy where the gain reaches its floor
+        self.fwd_homeo_floor = 0.25      # min MBON-path gain (never silent)
+        self._fwd_occupancy = 0.0        # EWMA of forward-pool spike occupancy
+        self._fwd_homeo_gain = 1.0       # last applied gain (telemetry / tests)
+        self._fwd_tonic_current = self.tonic_current  # tonic limb (T2, tests)
+
+        # ---- T2: R16 breakout drive split (oscillation-gated turn clamp) ----
+        # t1 §A5/§B4: breakout_drive's stuck boost was paid in full whenever
+        # stuck_duration > 30 s *regardless of the fatigue level*; with both
+        # steering pools silent it still pushed up to +0.50 V/tick into forward
+        # and clamped each turn pool by -0.25 V/tick.  The forward push keeps a
+        # bounded floor (a wedged fly still gets the reflex-era push); the
+        # bilateral turn clamp scales with the actual weave signature.
+        self.breakout_forward_osc_floor = 0.25
+
+        # ---- T2: reflex/LIF control blend ----
+        # t1 §B1: during an anomaly_reflex main.py writes control.x/y straight
+        # from the reflex circuit, so the LIF steering vote never reaches the
+        # stick.  blend_reflex_control() retains a configurable network share
+        # (default conservative 0.25) of the live LIF decode.
+        self.reflex_network_share = 0.25
+        self.last_reflex_mix = None
+        self.last_lif_jump = False
+
+        # ---- T8: escape + breakout legs join the forward-pool homeostat ----
+        # t1 §A5 measured the post-leak floor that pinned the forward pool at
+        # 46–50 Hz: breakout(0.50) + tonic(0.18) + sticky reflex_forward(0.20).
+        # T2 brought the MBON/tonic/breakout legs under the occupancy gain; T8
+        # also routes the two *escape* legs and the breakout forward leg through
+        # the same gain (a saturated pool gains nothing from more drive, and the
+        # fixed escape currents were part of the constant floor).
+        self.escape_leg_homeostat = True     # escape_current + escape-accum legs
+        self.breakout_leg_homeostat = True   # R16 breakout forward leg
+        self._fwd_brk_applied = 0.0          # last homeostat-scaled breakout push
+        # Aggregate ceiling on the *auxiliary* forward legs (escape current,
+        # escape accumulator, R16 breakout push, reflex-forward bridge).  Even
+        # after the occupancy gain, four independent "survival" legs could sum
+        # past the T=2 limit-cycle boundary (0.55 V/tick) and re-pin the pool —
+        # t8 measured exactly 0.5000 occupancy in the live-like arm before this
+        # cap.  They are also allocated in step order (escape survival legs
+        # first, weave-breakout last), so the invariant to rely on is the
+        # aggregate bound, not any single leg.  At 0.20 V/tick the auxiliary
+        # legs alone cannot reach the T=3 boundary (0.402), so they nudge
+        # instead of driving; task-related drive (MBON / connectome) keeps the
+        # upper dynamic range.
+        self.fwd_aux_ceiling = 0.20
+        self._fwd_aux_used = 0.0             # per-tick auxiliary budget used
+
+        # ---- T8: reflex-flag expiry (sticky-flag fix, t1 §A5) ----
+        # main.py writes model.reflex_turn/forward/jump only while the reflex is
+        # active and NEVER resets them, so a single write used to inject current
+        # forever (t1: the 0.20 V/tick forward floor that survived the reflex).
+        # A flag that is not refreshed within ``reflex_flag_ttl`` now decays with
+        # ``reflex_flag_tau``; a flag never written is inert.  Refreshes are
+        # detected in __setattr__ (the only way the model can see the producer's
+        # write), which keeps the whole mechanism inside model.py.
+        self.reflex_flag_ttl = 0.30          # s — freshness window
+        self.reflex_flag_tau = 0.20          # s — decay constant once stale
+        self._reflex_stamp = {"reflex_turn": None, "reflex_forward": None,
+                              "reflex_jump": None}
+        self._reflex_effective = {"turn": 0.0, "forward": 0.0, "jump": False}
+
+        # ---- T8: escape-accumulator dead-read policy ----
+        # ``_last_disp_x`` / ``_last_disp_z`` have NO writer anywhere in the
+        # repository (audited in t1 §A5 and again in t8): the old
+        # ``getattr(..., 0.0)`` default made ``_disp ≡ 0 < 0.5``, so the escape
+        # accumulator ramped to ``_max_escape_forward`` and stayed there — an
+        # unconditional post-leak constant, not a response.  Without a
+        # displacement signal the accumulator now decays to its base value
+        # instead of ramping; with a real signal it ramps exactly as before.
+        self.escape_accum_base = 0.15
+        self._disp_signal_available = False
+
         # ---- Dopamine-gated gain modulation (plasticity proxy) ----
         # Per-pathway gains modulate connectome current injection without
         # modifying the fixed connectome weights self.w.
@@ -717,6 +799,74 @@ class FlyModel:
         self._escape_commit_ticks = 50      # commit duration (1s at 50Hz)
         self._escape_forward_accum = 0.15   # base forward gain during escape
         self._last_escape_pos = (0.0, 0.0)  # last position for displacement check
+        # T8: __init__'s own ``self.reflex_*`` default assignments go through
+        # __setattr__; clear the stamps so that "never written by the producer"
+        # means "inert" rather than "written at tick 0".
+        self._reflex_stamp = {"reflex_turn": None, "reflex_forward": None,
+                              "reflex_jump": None}
+
+    # ---- T8: reflex-flag refresh tracking / expiry ----------------------
+
+    _REFLEX_FLAG_NAMES = ("reflex_turn", "reflex_forward", "reflex_jump")
+
+    def __setattr__(self, name, value):
+        """Stamp writes to the reflex flags so step() can expire a stale one.
+
+        The producer (main.py) writes these three attributes only while the
+        reflex is active and never resets them, so the model cannot tell a
+        refreshed command from a one-off write by value alone.  Intercepting the
+        write is the only way to time-stamp it without touching the producer.
+        Fast path: a 3-item membership test, and only once __init__ has built
+        the stamp table.
+        """
+        if name in FlyModel._REFLEX_FLAG_NAMES:
+            stamps = self.__dict__.get("_reflex_stamp")
+            if stamps is not None:
+                stamps[name] = int(self.__dict__.get("step_count", 0) or 0)
+        object.__setattr__(self, name, value)
+
+    def reflex_flag_scale(self, name: str, tick: int | None = None) -> float:
+        """Validity fraction of a reflex flag at ``tick`` (T8 expiry).
+
+        ``1.0`` inside ``reflex_flag_ttl`` seconds of the last write, then an
+        exponential decay with ``reflex_flag_tau``; ``0.0`` if never written
+        (or if the flag has decayed below a negligible residue).
+
+        Parameters
+        ----------
+        name : str
+            One of ``"reflex_turn"``, ``"reflex_forward"``, ``"reflex_jump"``.
+        tick : int or None
+            Evaluation tick (``step_count``); ``None`` uses the model's current.
+        """
+        stamps = self.__dict__.get("_reflex_stamp") or {}
+        stamp = stamps.get(name)
+        if stamp is None:
+            return 0.0
+        now = int(self.step_count) if tick is None else int(tick)
+        age = max(0, now - int(stamp)) * float(self.dt)
+        if age <= self.reflex_flag_ttl:
+            return 1.0
+        scale = float(np.exp(-(age - self.reflex_flag_ttl)
+                              / max(self.reflex_flag_tau, 1e-6)))
+        return 0.0 if scale < 1e-3 else scale
+
+    def _aux_forward_current(self, current: float) -> float:
+        """Homeostat-scale one auxiliary forward leg and cap the aggregate (T8).
+
+        Auxiliary legs (escape current, escape accumulator, R16 breakout push,
+        reflex-forward bridge) all serve survival rather than task drive.  Each
+        is scaled by the forward-pool occupancy gain and the *sum* applied in a
+        tick is bounded by ``fwd_aux_ceiling`` so that four independent legs
+        cannot re-pin a pool by superposition (t1 §A5 / t8 measurement).
+
+        Pure bookkeeping: the caller injects the returned value.
+        """
+        scaled = float(current) * self._fwd_homeo_gain
+        room = max(0.0, float(self.fwd_aux_ceiling) - float(self._fwd_aux_used))
+        applied = float(min(scaled, room))
+        self._fwd_aux_used += applied
+        return applied
 
     def _load_demo(self):
         self.n = 4096
@@ -1297,6 +1447,110 @@ class FlyModel:
         self.inject_corrective_current(error_dict, reward_signal)
         return error_dict
 
+    # ---- T2 motor-pool dynamics: occupancy feedback + reflex/LIF share ----
+
+    def forward_homeo_gain(self, occupancy: float | None = None) -> float:
+        """Occupancy → MBON-path gain in ``[fwd_homeo_floor, 1.0]`` (T2).
+
+        t1 root cause: the forward pool had no negative feedback of its own
+        occupancy, so a pinned pool stayed pinned.  This is the pure map used
+        by ``step()`` (no RNG, no state mutation): full gain below
+        ``fwd_occ_ref``, linearly suppressed above it, floored at
+        ``fwd_homeo_floor`` so the pathway can never go fully silent.
+
+        Parameters
+        ----------
+        occupancy : float or None
+            Pool spike occupancy in [0, 1]; ``None`` uses the model's current
+            low-passed ``_fwd_occupancy``.
+
+        Returns
+        -------
+        float
+            Multiplicative gain applied to the MBON→forward current.
+        """
+        occ = self._fwd_occupancy if occupancy is None else float(occupancy)
+        span = max(1e-6, self.fwd_occ_full - self.fwd_occ_ref)
+        over = min(1.0, max(0.0, (occ - self.fwd_occ_ref) / span))
+        return float(1.0 - over * (1.0 - self.fwd_homeo_floor))
+
+    def breakout_split(self, stuck_duration: float | None = None) -> tuple:
+        """Split the R16 breakout drive into its two effects (T2).
+
+        Returns ``(forward_push, turn_clamp_per_side, raw_drive)``:
+
+        * ``raw_drive`` — ``TurnAdaptation.breakout_drive()`` unchanged
+          (base ``gain·min(nl,nr)`` + the stuck boost, capped; its own
+          contract and unit tests are untouched).
+        * ``forward_push`` — ``raw`` scaled by the *measured* weave signature
+          ``osc = min(left, right)/saturation``, but never below
+          ``breakout_forward_osc_floor`` (a silent, wedged fly still gets the
+          reflex-era breakthrough push → escape capability preserved).
+        * ``turn_clamp_per_side`` — ``raw · osc`` (NOT floored): the bilateral
+          turn inhibition is only paid when both circuits are actually
+          fatigued, i.e. when there is a real alternation to break.  This is
+          the t2 fix for the t1 finding that a stuck-but-silent fly had each
+          steering pool clamped by -0.25 V/tick and therefore never fired.
+
+        Pure/deterministic (no RNG, no state mutation).
+        """
+        raw = self._turn_adapt.breakout_drive(
+            stuck_duration=(getattr(self, "stuck_duration", 0.0)
+                            if stuck_duration is None else float(stuck_duration)))
+        if raw <= 0.0:
+            return 0.0, 0.0, 0.0
+        osc = min(1.0, min(self._turn_adapt.left, self._turn_adapt.right)
+                  / max(self._turn_adapt.saturation, 1e-6))
+        fwd = raw * max(self.breakout_forward_osc_floor, osc)
+        turn = raw * osc * 0.5
+        return float(fwd), float(turn), float(raw)
+
+    def blend_reflex_control(self, reflex_x: float, reflex_y: float,
+                             reflex_jump: bool = False,
+                             network_share: float | None = None) -> tuple:
+        """Mix a reflex command with the current LIF decode (T2).
+
+        t1 §B1: during an ``anomaly_reflex`` the runner wrote ``control.x/y``
+        straight from the reflex circuit, so the LIF steering vote never
+        reached the stick.  This keeps a configurable share of the *network*
+        decode in the final command (t25 "LIF competition first" family).
+
+        Pure/deterministic: reads ``filtered_x`` / ``filtered_y`` /
+        ``last_lif_jump`` and only records diagnostics in ``last_reflex_mix``.
+
+        Parameters
+        ----------
+        reflex_x, reflex_y : float
+            Reflex command in the SM64 stick range (main.py uses ±70 / ±69).
+        reflex_jump : bool
+            Reflex jump gate.
+        network_share : float or None
+            LIF share in [0, 1]; ``None`` uses ``self.reflex_network_share``
+            (default 0.25 — conservative: the reflex keeps the majority).
+
+        Returns
+        -------
+        (int, int, bool)
+            Blended ``(x, y, jump)``.
+        """
+        share = (self.reflex_network_share if network_share is None
+                 else float(network_share))
+        share = min(1.0, max(0.0, share))
+        lif_x = float(getattr(self, "filtered_x", 0.0))
+        lif_y = float(getattr(self, "filtered_y", 0.0))
+        x = int(np.clip(round((1.0 - share) * float(reflex_x) + share * lif_x),
+                        -80, 80))
+        y = int(np.clip(round((1.0 - share) * float(reflex_y) + share * lif_y),
+                        -80, 80))
+        jump = bool(reflex_jump) or (share >= 1.0
+                                     and bool(getattr(self, "last_lif_jump", False)))
+        self.last_reflex_mix = {
+            "reflex_x": int(reflex_x), "reflex_y": int(reflex_y),
+            "lif_x": round(lif_x, 4), "lif_y": round(lif_y, 4),
+            "network_share": round(share, 4), "x": x, "y": y, "jump": jump,
+        }
+        return x, y, jump
+
     def report_movement(self, displacement: float, expected: float = 40.0,
                         coverage_rate: float | None = None) -> None:
         """EVO R11: displacement-based dopamine feedback for the mushroom body.
@@ -1512,10 +1766,22 @@ class FlyModel:
         self.dopamine_gain.update_eligibility(pathway_activity)
         n_gain = self.dopamine_gain.apply_gain_update()
 
+        # ---- T2: forward-pool occupancy feedback (negative feedback) ----
+        # Low-pass the forward pool's own spike occupancy (the vector is one
+        # tick old here — the same snapshot the pathway eligibility above
+        # reads), then derive the MBON-path gain.  No RNG, no new state
+        # dependency: occupancy → gain is a pure map (see forward_homeo_gain).
+        _fwd_occ_now = float(self.spikes[self.forward].mean()) if len(self.forward) else 0.0
+        _occ_alpha = 1.0 - float(np.exp(-self.dt / max(self.fwd_occ_tau, 1e-6)))
+        self._fwd_occupancy += _occ_alpha * (_fwd_occ_now - self._fwd_occupancy)
+        self._fwd_homeo_gain = self.forward_homeo_gain()
+        self._fwd_aux_used = 0.0   # T8: per-tick auxiliary forward budget
+
         # ---- MBON-to-motor current injection ----
         try:
             mbon = self.mushroom.mbon_outputs
-            self.v[self.forward] += mbon[0] * self.mbon_gain_forward
+            self.v[self.forward] += (mbon[0] * self.mbon_gain_forward
+                                     * self._fwd_homeo_gain)
             self.v[self.turn_left] += mbon[1] * self.mbon_gain_turn
             self.v[self.turn_right] += mbon[2] * self.mbon_gain_turn
             self.v[self.jump_nodes] += mbon[3] * self.mbon_gain_jump
@@ -1536,7 +1802,10 @@ class FlyModel:
             # pathway independent of the plastic weight matrix.
             _recalled = self.mushroom.recall()
             if _recalled is not None:
-                self.v[self.forward] += _recalled[0] * self.mbon_gain_forward * 0.5
+                # T2: the recall path is the same MBON→forward pathway, so it
+                # honours the same occupancy feedback.
+                self.v[self.forward] += (_recalled[0] * self.mbon_gain_forward * 0.5
+                                         * self._fwd_homeo_gain)
                 self.v[self.turn_left] += _recalled[1] * self.mbon_gain_turn * 0.5
                 self.v[self.turn_right] += _recalled[2] * self.mbon_gain_turn * 0.5
                 self.v[self.jump_nodes] += _recalled[3] * self.mbon_gain_jump * 0.5
@@ -1610,13 +1879,30 @@ class FlyModel:
 
         self.v *= np.exp(-self.dt / self.tau_m)
         self.v += self._synaptic_buf + self.ou_global_state * 0.22 + self.tonic_current
+        # T2: intrinsic-excitability limb of the forward-pool homeostat.  The
+        # tonic (intrinsic) depolarisation of *forward* neurons scales with the
+        # same occupancy-derived gain that governs the MBON pathway, so the
+        # pool's own excitability falls as it approaches the ceiling.  Bounded
+        # (floor 0.25) and forward-pool-only: other pools keep their tonic
+        # current, and the residual floor keeps the escape push alive.
+        if len(self.forward):
+            self._fwd_tonic_current = self.tonic_current * self._fwd_homeo_gain
+            self.v[self.forward] -= self.tonic_current * (1.0 - self._fwd_homeo_gain)
         if self.visual_connected:
             _vis_gain = self.dopamine_gain.get_gain("visual")
             self.v[self.visual] += sensory * 0.62 * novelty_gain * _vis_gain
 
         # Escape-mode depolarisation of motor neurons
+        # T8: the forward slice of the escape current is an auxiliary leg — it
+        # goes through the occupancy gain + aggregate cap (a pool already at the
+        # ceiling gains nothing from more escape current, and this leg was part
+        # of the t1 constant floor).  Steering/jump keep their full escape drive.
         if self.escape_mode:
+            _esc_fwd = (self._aux_forward_current(self.escape_current)
+                        if self.escape_leg_homeostat else float(self.escape_current))
             self.v[self.motor_nodes] += self.escape_current
+            if len(self.forward):
+                self.v[self.forward] += _esc_fwd - self.escape_current
 
         # P2 strategy→LIF direct pathway: coach turn_bias (active_strategy
         # exploration.turn_bias, mirrored by main.py) amplifies whichever
@@ -1672,29 +1958,67 @@ class FlyModel:
                     self.v[self.turn_right] -= _suppress
             # Adaptive forward gain: scale up when displacement is near-zero
             # to help break out of weave/circle patterns.
-            _dx = getattr(self, "_last_disp_x", 0.0)
-            _dz = getattr(self, "_last_disp_z", 0.0)
-            _disp = (_dx ** 2 + _dz ** 2) ** 0.5
-            if _disp < 0.5:
-                self._escape_forward_accum = min(
-                    getattr(self, '_max_escape_forward', 0.50),
-                    self._escape_forward_accum + getattr(
-                        self, '_forward_accum_step', 0.005))
+            # T8: ``_last_disp_x`` / ``_last_disp_z`` have NO writer anywhere in
+            # the repository, so the old getattr default made ``_disp ≡ 0``
+            # (< 0.5) and the accumulator ramped to ``_max_escape_forward`` and
+            # stayed there — an unconditional post-leak constant that fed the
+            # forward pool every tick of every escape (t1 §A5).  Without a
+            # displacement signal the accumulator now decays to its base value;
+            # with one it ramps exactly as before (the ramp stays a *response*).
+            _has_disp = ("_last_disp_x" in self.__dict__
+                         and "_last_disp_z" in self.__dict__)
+            self._disp_signal_available = bool(_has_disp)
+            _base = float(getattr(self, "escape_accum_base", 0.15))
+            if _has_disp:
+                _dx = float(self._last_disp_x)
+                _dz = float(self._last_disp_z)
+                _disp = (_dx ** 2 + _dz ** 2) ** 0.5
+                if _disp < 0.5:
+                    self._escape_forward_accum = min(
+                        getattr(self, '_max_escape_forward', 0.50),
+                        self._escape_forward_accum + getattr(
+                            self, '_forward_accum_step', 0.005))
+                else:
+                    self._escape_forward_accum = max(
+                        _base, self._escape_forward_accum - 0.01)
             else:
-                self._escape_forward_accum = max(0.15, self._escape_forward_accum - 0.01)
-            self.v[self.forward] += self._escape_forward_accum
+                # No displacement information → no ramp, settle back to base
+                self._escape_forward_accum = max(
+                    _base, self._escape_forward_accum - getattr(
+                        self, '_forward_accum_step', 0.005))
+            _accum_raw = float(self._escape_forward_accum)
+            # T8: auxiliary leg → occupancy gain + aggregate cap.
+            _accum = (self._aux_forward_current(_accum_raw)
+                      if self.escape_leg_homeostat else _accum_raw)
+            self.v[self.forward] += _accum
 
         # P4-1: Reflex→LIF bridge — convert reflex flags into current injection
         # so the LIF network (not Python control.x write) decides motor output.
         # Reflex turn/forward are moderate-strength biases; jump is a gate.
-        if self.reflex_turn:
-            if self.reflex_turn > 0:
-                self.v[self.turn_right] += min(0.25, abs(self.reflex_turn) * 0.004)
+        #
+        # T8: the flags expire.  A flag that the producer has not refreshed for
+        # ``reflex_flag_ttl`` seconds decays with ``reflex_flag_tau`` (t1 §A5
+        # measured the indefinite 0.20 V/tick forward injection a one-off write
+        # used to create).  ``_reflex_effective`` mirrors the applied values.
+        _rt_eff = float(self.reflex_turn) * self.reflex_flag_scale("reflex_turn")
+        _rf_eff = float(self.reflex_forward) * self.reflex_flag_scale("reflex_forward")
+        _rj_eff = bool(self.reflex_jump) and (
+            self.reflex_flag_scale("reflex_jump") >= 0.5)
+        self._reflex_effective = {
+            "turn": round(_rt_eff, 4), "forward": round(_rf_eff, 4),
+            "jump": bool(_rj_eff),
+        }
+        if _rt_eff:
+            if _rt_eff > 0:
+                self.v[self.turn_right] += min(0.25, abs(_rt_eff) * 0.004)
             else:
-                self.v[self.turn_left] += min(0.25, abs(self.reflex_turn) * 0.004)
-        if self.reflex_forward:
-            self.v[self.forward] += min(0.20, self.reflex_forward * 0.003)
-        if self.reflex_jump:
+                self.v[self.turn_left] += min(0.25, abs(_rt_eff) * 0.004)
+        if _rf_eff:
+            # T8: auxiliary leg → occupancy gain + aggregate cap (in addition to
+            # the flag-expiry above: a live reflex still cannot pin the pool).
+            self.v[self.forward] += self._aux_forward_current(
+                min(0.20, _rf_eff * 0.003))
+        if _rj_eff:
             self.v[self.jump_nodes] += 0.30
 
         # Coach command execution — LLM advice converted to current injection
@@ -1815,15 +2139,31 @@ class FlyModel:
         # fatigued = the weave-in-place signature (alternation with no net
         # heading).  A forward-pool current plus mild bilateral turn
         # inhibition converts the weave into straight displacement.
-        _brk = self._turn_adapt.breakout_drive(
-            stuck_duration=getattr(self, "stuck_duration", 0.0))
-        if _brk > 0.0:
-            self.v[self.forward] += _brk
-            self.v[self.turn_left] -= _brk * 0.5
-            self.v[self.turn_right] -= _brk * 0.5
-            # Jump injection during strong breakout to help clear obstacles
-            if _brk > 0.25:
-                self.v[self.jump_nodes] += (_brk - 0.25) * 0.5
+        #
+        # T2 (t1 §A5/§B4): the drive is *split* by the measured weave signature
+        # (see breakout_split).  breakout_drive() adds its stuck boost whenever
+        # stuck_duration > 30 s regardless of fatigue, so a fly whose steering
+        # pools are silent (fatigue ≈ 0, i.e. no weave at all) used to receive
+        # the full +0.50 V/tick forward push *and* a -0.25 V/tick clamp on each
+        # turn pool — that clamp is what held left/right at 0.00 Hz.  The
+        # forward breakthrough keeps a bounded floor (escape capability
+        # preserved for a silent, wedged fly); the bilateral turn clamp is only
+        # paid in proportion to the real alternation level.
+        _fwd_brk, _turn_brk, _brk = self.breakout_split()
+        # T8: the breakout *forward* leg is an auxiliary leg — occupancy gain +
+        # aggregate cap (a pool already pinned at the ceiling gains nothing from
+        # the extra push, while an idle/silent pool still receives it).
+        if self.breakout_leg_homeostat:
+            _fwd_brk = self._aux_forward_current(_fwd_brk)
+        self._fwd_brk_applied = float(_fwd_brk)
+        if _fwd_brk > 0.0:
+            self.v[self.forward] += _fwd_brk
+        if _turn_brk > 0.0:
+            self.v[self.turn_left] -= _turn_brk
+            self.v[self.turn_right] -= _turn_brk
+        # Jump injection during strong breakout to help clear obstacles
+        if _brk > 0.25:
+            self.v[self.jump_nodes] += (_brk - 0.25) * 0.5
 
         # EVO R15 · cliff-edge tangential detour (FailureMemory → CX pathway).
         # When parked at a CONFIRMED cliff edge and FailureMemory knows a
@@ -2138,6 +2478,9 @@ class FlyModel:
         jump = jump_rate > 0.04 and now - self.last_jump >= 0.8
         if jump:
             self.last_jump = now
+        # T2: mirror the LIF jump decode so blend_reflex_control() can hand the
+        # jump decision to the network when the network share is 1.0.
+        self.last_lif_jump = bool(jump)
         # Phase 3: strike (B, pulse w/ cooldown) and crouch (Z, level) decode.
         strike = strike_rate > 0.05 and now - self.last_strike >= 1.0
         if strike:

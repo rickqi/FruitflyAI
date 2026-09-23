@@ -38,8 +38,8 @@ from .scene_recognition import SceneRecognizer
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
 # behaviour pipeline and is pushed (see agent.md workflow rules).
-BRAIN_VERSION = "2.23.12"  # exploration deadlock fix: escape-override-reflex 200t burst + cx_novelty recovery
-SKILL_VERSION = "3.5.0"   # EVO-050: waste_penalty fitness + exploration triple-deadlock analysis
+BRAIN_VERSION = "2.24.0"  # motor-pool recovery: forward homeostat + steering resurrection + unit gate contract (t1-t9 team fix)
+SKILL_VERSION = "3.5.1"   # motor-pool: gate threshold domains Hz-calibrated per t3 schema update (rule 18)
 # Evolution iteration records: one entry per skill closed-loop execution
 evolution_log = deque(maxlen=50)
 _evo_iter_counter = 0
@@ -752,6 +752,57 @@ def apply_action_entropy(control, *, novelty: float, loop_score: float,
     control.x = int(np.clip(round(control.x + dx), -80, 80))
     control.y = int(np.clip(round(control.y + dy), -80, 80))
     return True
+
+
+# ── RULE-19: motor-pool rate unit contract (per-tick fraction ⇄ Hz) ──
+#
+# The LIF motor pools are decoded into PER-TICK firing fractions by
+# model.py:1912-1916: the mean spike rate over the last 13 ticks (≈ 250 ms at
+# 50 Hz), per pool, with 0.0 ≤ rate ≤ 1.0 (1.0 = every pool neuron fires every
+# tick = 1/dt Hz).  `Control.forward_rate / turn_rate / jump_rate` carry those
+# per-tick fractions, and `DashboardHTTP.flow_json` republishes them.
+#
+# A *rate* is therefore always one of two units, and mixing them is silent:
+#   * per-tick fraction  (0 .. 1)      — what Control carries
+#   * Hz                 (0 .. 1/dt)   — what the dashboard telemetry reports
+#     (telemetry.py:77-78 divides the 13-tick window count by `ticks · dt`)
+# Every threshold declared in Hz — skills/brain_tunable_params.json
+# `gate_forward_threshold` / `gate_jump_threshold` — must be compared against
+# the Hz value produced by `rate_per_tick_to_hz()`.  A per-tick fraction can
+# never exceed 1.0, so comparing it against a threshold declared as 2.0 Hz is
+# unreachable by construction; that is exactly what made `gate_jump`
+# permanently False (max 1.0 < 2.0) and made `gate_forward` look healthy only
+# while the forward pool happened to be saturated.
+#
+# 1/dt = 50 Hz for the 20 ms control loop.
+
+GATE_RATE_DT_DEFAULT = 0.02  # seconds per tick (50 Hz) when model.dt is absent
+
+
+def rate_per_tick_to_hz(rate_per_tick: float, dt: float) -> float:
+    """Convert a per-tick firing fraction to **Hz** (``rate_per_tick / dt``).
+
+    Identical to the dashboard conversion (telemetry.py:77-78:
+    ``counts / (window_ticks · dt)``), so both telemetry surfaces report the
+    same physical quantity in the same unit.  ``dt`` = seconds per tick
+    (``model.dt``; 0.02 s at the 50 Hz control loop).
+    """
+    dt = float(dt)
+    if not dt > 0.0:
+        raise ValueError("dt must be > 0 seconds per tick")
+    return float(rate_per_tick) / dt
+
+
+def gate_open_hz(observed_hz: float, threshold_hz: float) -> bool:
+    """The single sanctioned gate comparison: both sides in **Hz**.
+
+    Strict ``>`` — an observed rate exactly AT the threshold is CLOSED
+    (boundary = closed), preserving the comparison operator of the original
+    readers.  ``observed_hz`` must come from :func:`rate_per_tick_to_hz`;
+    passing a raw per-tick fraction here is the RULE-19 defect (a fraction
+    ≤ 1.0 can never exceed a threshold expressed in Hz).
+    """
+    return float(observed_hz) > float(threshold_hz)
 
 
 def frame_to_b64(frame) -> str:
@@ -2435,6 +2486,28 @@ async def run(args) -> None:
                         if len(_tp) >= 10 else 0.0
                     ))(),
                 }, separators=(",", ":")).encode()
+                # RULE-19 gate unit contract: `Control.forward_rate /
+                # turn_rate / jump_rate` are PER-TICK firing fractions
+                # (model.py:1912-1916, 13-tick ≈ 250 ms window mean), while
+                # `gate_forward_threshold` / `gate_jump_threshold` are declared
+                # in Hz (skills/brain_tunable_params.json).  Convert the pool
+                # rates to Hz exactly once, here, with the same 1/dt the
+                # dashboard uses, and publish the converted rates AND the
+                # thresholds so no consumer has to guess a unit.
+                _rate_dt = float(getattr(model, "dt", GATE_RATE_DT_DEFAULT)
+                                 or GATE_RATE_DT_DEFAULT)
+                _forward_rate_hz = rate_per_tick_to_hz(
+                    getattr(control, "forward_rate", 0.0), _rate_dt)
+                _turn_rate_hz = rate_per_tick_to_hz(
+                    getattr(control, "turn_rate", 0.0), _rate_dt)
+                _jump_rate_hz = rate_per_tick_to_hz(
+                    getattr(control, "jump_rate", 0.0), _rate_dt)
+                # Defaults MUST equal the registry defaults in
+                # skills/brain_tunable_params.json (pinned by
+                # tests/test_gate_units.py::test_main_defaults_equal_the_schema_defaults).
+                _gate_forward_hz = float(
+                    _expl.get("gate_forward_threshold", 2.0))
+                _gate_jump_hz = float(_expl.get("gate_jump_threshold", 8.0))
                 DashboardHTTP.flow_json = json.dumps({
                     "asymmetry": round(model.flow_asymmetry, 4),
                     "true_asymmetry": round(model.true_asymmetry, 4),
@@ -2479,13 +2552,25 @@ async def run(args) -> None:
                     "primitive_disp": getattr(memory_ctrl, "disp_60s", None),
                     "cpg_status": cpg.status(),
                     "cliff_conf": round(memory_ctrl.cliff_confidence, 3),
+                    # Pool rates: the raw PER-TICK fraction (0..1) is kept for
+                    # backwards compatibility, and the explicit *_hz value
+                    # (per-tick / dt) is published alongside it — the Hz value
+                    # is the same unit as the dashboard's rate columns and as
+                    # the gate thresholds below.
                     "forward_rate": round(float(getattr(control, "forward_rate", 0.0)), 4),
+                    "forward_rate_hz": round(_forward_rate_hz, 4),
                     "turn_rate": round(float(getattr(control, "turn_rate", 0.0)), 4),
+                    "turn_rate_hz": round(_turn_rate_hz, 4),
                     "jump_rate": round(float(getattr(control, "jump_rate", 0.0)), 4),
-                    "gate_forward": getattr(control, "forward_rate", 0.0) > float(
-                        _expl.get("gate_forward_threshold", 0.4)),
-                    "gate_jump": getattr(control, "jump_rate", 0.0) > float(
-                        _expl.get("gate_jump_threshold", 2.0)),
+                    "jump_rate_hz": round(_jump_rate_hz, 4),
+                    # Gate thresholds in Hz, exposed so an operator can see an
+                    # unreachable gate (threshold > Nyquist 1/dt) instead of
+                    # having to infer the unit from the comparison.
+                    "gate_forward_threshold_hz": round(_gate_forward_hz, 4),
+                    "gate_jump_threshold_hz": round(_gate_jump_hz, 4),
+                    # Hz-vs-Hz comparisons (no implicit unit conversion here).
+                    "gate_forward": gate_open_hz(_forward_rate_hz, _gate_forward_hz),
+                    "gate_jump": gate_open_hz(_jump_rate_hz, _gate_jump_hz),
                     "hrc_asymmetry": round(getattr(model, "true_hrc_asymmetry", 0.0), 4),
                     "mb_dopamine": round(getattr(model.mushroom, "dopamine", 0.0), 4),
                     "mb_mbon_forward": round(float(model.mushroom.mbon_outputs[0]), 4),
@@ -2592,6 +2677,8 @@ async def run(args) -> None:
                     "cpg_completed": cpg.completed if hasattr(cpg, 'completed') else 0,
                     "cpg_aborted": cpg.aborted if hasattr(cpg, 'aborted') else 0,
                     "visited_cells": memory_ctrl.spatial.visited_cells,
+                    # PER-TICK comparison (0.04/tick = 2.0 Hz): the decoder's own
+                    # jump trigger, model.py:2138 — NOT the Hz gate above.
                     "jump_not_active": getattr(control, "jump_rate", 0.0) < 0.04,
                 }, separators=(",", ":")).encode()
                 # P2-3: Serve EVO health trend from the JSONL file (if available)

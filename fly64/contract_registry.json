@@ -2,12 +2,25 @@
   "$schema": "v1",
   "meta": {
     "title": "Fly64 跨组件契约注册表",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "created": "2025-07-20",
     "purpose": "系统化登记所有跨组件状态载体的契约，确保 write-once-read-many 规范得到程序化执行",
     "rules_in_effect": [
       "RULE-19: 不可观测的失败为零容忍 — 任何被构造/维护/消费但从未被至少一个健康组件观测的状态路径视为不可观测的失败，门禁直接拒绝",
       "WORM: 每个状态键在系统生命周期内精确写入一次（生产者），可供多个消费者读取任意次数；无读取者的写入是死写，无写入者的读取是沉默默认值"
+    ],
+    "changelog": [
+      {
+        "version": "1.1.0",
+        "date": "2026-09-23",
+        "change": "t7 集成：flow_json 增加 rate_gate_group（forward/turn/jump_rate 及其 *_hz 观测键、gate_*_threshold_hz、jump_not_active）；新增 flow_json.unit_contract（RULE-19 第 8 例：per-tick 比例 vs Hz 阈值）；新增零容忍条目 RULE-19k（单位契约破裂无告警）；producers 锚点从过期行号改为模块路径",
+        "sources": [
+          "fly64/fly64/main.py: rate_per_tick_to_hz() / gate_open_hz()（t3）",
+          "fly64/skills/brain_tunable_params.json: gate_*_threshold 单位与区间（t3）",
+          "fly64/docs/declared-not-implemented.md §2b：RULE-19 第 8 例的决策登记（t3）",
+          "fly64/docs/analysis/motor-pool-saturation-findings.md §8：修复对照与验证证据（t7）"
+        ]
+      }
     ]
   },
   "contracts": {
@@ -67,9 +80,30 @@
         "retina_group": ["on", "off", "sustained", "edge_0", "edge_45", "edge_90", "edge_135", "fg_fraction"],
         "enclosure_group": ["wall_score", "ramp_score", "opening_score", "sky_score", "enclosure_score", "ground_angle", "door_frame_score", "opening_width", "target_count"],
         "decision_group": ["decision_source", "cpg_status", "cpg_completed", "cpg_aborted", "primitive_disp", "gate_forward", "gate_jump", "evo_findings", "command_decoupled"],
+        "rate_gate_group": ["forward_rate", "turn_rate", "jump_rate", "forward_rate_hz", "turn_rate_hz", "jump_rate_hz", "gate_forward_threshold_hz", "gate_jump_threshold_hz", "jump_not_active"],
         "plasticity_summary": ["dopamine_gain_avg", "learning_progress", "mushroom_weight_changes", "reward_trend", "error_gradient_mean", "gain_update_count"]
       },
-      "producers": ["main.py:DashboardHTTP.flow_json (line 2180+)"],
+      "unit_contract": {
+        "rule": "RULE-19 (8th case: declared unit ≠ consumed unit). Closed by t3; registered by t7 (integration).",
+        "per_tick_keys": {
+          "forward_rate": "motor-pool spike fraction of the rolling 13-tick (≈250 ms) window, 0.0 ≤ r ≤ 1.0 (model.py step() decode)",
+          "turn_rate": "right_rate − left_rate, same per-tick fraction domain",
+          "jump_rate": "jump-pool spike fraction, same domain; the decoder's own trigger is jump_rate > 0.04/tick"
+        },
+        "hz_keys": {
+          "forward_rate_hz": "forward_rate × 1/dt (= ×50 at dt = 0.02)",
+          "turn_rate_hz": "turn_rate × 1/dt",
+          "jump_rate_hz": "jump_rate × 1/dt",
+          "gate_forward_threshold_hz": "threshold in Hz (observation of exploration.gate_forward_threshold)",
+          "gate_jump_threshold_hz": "threshold in Hz (observation of exploration.gate_jump_threshold)"
+        },
+        "conversion_site": "main.py: rate_per_tick_to_hz(rate_per_tick, model.dt) — exactly one conversion per tick, GATE_RATE_DT_DEFAULT=0.02 fallback; the same 1/dt convention as telemetry.py (window count ÷ ticks·dt)",
+        "gate_comparison": "main.py: gate_open_hz(observed_hz, threshold_hz) — both sides Hz, strict >, boundary belongs to 'closed'",
+        "threshold_unit": "Hz — skills/brain_tunable_params.json: gate_forward_threshold 0.4..8.0 default 2.0; gate_jump_threshold 2.0..20.0 default 8.0 (maxima kept below Nyquist 1/dt = 50 Hz so a declared threshold stays reachable)",
+        "raw_key_policy": "the per-tick keys stay published for backward compatibility (scene_context.py / dashboard read them) — they are the SAME pool quantity, not a second semantic",
+        "known_divergence": "telemetry.py:93-94 (F643 packet gate_jump) compares its own Hz literal 2.0 against the Hz rate: same unit, different source of truth than the schema defaults (residual finding t6-F2 / t4-U3, out of t7 scope)"
+      },
+      "producers": ["main.py:DashboardHTTP.flow_json"],
       "consumers": [
         "evolution_skill.py:fetch_json('/flow.json')",
         "evolution_agent.py:fetch_json('/flow.json')",
@@ -90,7 +124,8 @@
       "unobservable_failures_zero_tolerance": [
         {"rule_id": "RULE-19d", "description": "flow_json 键被写入但无消费者读取（DEAD-WRITE）— 系统在产生不可观测的状态"},
         {"rule_id": "RULE-19e", "description": "field 被消费者读取但无生产者写入（SILENT-DEFAULT）— 组件在消费虚构值"},
-        {"rule_id": "RULE-19f", "description": "bridge_stale=True 但 dashboard/evolution 没有独立的熔断反馈回路"}
+        {"rule_id": "RULE-19f", "description": "bridge_stale=True 但 dashboard/evolution 没有独立的熔断反馈回路"},
+        {"rule_id": "RULE-19k", "description": "gate/rate 字段的单位契约破裂（8th case）：per-tick 比例(0..1) 与 Hz 阈值直接比较时 gate 恒假或恒真且无告警。单位契约见本合约 unit_contract；同一字段的 per-tick 与 Hz 两种口径必须由单一换算点（rate_per_tick_to_hz）产生，且 gate 两侧同量纲（gate_open_hz）"}
       ]
     },
     "memory_json": {

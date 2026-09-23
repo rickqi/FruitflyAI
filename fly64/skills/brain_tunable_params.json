@@ -29,17 +29,17 @@
       "wired": true
     },
     "exploration.gate_forward_threshold": {
-      "default": 0.4,
-      "min": 0.1,
-      "max": 0.8,
-      "description": "前进池门限：LIF前进运动池的触发频率(Hz)。用途：低于此频率不产生前进指令。推荐 0.3~0.5；调低=更易前进但悬崖风险升高，调高=反应迟钝。",
+      "default": 2.0,
+      "min": 0.4,
+      "max": 8.0,
+      "description": "前进池门限（单位：Hz；RULE-19 单位契约）：gate_forward 的判定阈值，必须与观测量同量纲——Control.forward_rate 是 LIF 前进池 13-tick(≈250ms) 窗口的每-tick 放电比例(0~1)，main.py 用 1/dt 换算成 Hz 后才比较（dt=0.02s → ×50，与 telemetry.py 的 Hz 速率列一致），禁止把每-tick 比例直接与 Hz 阈值比较。标定：0.4 Hz=模型自身前进驱动起始点(0.008/tick)；2.0 Hz≈raw_y 满驱动点(0.043/tick)，即池仍在解码线性段内门就应打开；8.0 Hz=要求持续强招募（1/dt=50 Hz 的 16%）。推荐 1.5~4.0；调低=更易前进但悬崖风险升高，调高=反应迟钝。",
       "wired": true
     },
     "exploration.gate_jump_threshold": {
-      "default": 2.0,
-      "min": 0.5,
-      "max": 4.0,
-      "description": "跳跃池门限：LIF跳跃运动池的触发频率(Hz)。用途：控制跳跃触发的难易。推荐 1.5~3.0；过低频繁跳跃浪费动量，过高撞墙不跳。",
+      "default": 8.0,
+      "min": 2.0,
+      "max": 20.0,
+      "description": "跳跃池门限（单位：Hz；RULE-19 单位契约）：gate_jump 的判定阈值，两侧同为 Hz——Control.jump_rate 是 LIF 跳跃池 13-tick 窗口的每-tick 放电比例，main.py 用 1/dt 换算成 Hz 后比较（dt=0.02s → ×50；与 telemetry.py 一致）。标定：下限 2.0 Hz=模型自身跳跃触发点(model.py:2138 的 jump_rate>0.04/tick)，门必须严于解码触发否则恒开；默认 8.0 Hz=4×触发点，要求跳跃池强力招募；20.0 Hz=1/dt 的 40%，再高即数学上不可达。实测跳跃池 0.276/tick=13.8 Hz > 8.0 Hz → gate_jump 可达 True（修复前 0.276<2.0 恒假）。推荐 4~12；过低频繁跳跃浪费动量，过高撞墙不跳。",
       "wired": true
     },
     "exploration.cliff_tangent_gain": {

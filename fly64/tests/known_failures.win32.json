@@ -182,6 +182,16 @@
    "id": "tests/test_what_i_see_protocol.py::TestSemanticLevel::test_semantic_level_non_string_defaults",
    "cause": "aspirational",
    "note": "ENHANCED_PROMPT_TEMPLATE / build_consult_request(SceneContext) / StrategyWriter(scene_tags) / parse_response(semantic_level) do not exist in plugin/llm_consult.py — the whole enhanced-prompt feature is unimplemented; the import fails before the names bind (EVO-068 audit)"
+  },
+  {
+   "id": "tests/test_plugin_mhr.py::TestGLMReceivesSnapshot::test_glm_returns_advice_text",
+   "cause": "test-drift",
+   "note": "asserts manifest llm.model 'glm-5v-turbo' but committed plugin/manifest.json is 'qwen3.8-27b-uncensored' (commit 78b3175); not caused by this round (model.py + main.py diff has zero plugin/ entries; A/B test: HEAD test file same 2 failed)."
+  },
+  {
+   "id": "tests/test_plugin_mhr.py::TestStrategyShaping::test_fallen_recovery_has_params",
+   "cause": "test-drift",
+   "note": "same root cause as test_glm_returns_advice_text: manifest model string drift; not caused by this round (A/B test confirms)."
   }
  ]
 }
