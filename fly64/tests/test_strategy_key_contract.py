@@ -6,9 +6,19 @@ written as dot-prefixed flat keys inside sections (e.g.
 consumes clean keys (``exploration["gate_jump_threshold"]``).  Mechanism
 existed, reported success, could not take effect.
 
+P1-3 (defect family #8): the EVO-072 migration used ``prefix = sec + "."`` and
+therefore only ever saw a *same-section* dead key.  A key written by the
+pre-a0208e0 writer — which put every pid into the exploration section —
+carries a FOREIGN prefix (``exploration["escape.commit_ticks"]``) and was
+never migrated and never deleted.  The migration is now cross-section aware
+(``normalize_strategy_sections``) and reports what it drops; the exhaustive
+matrix lives in ``test_cross_section_keys.py``.
+
 Pins:
   1. BrainMutator._load_active_strategy migrates dot-prefixed keys -> clean.
-  2. Coach StrategyWriter.write_strategy MERGES with the on-disk file so
+  2. Cross-section keys move into the section their prefix names, and the
+     registered section's explicit value wins.
+  3. Coach StrategyWriter.write_strategy MERGES with the on-disk file so
      EVO-owned keys (__generation, evolved params) survive coach writes.
 """
 from __future__ import annotations
@@ -22,7 +32,8 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
-from skills.evolution_skill import BrainMutator  # noqa: E402
+from skills.evolution_skill import (  # noqa: E402
+    BrainMutator, normalize_strategy_sections)
 from plugin.strategy_writer import StrategyWriter  # noqa: E402
 
 
@@ -95,6 +106,92 @@ class TestEvoKeyNormalization:
         expl = on_disk["exploration"]
         assert expl.get("gate_jump_threshold") == pytest.approx(0.8)
         assert "exploration.gate_jump_threshold" not in expl
+
+
+class TestCrossSectionDeadKeys:
+    """P1-3: a dead key whose prefix names ANOTHER section must not survive.
+
+    The live probe (docs/analysis P1-1) found five of them in the exploration
+    section; because the EVO-072 migration only stripped ``sec + "."`` they
+    were never migrated and never deleted.  These pin the read end (the
+    loader) and the reporting contract (the migration must be visible).
+    """
+
+    DEAD = {
+        "escape.commit_ticks": 125.04821717847143,
+        "escape.forward_accum_max": 0.2066931309445445,
+        "escape.forward_accum_step": 0.015757426446775843,
+        "escape.commit_reinforce": 0.1820265798466096,
+        "escape.commit_suppress": 0.11829571149170438,
+    }
+
+    def _write(self, tmp_path, raw):
+        target = tmp_path / "active_strategy.json"
+        target.write_text(json.dumps(raw), "utf-8")
+        return target
+
+    def test_load_moves_cross_section_key_into_its_registered_section(
+            self, tmp_path, monkeypatch):
+        raw = {"exploration": {"escape.commit_ticks": 125.0},
+               "__generation": 320}
+        self._write(tmp_path, raw)
+        monkeypatch.setattr("skills.evolution_skill.SKILL_DIR", tmp_path)
+
+        strat = BrainMutator._load_active_strategy()
+        assert strat["escape"]["commit_ticks"] == pytest.approx(125.0), (
+            "the cross-section key was not routed to the section its prefix "
+            "names (reader: _esc.get('commit_ticks'))")
+        assert "escape.commit_ticks" not in strat["exploration"]
+        assert strat["__generation"] == 320
+
+    def test_registered_section_value_wins_over_the_dead_copy(
+            self, tmp_path, monkeypatch):
+        raw = {"exploration": {"escape.commit_reinforce": 0.182},
+               "escape": {"commit_reinforce": 0.15}}
+        self._write(tmp_path, raw)
+        monkeypatch.setattr("skills.evolution_skill.SKILL_DIR", tmp_path)
+
+        strat = BrainMutator._load_active_strategy()
+        assert strat["escape"]["commit_reinforce"] == pytest.approx(0.15), (
+            "the dead copy overwrote the value the reader consumes")
+        assert "escape.commit_reinforce" not in strat["exploration"]
+
+    def test_no_section_keeps_a_dotted_key_after_loading(
+            self, tmp_path, monkeypatch):
+        self._write(tmp_path, {
+            "exploration": dict(self.DEAD, turn_bias=0.25),
+            "escape": {"commit_ticks": 50},
+        })
+        monkeypatch.setattr("skills.evolution_skill.SKILL_DIR", tmp_path)
+
+        strat = BrainMutator._load_active_strategy()
+        leftovers = [k for sec in strat.values() if isinstance(sec, dict)
+                     for k in sec if isinstance(k, str) and "." in k]
+        assert leftovers == [], "dotted keys survived the load: %s" % leftovers
+
+    def test_the_five_probe_keys_are_reported_with_their_values(self):
+        """The migration must be visible: each dropped key is logged with the
+        value it held, never silently discarded."""
+        # the shipped escape section already carries all five leaves, so the
+        # probe's dead copies are discarded (not migrated) — the reader keeps
+        # reading the registered value.
+        raw = {"exploration": dict(self.DEAD),
+               "escape": {"commit_ticks": 50, "forward_accum_max": 0.5,
+                          "forward_accum_step": 0.005,
+                          "commit_reinforce": 0.15,
+                          "commit_suppress": 0.1}}
+        report = normalize_strategy_sections(raw)
+
+        assert report["migrated"] == []
+        assert len(report["dropped"]) == len(self.DEAD)
+        for key, value in self.DEAD.items():
+            expected = "exploration::%s=%r" % (key, value)
+            assert expected in report["dropped"], (
+                "the dropped value %r is not in the log: %s"
+                % (expected, report["dropped"]))
+        assert "escape.commit_ticks" not in raw["exploration"]
+        assert raw["escape"]["commit_ticks"] == 50
+        assert raw["escape"]["commit_reinforce"] == pytest.approx(0.15)
 
 
 class TestCoachMergePreservesEvo:

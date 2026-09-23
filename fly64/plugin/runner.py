@@ -389,6 +389,32 @@ class PluginRunner:
         path.write_bytes(raw)
         return str(path)
 
+    # ── P1-2: coach request vs accepted-value reporting ───────────────
+    @staticmethod
+    def acceptance_warning(acceptance: Optional[dict]) -> Optional[str]:
+        """One line describing any coach value the pipeline cannot honour.
+
+        P1-2 requirement (3): the coach's raw request and the value the brain
+        will really use must be comparable afterwards.  ``acceptance`` is
+        ``llm_consult.acceptance_report`` output.  Returns None when every
+        requested value is inside the accepted window and nothing was dropped.
+        """
+        if not isinstance(acceptance, dict):
+            return None
+        out_of_window = acceptance.get("out_of_window") or {}
+        dropped = acceptance.get("dropped") or []
+        if not out_of_window and not dropped:
+            return None
+        parts = []
+        for key in sorted(out_of_window):
+            info = out_of_window[key] or {}
+            got = info.get("requested", info.get("accepted"))
+            parts.append("%s=%s -> effective %s (accepted window %s)" % (
+                key, got, info.get("effective"), info.get("window")))
+        if dropped:
+            parts.append("refused keys: %s" % ", ".join(map(str, dropped)))
+        return "coach advice outside the brain's accepted window: " + "; ".join(parts)
+
     # ── one cycle ────────────────────────────────────────────────────
     def run_cycle(self) -> dict:
         """Execute one full 10s skill cycle. Returns a cycle summary."""
@@ -427,6 +453,18 @@ class PluginRunner:
             result["consulted"] = True
             self.consultations += 1
             strategy = parsed.get("strategy") or {}
+            # P1-2: keep the coach's request-vs-accepted record in the cycle
+            # result — the resident service persists it in
+            # plugin/service_status.json, so "建议被钳掉" leaves a trace in the
+            # service record even when nobody reads coach_advice.json.
+            acceptance = parsed.get("coach_acceptance")
+            if isinstance(acceptance, dict):
+                result["coach_acceptance"] = acceptance
+                warning = self.acceptance_warning(acceptance)
+                if warning:
+                    result["coach_acceptance_warning"] = warning
+                    # service record + console/service log line
+                    print(f"[fly64-mhr] {warning}")
             self.writer.write_strategy(strategy, advice=parsed.get("advice", ""),
                                        source=self.consultant.model)
             self.writer.write_advice(parsed.get("advice", ""), context=context,

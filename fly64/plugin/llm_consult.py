@@ -79,6 +79,82 @@ def _load_llm_env() -> None:
 
 _load_llm_env()
 
+# ── P1-2: the numeric window the brain actually ACCEPTS ──────────────────
+# WHY THESE CONSTANTS EXIST (P0-4 §3.5 / §四):
+# the prompt used to advertise `exploration.turn_bias 0-1` and
+# `bold_explore_stuck_s 建议 20-120`, while fly64/main.py clamps the coach's
+# write on every hot-reload with `max(0.0, min(0.25, ...))` and
+# `max(1, min(10, ...))`.  Every value the coach emitted above those ceilings
+# was therefore silently eaten — live evidence (2026-09-23): the coach wrote
+# turn_bias=0.8 / bold_explore_stuck_s=20.0 and ~26s later the file read
+# 0.25 / 10 ("建议被接收、被解析、被写入，但被安全钳位吃掉").
+#
+# These tuples are the SINGLE SOURCE OF TRUTH the prompt is rendered from, and
+# ``tests/test_coach_contract_range.py`` re-derives the same bounds from
+# main.py's live clamp expressions: a clamp change without a prompt change
+# (or the reverse) now fails a test instead of quietly voiding the coach.
+TURN_BIAS_ACCEPTED = (0.0, 0.25)              # main.py: max(0.0, min(0.25, x))
+BOLD_EXPLORE_STUCK_S_ACCEPTED = (1.0, 10.0)   # main.py: max(1, min(10, x))
+# escape.stuck_threshold_s is NOT clamped by main.py (only the >=0.1 sanitizer
+# floor applies); 60s is the practical upper end, not a hard brain bound.
+ESCAPE_STUCK_THRESHOLD_S_ACCEPTED = (0.1, 60.0)
+COMMAND_HEADING_ACCEPTED = (0, 359)           # sanitize_strategy: int(heading) % 360
+COMMAND_DURATION_S_ACCEPTED = (0.5, 10.0)     # sanitize_strategy: max(0.5, min(10.0, x))
+COMMAND_Y_ACCEPTED = (0, 127)                 # sanitize_strategy: max(0, min(127, x))
+
+#: the only command type main.py consumes (its Coach-command consumer).
+COMMAND_TYPES = ("turn_and_go",)
+
+#: motor primitives the brain accepts in `primitives.enabled` / `command.primitive`.
+PRIMITIVE_NAMES = ("longjump", "backflip", "groundpound", "punch", "dive")
+
+#: dotted key -> accepted window.  Used by the prompt card AND by
+#: :func:`acceptance_report` so "requested vs actually usable" is comparable.
+COACH_NUMERIC_WINDOWS = {
+    "exploration.turn_bias": TURN_BIAS_ACCEPTED,
+    "exploration.bold_explore_stuck_s": BOLD_EXPLORE_STUCK_S_ACCEPTED,
+    "escape.stuck_threshold_s": ESCAPE_STUCK_THRESHOLD_S_ACCEPTED,
+    "command.heading": COMMAND_HEADING_ACCEPTED,
+    "command.duration_s": COMMAND_DURATION_S_ACCEPTED,
+    "command.y": COMMAND_Y_ACCEPTED,
+}
+
+
+def window_text(window) -> str:
+    """Render an accepted window the way the prompt states it ("1-10")."""
+    def f(v):
+        fv = float(v)
+        return str(int(fv)) if fv == int(fv) else ("%g" % fv)
+    lo, hi = window
+    return "%s-%s" % (f(lo), f(hi))
+
+
+#: P1-2 requirement (1A+B): the semantic card states the REAL usable range and
+#: keeps `command` documented as the strong direct-control channel that the
+#: strategy clamps cannot eat.  Rendered from the constants above so prompt and
+#: code cannot drift.
+PARAM_RANGE_CARD = (
+    "策略参数语义卡（严格遵守单位与方向，不要反向调参；**下列每个数值都必须落在"
+    "声明的可用范围内 —— 超出范围会被主程序钳掉，等于白调**）:\n"
+    "- exploration.turn_bias: 转向强度（占最大转向电流的比例）。"
+    "**主程序只接受 " + window_text(TURN_BIAS_ACCEPTED) + "** —— 旧的 0-1 全域标尺"
+    "已作废：填 0.8 会被静默钳到 0.25，等于白调；越大转向越猛；"
+    "不要填 69 这类角度值。\n"
+    "- exploration.bold_explore_stuck_s: 秒。**可用范围 "
+    + window_text(BOLD_EXPLORE_STUCK_S_ACCEPTED) + "**（主程序上限 10，"
+    "填 20 会被钳到 10）。异常持续该秒数后触发突围，越小越快突围。\n"
+    "- escape.stuck_threshold_s: 秒。**可用范围 "
+    + window_text(ESCAPE_STUCK_THRESHOLD_S_ACCEPTED) + "**，主程序不钳位。"
+    "持续卡住该秒数后强制逃逸，越小越快逃逸。\n"
+    "- fallen_recovery.mode: 只能 mirror 或 directional_climb。\n"
+    "- command（**强直控通道**，不受上面的参数钳位影响；它会被主程序直接消费）："
+    "type 只能填 turn_and_go，heading 用 " + window_text(COMMAND_HEADING_ACCEPTED)
+    + " 度（45=右前方）、duration_s 用 " + window_text(COMMAND_DURATION_S_ACCEPTED)
+    + "（前冲秒数）、y（前进油门）用 " + window_text(COMMAND_Y_ACCEPTED)
+    + "、primitive 可留空。想让马里奥“立刻转向并前冲”时优先给 command，"
+    "它比调 turn_bias 更直接有效。\n"
+)
+
 PROMPT_TEMPLATE = (
     "你是 SM64 果蝇脑控制系统的教练。分析当前游戏截屏和状态，回答：\n"
     "0. **特别注意屏幕上的文字**：读出所有可见的英文/中文文字"
@@ -93,17 +169,14 @@ PROMPT_TEMPLATE = (
     '"problem": "...", "action": "...", '
     '"advice": "给马里奥的一句中文建议", '
     '"strategy": {"fallen_recovery": {"mode": "mirror|directional_climb"}, '
-    '"exploration": {"bold_explore_stuck_s": 60.0, "turn_bias": 0}, '
+    # the example itself must sit inside the accepted window — the previous
+    # 60.0 was above main.py's 10s ceiling, so a coach copying the template
+    # produced a value the brain immediately clamped (P1-2).
+    '"exploration": {"bold_explore_stuck_s": 5.0, "turn_bias": 0.15}, '
     '"escape": {"stuck_threshold_s": 30.0}, '
     '"command": {"type": "turn_and_go", "heading": 90, "duration_s": 2.0, '
     '"y": 70, "primitive": null}}}\n'
-    '策略参数语义卡（严格遵守单位与方向，不要反向调参）:\n'
-    '- exploration.bold_explore_stuck_s: 秒。异常持续该秒数后触发突围，'
-    '越小越快突围（建议 20-120）。\n'
-    '- exploration.turn_bias: 0-1 转向强度（占最大转向电流的比例），'
-    '越大转向越猛（建议 0.3-1.0；不要填 69 这类角度值）。\n'
-    '- escape.stuck_threshold_s: 秒。持续卡住该秒数后强制逃逸，'
-    '越小越快逃逸（建议 1-60）。\n'
+    + PARAM_RANGE_CARD
 )
 
 # Keys allowed per strategy section (name -> (type, default))
@@ -126,7 +199,14 @@ SECTION_SPECS = {
         "mode": (str, "mirror"),
     },
     "exploration": {
-        "bold_explore_stuck_s": (float, 60.0),
+        # P1-2: the DEFAULT is part of the coach contract too — it is written to
+        # active_strategy.json whenever the model omits the key.  60.0 sat above
+        # the brain's own ceiling, so the pipeline recorded 60.0, the brain
+        # applied 10 and the requested-vs-accepted record blamed the coach for a
+        # value it never asked for.  10.0 keeps the effective behaviour
+        # identical (max(1, min(10, 60)) == 10) while making accepted ==
+        # effective; guarded by tests/test_coach_contract_range.py.
+        "bold_explore_stuck_s": (float, 10.0),
         "turn_bias": (float, 0.0),
     },
     "escape": {
@@ -277,12 +357,31 @@ class GLMConsultant:
             parsed["advice"] = (str(parsed.get("advice", "")).rstrip()
                                 + "\n👁 屏幕: " + "；".join(parsed["what_i_see"]))
         parsed.setdefault("advice", "")
-        if isinstance(parsed.get("strategy"), dict):
-            parsed["strategy"] = sanitize_strategy(parsed["strategy"])
+        strategy_raw = parsed.get("strategy")
+        if isinstance(strategy_raw, dict):
+            strategy_raw = dict(strategy_raw)
+            # P1-2 requirement (2): the direct-control channel must survive the
+            # model hoisting `command` out of `strategy`.  The prompt shows it
+            # inside `strategy`, but a sibling `command` was silently dropped by
+            # sanitize_strategy (it only reads strategy["command"]) — one of the
+            # candidate causes for the "文件里没有 command 段" report.
+            if (not isinstance(strategy_raw.get("command"), dict)
+                    and isinstance(parsed.get("command"), dict)):
+                strategy_raw["command"] = parsed["command"]
+            clean = sanitize_strategy(strategy_raw)
+            parsed["strategy"] = clean
+            # P1-2 requirement (3): record the coach's raw request next to the
+            # values the pipeline actually keeps, so "建议被钳掉" is answerable
+            # after the fact (P0-4 §3.5 complained precisely that it was not).
+            acceptance = acceptance_report(strategy_raw, clean)
+            parsed["coach_acceptance"] = acceptance
+            # t21 precedent: ride the record into active_strategy.json /
+            # coach_advice.json through the strategy the runner writes.
+            clean["coach_acceptance"] = acceptance
             # t21: ride the readout into active_strategy.json (the runner
             # writes strategy=parsed["strategy"] unchanged).
             if parsed.get("what_i_see"):
-                parsed["strategy"]["what_i_see"] = list(parsed["what_i_see"])
+                clean["what_i_see"] = list(parsed["what_i_see"])
         return parsed
 
     # ── dialogue decision API ─────────────────────────────────────────
@@ -448,7 +547,7 @@ def sanitize_strategy(strategy: dict) -> dict:
         enabled = raw_prim.get("enabled")
         if isinstance(enabled, list):
             valid = [str(p) for p in enabled if isinstance(p, str)
-                     and p in ("longjump","backflip","groundpound","punch","dive")]
+                     and p in PRIMITIVE_NAMES]
             if valid:
                 clean_p["enabled"] = valid
         prefer = raw_prim.get("prefer")
@@ -461,18 +560,97 @@ def sanitize_strategy(strategy: dict) -> dict:
             clean["primitives"] = clean_p
     # Command section — one-shot behavioral directive.
     cmd = strategy.get("command")
-    if isinstance(cmd, dict) and cmd.get("type") in ("turn_and_go",):
+    if isinstance(cmd, dict) and cmd.get("type") in COMMAND_TYPES:
         out = {"type": cmd["type"]}
         if "heading" in cmd and isinstance(cmd["heading"], (int, float)):
             out["heading"] = int(cmd["heading"]) % 360
-        if "duration_s" in cmd:
-            out["duration_s"] = max(0.5, min(10.0, float(cmd.get("duration_s", 2.0))))
-        if "y" in cmd:
-            out["y"] = max(0, min(127, int(cmd.get("y", 70))))
-        if cmd.get("primitive") in ("longjump","backflip","groundpound","punch","dive"):
+        # P1-2: non-numeric fields must degrade to the default instead of
+        # raising out of sanitize_strategy (which would abort the whole
+        # consult and turn one malformed command into a failed cycle).
+        try:
+            if "duration_s" in cmd:
+                out["duration_s"] = max(
+                    COMMAND_DURATION_S_ACCEPTED[0],
+                    min(COMMAND_DURATION_S_ACCEPTED[1],
+                        float(cmd.get("duration_s", 2.0))))
+            if "y" in cmd:
+                out["y"] = max(COMMAND_Y_ACCEPTED[0],
+                               min(COMMAND_Y_ACCEPTED[1],
+                                   int(float(cmd.get("y", 70)))))
+        except (TypeError, ValueError):
+            pass
+        if cmd.get("primitive") in PRIMITIVE_NAMES:
             out["primitive"] = cmd["primitive"]
         clean["command"] = out
     return clean
+
+
+def _flatten_leaves(strategy: dict) -> dict:
+    """Flatten ``{section: {key: scalar}}`` to ``{"section.key": scalar}``.
+
+    Only scalar leaves are kept (numbers, strings, booleans); nested dicts and
+    lists are skipped — the coach's tunable contract is flat.
+    """
+    flat: dict = {}
+    if not isinstance(strategy, dict):
+        return flat
+    for section, body in strategy.items():
+        if not isinstance(section, str) or not isinstance(body, dict):
+            continue
+        for key, val in body.items():
+            if isinstance(key, str) and isinstance(val, (int, float, str, bool)):
+                flat["%s.%s" % (section, key)] = val
+    return flat
+
+
+def acceptance_report(requested: dict, accepted: dict) -> dict:
+    """P1-2 requirement (3): coach request vs what the pipeline accepts.
+
+    ``requested`` is the strategy dict as the model emitted it; ``accepted`` is
+    the sanitised dict that is actually written to ``active_strategy.json``.
+    The report answers the P0-4 §3 complaint ("教练与仪表板都看不到建议被钳掉")
+    with three lists:
+
+    ``out_of_window``
+        window key -> ``{"requested"?, "accepted"?, "window", "effective"}``.
+        ``effective`` is the value the brain will really use after its own
+        clamp (``max(lo, min(hi, x))``), i.e. the honest "实际可接受值".
+    ``dropped``
+        dotted keys the whitelist refused outright (e.g. the dead
+        ``escape.reverse_seconds`` taken from an older prompt).
+    ``command``
+        the same requested/written pair for the direct-control channel, so
+        "command 到底落地没有" is answerable from the artifact itself.
+    """
+    req = _flatten_leaves(requested)
+    acc = _flatten_leaves(accepted)
+    out_of_window: dict = {}
+    for dotted, (lo, hi) in COACH_NUMERIC_WINDOWS.items():
+        entry: dict = {}
+        for label, val in (("requested", req.get(dotted)),
+                           ("accepted", acc.get(dotted))):
+            if isinstance(val, bool) or not isinstance(val, (int, float)):
+                continue
+            if val < lo or val > hi:
+                entry[label] = val
+        if entry:
+            src = entry.get("requested", entry.get("accepted"))
+            entry["window"] = [lo, hi]
+            entry["effective"] = max(lo, min(hi, float(src)))
+            out_of_window[dotted] = entry
+    cmd_req = requested.get("command") if isinstance(requested, dict) else None
+    cmd_acc = accepted.get("command") if isinstance(accepted, dict) else None
+    return {
+        "ts": round(time.time(), 2),
+        "requested": req,
+        "accepted": acc,
+        "out_of_window": out_of_window,
+        "dropped": sorted({k for k in req if k not in acc}),
+        "command": {
+            "requested": dict(cmd_req) if isinstance(cmd_req, dict) else None,
+            "written": dict(cmd_acc) if isinstance(cmd_acc, dict) else None,
+        },
+    }
 
 
 def normalize_what_i_see(value) -> list:

@@ -10,6 +10,7 @@ import threading
 import time
 import webbrowser
 import json
+import logging
 import math
 import signal
 try:
@@ -34,6 +35,13 @@ from .memory import (MemoryController, deadlock_burst_ready,
                      displacement_per_speed, median_speed_from_trace,
                      progress_is_ineffective)
 from .scene_recognition import SceneRecognizer
+
+# P1-1 (t1): clamp visibility.  The strategy hot-reload's safety clamps
+# used to swallow coach values silently (see
+# docs/analysis/analysis-p0-4-live-verification.md §3); every clamp now
+# raises a WARNING here and is reported through /memory.json.  Module-level
+# logger so a test can capture the record with caplog.
+logger = logging.getLogger("fly64.main")
 
 # ── Brain model version ──────────────────────────────────────────────
 # MUST be incremented whenever an evolution round updates the skill /
@@ -881,6 +889,125 @@ def apply_strategy_update(cur: dict, updates: dict):
     return applied, rejected
 
 
+# ── RULE-19 key contract: dot-prefixed dead keys (P1-3) ────────────────
+# Every section the brain or a writer may own.  The registry
+# (skills/brain_tunable_params.json) is the authority for "<section>.<leaf>"
+# and contributes its own prefixes at call time; this tuple anchors the
+# sections that carry no registry pid (command/dopamine/primitives).
+STRATEGY_SECTIONS = (
+    "exploration", "escape", "reflex", "navigation", "coach", "memory",
+    "command", "dopamine", "primitives",
+)
+_SECTION_NAME_CACHE: dict = {}
+
+
+def strategy_section_names(project=None) -> set:
+    """Section names that own a registry pid, plus the built-in sections.
+
+    P1-3: a dead key's prefix (``escape.commit_ticks``) must be checked
+    against the set of REAL sections, so the migration can tell "this belongs
+    to the escape section" from "this prefix means nothing".  The registry is
+    read once per project root and cached.
+    """
+    root = (Path(project) if project is not None
+            else Path(__file__).resolve().parent.parent)
+    cache_key = str(root)
+    if cache_key not in _SECTION_NAME_CACHE:
+        names = set(STRATEGY_SECTIONS)
+        try:
+            schema = json.loads(
+                (root / "skills" / "brain_tunable_params.json").read_text("utf-8"))
+            for pid in (schema.get("params") or {}):
+                if isinstance(pid, str) and "." in pid:
+                    names.add(pid.split(".", 1)[0])
+        except (OSError, ValueError):
+            pass
+        _SECTION_NAME_CACHE[cache_key] = names
+    return set(_SECTION_NAME_CACHE[cache_key])
+
+
+def normalize_strategy_dot_keys(strat, sections=None, report=None, project=None):
+    """Migrate/eradicate EVERY dotted key in an active_strategy payload.
+
+    P1-3 (defect family #8): the EVO-072 fix used ``prefix = sec + "."`` and
+    therefore only ever saw a dead key whose prefix equalled the section it
+    was sitting in.  ``exploration["escape.commit_ticks"]`` — written by the
+    pre-a0208e0 BrainMutator, which put every pid into the exploration section
+    — has a FOREIGN prefix, so it was neither migrated nor deleted; 5 such
+    keys were still on disk and every reload carried them forward.
+
+    Cross-section aware rules, applied to the root and to every section (the
+    panel's older handler also wrote ``{"escape.commit_ticks": 125}`` as a
+    literal top-level key):
+
+    * ``<known-section>.<leaf>`` -> move the value into that section, unless
+      the section already holds ``leaf``: the registered section's explicit
+      value is what the reader consumes, so it wins and the dead copy is
+      dropped;
+    * ``<same-section>.<leaf>``  -> same rule (the EVO-072 case);
+    * multi-dot / unknown-prefix -> REPORTED in ``rejected`` and removed.  A
+      key no reader can resolve is a dead knob; keeping it "just in case" is
+      what made this defect invisible.
+
+    Mutates ``strat`` in place; returns ``{"migrated": [...], "dropped":
+    [...], "rejected": [...]}`` with ``"<section>::<key>=<value>"`` entries
+    (the value is logged because the dead key is deleted, so the log is the
+    only place it survives); ``report`` is filled in place when the caller
+    passes one.
+
+    ``skills/evolution_skill.py`` carries the equivalent
+    ``normalize_strategy_sections`` for the EVO writer; the brain loop keeps
+    this copy so it never has to import the skills package.
+    ``tests/test_cross_section_keys.py`` pins the two to identical output.
+    """
+    if report is None:
+        report = {"migrated": [], "dropped": [], "rejected": []}
+    if not isinstance(strat, dict):
+        return report
+    known = set(sections) if sections else strategy_section_names(project)
+    known |= {k for k, v in strat.items() if isinstance(v, dict)}
+
+    def _place(where, container, key):
+        # The report entry carries the dropped VALUE (section::key=value): the
+        # dead key is deleted, so the log is the only place its value survives
+        # — a migration must not be a silent data loss.
+        value = container.get(key)
+        entry = "%s::%s=%r" % (where, key, value)
+        parts = key.split(".")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            container.pop(key, None)
+            report["rejected"].append(entry)
+            return
+        head, leaf = parts
+        if head in known:
+            target = strat.get(head)
+            if target is None:
+                target = strat[head] = {}
+            elif not isinstance(target, dict):
+                # A scalar occupies the section slot: moving the value in
+                # would destroy it, so refuse loudly instead of guessing.
+                container.pop(key, None)
+                report["rejected"].append(entry)
+                return
+            container.pop(key)
+            if leaf in target:
+                report["dropped"].append(entry)
+            else:
+                target[leaf] = value
+                report["migrated"].append(entry)
+            return
+        container.pop(key, None)
+        report["rejected"].append(entry)
+
+    for key in [k for k in strat if isinstance(k, str) and "." in k]:
+        _place("<root>", strat, key)
+    for sec in [s for s in strat if isinstance(strat.get(s), dict)]:
+        body = strat[sec]
+        for key in [k for k in body if isinstance(k, str) and "." in k]:
+            _place(sec, body, key)
+    return report
+
+
 def load_active_strategy(path) -> dict:
     """Read skills/active_strategy.json fallen_recovery section.
 
@@ -895,6 +1022,12 @@ def load_active_strategy(path) -> dict:
         return defaults
     if not isinstance(data, dict):
         return defaults
+    # P1-3 read-end upgrade: purge/migrate dot-prefixed dead keys BEFORE any
+    # section is handed to a consumer.  The sections below are passed through
+    # by reference, so normalizing here is what makes every reader
+    # (`_expl.get("gate_jump_threshold")`, `_esc.get("commit_reinforce")`)
+    # see the value the writer intended instead of its hardcoded default.
+    normalize_strategy_dot_keys(data)
     section = data.get("fallen_recovery", data)
     if not isinstance(section, dict):
         return defaults
@@ -937,6 +1070,219 @@ def load_active_strategy(path) -> dict:
     # R31-fix9: coach dopamine config — bias and one-shot stimuli consumed
     # in main loop -> _pending_dopamine path (see dopamine handling below).
     return strategy
+
+
+# ── P1-1 (t1): clamp visibility ───────────────────────────────────────
+# The strategy hot-reload clamps a few coach/EVO-tunable exploration keys
+# for safety (R31-fix12).  That clamp used to be silent AND self-healing:
+# the coach wrote exploration.turn_bias=0.8, the brain applied 0.25 and the
+# "P0 self-heal" wrote 0.25 back to the file, so the suggestion was
+# received, parsed, written, eaten — and erased without leaving a trace
+# (docs/analysis/analysis-p0-4-live-verification.md §3, the EVO-066 family
+# "mechanism exists, reports success, cannot take effect").
+#
+# The bounds below are the SAME thresholds as before.  P1-5 resolved the
+# registry/clamp mismatch by aligning the REGISTRY to them instead of
+# loosening them: brain_tunable_params.json used to advertise
+# exploration.turn_bias max 0.4 (runtime clamp 0.25) and
+# exploration.bold_explore_stuck_s [15, 180] (runtime clamp [1, 10] — an
+# EMPTY intersection, so every legal panel/EVO/coach sample was silently
+# rewritten: the same "mechanism exists, reports success, cannot take
+# effect" family as the dead keys).  The clamp is kept because it is the
+# R31-fix12 oscillation guard and because the coach prompt's accepted
+# windows (plugin/llm_consult.py) are already these numbers; the registry
+# now mirrors them and states the real usable range in each description
+# (P1-5 requirement 4).  tests/test_tunable_wiring.py asserts
+# registry ∩ runtime clamp != empty for EVERY wired pid, with no
+# whitelist.
+#
+# This block also makes the clamp visible: one WARNING per clamped key plus
+# a {key, requested, applied, source} record published in /memory.json
+# under "clamped_keys".
+CLAMP_BOUNDS = {
+    "exploration.turn_bias": (0.0, 0.25),
+    "exploration.bold_explore_stuck_s": (1.0, 10.0),
+}
+# How fresh the coach's own ``advice_ts`` must be at reload time for a
+# clamped value to be attributed to the coach.  §3.1 caught the EVO
+# loop/panel rewriting the file while advice_ts stayed put, so a large gap
+# identifies a non-coach writer.
+CLAMP_SOURCE_WINDOW_S = 20.0
+# A clamp event stays in the /memory.json report for this long: the
+# self-heal corrects the file within one reload, so a "latest reload only"
+# report would vanish before the coach's next 10 s consult cycle could read
+# it — the same invisibility this task exists to remove.
+CLAMP_REPORT_TTL_S = 120.0
+CLAMP_REPORT_CAP = 50
+
+
+def strategy_writer_source(raw, mtime=None, now=None,
+                           window_s: float = CLAMP_SOURCE_WINDOW_S):
+    """Best-effort attribution of the strategy file's last writer.
+
+    The coach's ``StrategyWriter`` stamps the payload with ``advice_ts``
+    (and ``source``); the EVO loop / operator panel rewrite values without
+    touching it.  So the gap between ``advice_ts`` and the file's mtime at
+    reload time separates "the coach just asked for this" from "something
+    else wrote it afterwards" — exactly the t=+5 s vs t=+35 s signature in
+    §3.1.
+
+    Returns ``(attribution, advice_age_s)`` where attribution is
+    ``"coach"`` | ``"evo_or_panel"`` | ``"unknown"``.  ``now`` is the
+    fallback reference when ``mtime`` is unavailable.
+    """
+    def _as_number(value):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        return float(value)
+
+    if not isinstance(raw, dict):
+        return "unknown", None
+    ts = _as_number(raw.get("advice_ts"))
+    if ts is None:
+        return "unknown", None
+    ref = _as_number(mtime)
+    if ref is None:
+        ref = _as_number(now)
+    if ref is None:
+        ref = time.time()
+    age = ref - ts
+    if abs(age) <= float(window_s):
+        return "coach", round(age, 2)
+    return "evo_or_panel", round(age, 2)
+
+
+def apply_strategy_clamps(section, raw=None, mtime=None, now=None):
+    """Apply the R31-fix12 safety clamps to ``section`` **in place**.
+
+    Returns ``(clamped_keys, applied)``:
+
+    ``clamped_keys``
+        One record per key the clamp actually changed —
+        ``{"key", "requested", "applied", "source", "advice_age_s"}`` with
+        the dotted registry id (``exploration.turn_bias``).  In-range values
+        produce NO record (no false positives) and an empty list means
+        "nothing was clamped".
+    ``applied``
+        ``{bare_key: value}`` exactly as the caller must push into
+        memory_ctrl: the clamped value for a clamped key, otherwise the
+        on-disk value.  Absent or non-numeric keys are simply omitted so the
+        caller's pre-existing ``.get(key, default)`` fallback is unchanged.
+
+    ``raw`` is the parsed active_strategy.json and ``mtime`` its file
+    timestamp — together they attribute the clamped value to the coach or
+    to the EVO loop / panel.  The numeric bounds are unchanged (P1-5 owns
+    the thresholds).
+    """
+    records: list = []
+    applied: dict = {}
+    if not isinstance(section, dict):
+        return records, applied
+    source, advice_age = strategy_writer_source(raw, mtime=mtime, now=now)
+    for dotted, bounds in CLAMP_BOUNDS.items():
+        bare = dotted.split(".", 1)[1] if "." in dotted else dotted
+        if bare not in section:
+            continue
+        lo, hi = float(bounds[0]), float(bounds[1])
+        try:
+            requested = float(section[bare])
+        except (TypeError, ValueError):
+            continue      # not a number: caller's default applies, as before
+        clamped = max(lo, min(hi, requested))
+        section[bare] = clamped
+        applied[bare] = clamped
+        if clamped != requested:
+            records.append({
+                "key": dotted,
+                "requested": round(requested, 6),
+                "applied": round(clamped, 6),
+                "source": source,
+                "advice_age_s": advice_age,
+            })
+    return records, applied
+
+
+def clamp_report_update(history, records, wall_time, tick,
+                        ttl_s: float = CLAMP_REPORT_TTL_S,
+                        cap: int = CLAMP_REPORT_CAP):
+    """Roll this reload's clamp records into the /memory.json report.
+
+    Older entries (beyond ``ttl_s``) are dropped and the list is capped at
+    ``cap`` records, so the report stays bounded while outliving the
+    self-heal that erases the request from disk.  Each entry keeps the tick
+    and wall time of the clamp that produced it.
+    """
+    now = float(wall_time)
+    kept: list = []
+    for rec in history or []:
+        if not isinstance(rec, dict):
+            continue
+        try:
+            age = now - float(rec.get("wall_time", now))
+        except (TypeError, ValueError):
+            age = 0.0
+        if age <= float(ttl_s):
+            kept.append(rec)
+    for rec in records or []:
+        entry = dict(rec)
+        entry["tick"] = int(tick)
+        entry["wall_time"] = round(now, 2)
+        kept.append(entry)
+    return kept[-int(cap):]
+
+
+def log_clamp_warnings(records) -> None:
+    """Emit one WARNING per clamped key — the clamp must never be silent.
+
+    §3.5 of the live-verification report names silence as the first of the
+    three stacked defects: the coach and the dashboard both could not see
+    that a suggestion had been clamped away.  Kept module-level so the
+    "loud failure" contract is testable without running the tick loop.
+    """
+    for rec in records or []:
+        logger.warning(
+            "[fly64] strategy clamp: %s requested=%s -> applied=%s "
+            "(source=%s, advice_age=%ss) — the coach/panel value was "
+            "overridden by the safety clamp; see /memory.json clamped_keys",
+            rec.get("key"), rec.get("requested"), rec.get("applied"),
+            rec.get("source"), rec.get("advice_age_s"))
+
+
+def build_coach_applied(strategy, memory_ctrl, model,
+                        instinct_scene: str = "",
+                        instinct_applied: bool = False) -> dict:
+    """Snapshot of the coach parameters ACTUALLY applied to behaviour.
+
+    Sourced from the consumers (``memory_ctrl`` / ``model``) rather than
+    from the strategy file, so a suggestion the safety clamp overrode is
+    reported here as the applied value (0.25) and never as the requested
+    one (0.8).  P0-2 (t6) introduced the field; P1-1 (t1) pairs it with
+    ``/memory.json["clamped_keys"]`` so the gap between requested and
+    applied is attributable instead of invisible.
+
+    A malformed ``command`` section degrades to an empty one rather than
+    taking the whole telemetry payload down with it.
+    """
+    command = strategy.get("command") or {}
+    if not isinstance(command, dict):
+        command = {}
+    return {
+        "strategy_mode": strategy.get("mode", "?"),
+        "bold_explore_stuck_s": round(float(getattr(
+            memory_ctrl, "bold_explore_stuck_s", 60.0)), 2),
+        "escape_stuck_threshold_s": round(float(getattr(
+            memory_ctrl, "escape_stuck_threshold_s", 2.0)), 2),
+        "turn_bias": round(float(getattr(
+            memory_ctrl, "bold_turn_bias", 69.0)), 3),
+        "fallen_forward": round(float(getattr(
+            model, "_fallen_forward", 0.20)), 3),
+        "fallen_jump_boost": round(float(getattr(
+            model, "_fallen_jump_boost", 0.60)), 3),
+        "command_type": command.get("type"),
+        "command_ts": command.get("ts"),
+        "instinct_scene": instinct_scene,
+        "instinct_applied": instinct_applied,
+    }
 
 
 async def run(args) -> None:
@@ -1065,6 +1411,11 @@ async def run(args) -> None:
     _expl: dict = {}     # exploration section — reused outside 600-tick block
     _esc: dict = {}      # escape section
     _last_strategy_tick = 0
+    # P1-1 (t1): rolling safety-clamp report published as
+    # /memory.json["clamped_keys"] (must exist before the first publish —
+    # clamps only happen on the 600-tick reload).
+    _clamped_keys: list = []
+    _clamp_last_wall: float = 0.0
     # EvolutionSkill: on-demand diagnosis when escape states trigger
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -1348,38 +1699,71 @@ async def run(args) -> None:
                 # EVO R11 follow-up: push coach-tunable keys into the memory
                 # controller so GLM strategy advice tunes the escape/breakout
                 # behaviour (consumed in memory.py + bold breakout below).
-                # RULE-19 contract fix (EVO-072): normalize dot-prefixed dead
-                # keys (exploration["exploration.gate_jump_threshold"]) to the
-                # clean keys readers consume — previously EVO evolved values
-                # were written but never read ("无法生效" defect family).
-                for _sec in ("exploration", "escape", "reflex"):
-                    _body = _active_strategy.get(_sec)
-                    if not isinstance(_body, dict):
-                        continue
-                    _prefix = _sec + "."
-                    for _k in list(_body.keys()):
-                        if _k.startswith(_prefix):
-                            _clean = _k[len(_prefix):]
-                            if _clean not in _body:
-                                _body[_clean] = _body[_k]
-                            del _body[_k]
+                # RULE-19 contract fix (EVO-072 + P1-3): normalize dot-prefixed
+                # dead keys to the clean keys readers consume — previously EVO
+                # evolved values were written but never read ("无法生效"
+                # defect family).  P1-3: CROSS-SECTION aware — a key whose
+                # prefix names another section (exploration["escape.commit_ticks"])
+                # is moved into THAT section, and an unresolvable dotted key is
+                # reported and removed instead of being silently carried
+                # forward forever.  `load_active_strategy` already normalized
+                # the payload; this second pass covers the case where a section
+                # was injected above (instinct binding) or a nested section was
+                # rewritten after the load.  The report only prints when
+                # something actually changed, so a clean file stays quiet.
+                _key_report = normalize_strategy_dot_keys(_active_strategy)
+                if (_key_report["migrated"] or _key_report["dropped"]
+                        or _key_report["rejected"]):
+                    print("[strategy-keys] cross-section dead keys: "
+                          "migrated=%s dropped=%s rejected=%s" % (
+                              _key_report["migrated"], _key_report["dropped"],
+                              _key_report["rejected"]), flush=True)
                 _expl = _active_strategy.get("exploration", {}) or {}
                 _esc = _active_strategy.get("escape", {}) or {}
-                # Clamp turn_bias to [0, 0.4] — the EVO loop/plugin may write
-                # 0.8+ which amplifies the oscillating reflex (R31-fix12).
-                if "turn_bias" in _expl:
-                    _expl["turn_bias"] = max(0.0, min(0.25, float(_expl["turn_bias"])))
-                if "bold_explore_stuck_s" in _expl:
-                    _expl["bold_explore_stuck_s"] = max(1, min(10, float(_expl["bold_explore_stuck_s"])))
+                # Clamp turn_bias to [0, 0.25] and bold_explore_stuck_s to
+                # [1, 10] — the EVO loop/plugin/coach may write 0.8 / 20.0,
+                # which amplify the oscillating reflex (R31-fix12).  The
+                # bounds are the CLAMP_BOUNDS table applied below, and P1-5
+                # aligned the REGISTRY to them (the old registry said
+                # turn_bias max 0.4 and bold_explore_stuck_s [15, 180], so a
+                # legal sample was silently rewritten — see CLAMP_BOUNDS).
+                # P1-1 (t1): the clamp is no longer silent: every dropped
+                # value is logged as a WARNING and reported in
+                # /memory.json["clamped_keys"] together with the coach/EVO
+                # attribution inferred from advice_ts + mtime.
+                _clamp_raw: dict = {}
+                _clamp_mtime = None
+                try:
+                    _clamp_path = project / "skills" / "active_strategy.json"
+                    _clamp_raw = json.loads(_clamp_path.read_text("utf-8"))
+                    _clamp_mtime = _clamp_path.stat().st_mtime
+                except (OSError, ValueError):
+                    _clamp_raw = {}      # unreadable -> source "unknown"
+                _clamp_records, _clamp_applied = apply_strategy_clamps(
+                    _expl, _clamp_raw, mtime=_clamp_mtime, now=time.time())
+                if _clamp_records:
+                    log_clamp_warnings(_clamp_records)
+                    _clamp_last_wall = time.time()
+                _clamped_keys = clamp_report_update(
+                    _clamped_keys, _clamp_records, time.time(),
+                    model.step_count)
                 memory_ctrl.bold_explore_stuck_s = float(
-                    _expl.get("bold_explore_stuck_s", 60.0))
+                    _clamp_applied.get("bold_explore_stuck_s", 60.0))
                 memory_ctrl.bold_turn_bias = float(
-                    _expl.get("turn_bias", 69.0))
+                    _clamp_applied.get("turn_bias", 69.0))
                 # P0 self-heal: write clamped values back to the file so every
                 # reader (EVO loop, coach plugin) sees the corrected values.
                 try:
                     _as_path = project / "skills" / "active_strategy.json"
                     _as_raw = json.loads(_as_path.read_text("utf-8"))
+                    # P1-3 one-time migration, persisted: the payload written
+                    # back below must not carry the dead keys it was loaded
+                    # with, otherwise the self-heal re-persists them every
+                    # reload and the file can never be cleaned.  The dead
+                    # key's VALUE is logged (the report printed above) before
+                    # it is discarded — the registered section's explicit
+                    # value is what the readers consume, so it wins.
+                    normalize_strategy_dot_keys(_as_raw, project=project)
                     # Capture pre-clamp values to detect external overwrites
                     _prev_e = dict(_as_raw.get("exploration", {}) or {})
                     _as_raw.setdefault("exploration", {}).update({
@@ -2606,23 +2990,21 @@ async def run(args) -> None:
                     # APPLIED to behavior (post hot-reload).  Before the
                     # pass-through fix these always equalled the hardcoded
                     # defaults regardless of what GLM wrote.
-                    "coach_applied": {
-                        "strategy_mode": _active_strategy.get("mode", "?"),
-                        "bold_explore_stuck_s": round(float(getattr(
-                            memory_ctrl, "bold_explore_stuck_s", 60.0)), 2),
-                        "escape_stuck_threshold_s": round(float(getattr(
-                            memory_ctrl, "escape_stuck_threshold_s", 2.0)), 2),
-                        "turn_bias": round(float(getattr(
-                            memory_ctrl, "bold_turn_bias", 69.0)), 3),
-                        "fallen_forward": round(float(getattr(
-                            model, "_fallen_forward", 0.20)), 3),
-                        "fallen_jump_boost": round(float(getattr(
-                            model, "_fallen_jump_boost", 0.60)), 3),
-                        "command_type": (_active_strategy.get("command") or {}).get("type"),
-                        "command_ts": (_active_strategy.get("command") or {}).get("ts"),
-                        "instinct_scene": _instinct_scene,
-                        "instinct_applied": _instinct_applied,
-                    },
+                    # P1-1 (t1): built from the live consumers
+                    # (memory_ctrl/model) so the clamp's applied value — not
+                    # the coach's requested one — is what is reported here.
+                    "coach_applied": build_coach_applied(
+                        _active_strategy, memory_ctrl, model,
+                        _instinct_scene, _instinct_applied),
+                    # P1-1 (t1): recent safety-clamp events — which key was
+                    # clamped, what the coach/panel requested, what the brain
+                    # actually applied, and who was identified as the writer.
+                    # [] means nothing was clamped.  Entries outlive the
+                    # self-heal that rewrites the file (CLAMP_REPORT_TTL_S).
+                    "clamped_keys": _clamped_keys,
+                    "clamped_keys_age_s": (
+                        round(time.time() - _clamp_last_wall, 1)
+                        if _clamped_keys else None),
                     "evo_findings": _evo_findings,
                     "brain_version": BRAIN_VERSION,
                     "evo_iter": _evo_iter_counter,

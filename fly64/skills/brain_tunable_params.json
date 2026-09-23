@@ -1,7 +1,7 @@
 {
   "$schema": "fly64/brain-params-evolution/1.0",
-  "version": "1.1.0",
-  "description": "Tunable brain model parameters for evolutionary search. Each numeric parameter declares [min, max, default]; the mutator samples Gaussian noise clipped to the range.",
+  "version": "1.2.0",
+  "description": "Tunable brain model parameters for evolutionary search. Each numeric parameter declares [min, max, default]; the mutator samples Gaussian noise clipped to the range. A registered [min, max] MUST mirror the runtime clamp fly64/main.py applies to that dotted key (P1-5): a range wider than its clamp means every legal sample is silently rewritten, which is exactly the \"mechanism exists, reports success, cannot take effect\" defect. tests/test_tunable_wiring.py asserts registry ∩ runtime clamp != empty for every wired pid, and that the coach prompt's accepted windows (plugin/llm_consult.py) equal the registry range for every shared id.",
   "params": {
     "exploration.turn_bias": {
       "aliases": [
@@ -10,15 +10,15 @@
       ],
       "default": 0.25,
       "min": 0.0,
-      "max": 0.4,
-      "description": "新颖度转向偏置：CX根据四方向新颖度采样向转向池注入电流的强度。用途：越新鲜的地方吸引力越大。推荐 0.05~0.15（稳定探索）；>0.3 会放大振荡反射，禁止超过 0.4。",
+      "max": 0.25,
+      "description": "新颖度转向偏置：CX根据四方向新颖度采样向转向池注入电流的强度。用途：越新鲜的地方吸引力越大。真实可用范围 0~0.25（P1-5 与运行期钳位对齐）：main.py 的 R31-fix12 振荡防护 max(0.0, min(0.25, x)) 是有意收窄 —— >0.25 会放大振荡反射并被静默钳回，故注册上限同步为 0.25（旧标尺 0~0.4 / 0~1 已作废；教练 prompt 的 accepted window 同为 0~0.25）。推荐 0.05~0.15（稳定探索），0.25 为硬上限。",
       "wired": true
     },
     "exploration.bold_explore_stuck_s": {
-      "default": 60.0,
-      "min": 15.0,
-      "max": 180.0,
-      "description": "勇气探索门限：卡死持续多少秒后强制触发突围。用途：控制脱困灵敏度。推荐 5~15（快速脱困）；默认60过保守，振荡场景建议 5~10。",
+      "default": 10.0,
+      "min": 1.0,
+      "max": 10.0,
+      "description": "勇气探索门限：卡死持续多少秒后强制触发突围。用途：控制脱困灵敏度。真实可用范围 1~10 秒（P1-5 与运行期钳位对齐）：main.py 的 max(1, min(10, x)) 是硬界限，旧注册区间 15~180 与它完全不相交 —— 任何合法采样（含旧默认 60）都会被静默钳掉，故注册区间收窄为 1~10、默认改为 10（旧默认 60 读入时等价于钳到 10，行为不变；教练 prompt 的 accepted window 同为 1~10）。推荐 1~10，越小越快突围。",
       "wired": true
     },
     "exploration.revisit_penalty_scale": {

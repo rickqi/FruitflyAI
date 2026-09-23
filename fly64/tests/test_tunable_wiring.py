@@ -22,6 +22,15 @@ The registry now holds 39 pids and all of them declare ``wired: true``, so this
 file no longer hardcodes counts or lists.  It re-derives every fact from
 ``brain_tunable_params.json``, ``fly64/main.py`` and the mutator:
 
+P1-5 aligned the two ranges that were lying.  ``exploration.bold_explore_stuck_s``
+was registered [15, 180] while the brain clamps it to [1, 10] — an EMPTY
+intersection, so *every* legal sample (including the old default 60) was
+silently rewritten; and ``exploration.turn_bias`` was registered [0, 0.4] while
+the R31-fix12 clamp keeps [0, 0.25], so anything above a quarter was eaten.  The
+runtime clamps are the behaviour-protecting side and the coach prompt already
+advertises them, so the REGISTRY was aligned to the clamps (with the real usable
+range spelled out in each description) and ``KNOWN_RANGE_MISMATCH`` is now empty.
+
   1. every pid declares a wiring flag;
   2. every wired pid has an AST read site in the brain;
   3. every pid's write path (panel POST -> ``apply_strategy_update`` -> the
@@ -29,8 +38,21 @@ file no longer hardcodes counts or lists.  It re-derives every fact from
      section, and the reader for that leaf reads THAT section — the check that
      catches the ea509a9 regression;
   4. every registry ``[min, max]`` intersects the runtime clamp applied by
-     ``fly64/main.py`` and the default lies inside the intersection;
-  5. the mutator's search space is exactly the registry's wired set.
+     ``fly64/main.py`` — with NO whitelist — and the clamp is read from BOTH
+     shapes main.py uses (the dedicated ``CLAMP_BOUNDS`` table applied by
+     ``apply_strategy_clamps`` and the inline ``max``/``min`` wrappers).
+     P1-1 moved the two clamps this contract exists for into that table, so an
+     inline-only walk stopped seeing them and the intersection check passed
+     vacuously for exactly those pids;
+  5. no registry range is WIDER than its runtime clamp: a legal registry sample
+     the brain silently rewrites is the P1-5 defect (registry
+     ``exploration.bold_explore_stuck_s`` [15, 180] vs clamp [1, 10] was an
+     EMPTY intersection, and ``exploration.turn_bias`` max 0.4 vs clamp 0.25
+     silently ate every sample above a quarter);
+  6. the coach prompt's accepted windows (``plugin/llm_consult``
+     ``COACH_NUMERIC_WINDOWS``) equal the registry range for every shared
+     dotted id — P1-2 requirement "同步到教练 prompt" is pinned, not assumed;
+  7. the mutator's search space is exactly the registry's wired set.
 """
 import ast
 import json
@@ -51,14 +73,13 @@ CONSUMERS = ["fly64/main.py", "fly64/memory.py", "fly64/model.py",
 
 sys.path.insert(0, str(REPO_ROOT))
 
-# A3 §4.4 / execution-plan P0-2+P1-2: registry range vs runtime clamp pairs
-# that do NOT intersect.  Asserted as a SUBSET so aligning the ranges (P1-2)
-# keeps this file green, while a NEW mismatch fails immediately.
-KNOWN_RANGE_MISMATCH = {
-    # registry [15, 180] vs main.py clamp [1, 10] — no legal EVO sample can
-    # survive, which is why the panel description recommends "5~10".
-    "exploration.bold_explore_stuck_s",
-}
+#: A3 §4.4 / execution-plan P0-2+P1-2: registry range vs runtime clamp pairs
+#: that do NOT intersect.  P1-5 aligned the registry to the runtime clamps, so
+#: this set is EMPTY and must stay empty — the range contract is now checked
+#: mechanically for every wired pid (`test_the_range_whitelist_is_empty` fails
+#: if an entry is added back, and the intersection tests below fail on the
+#: mismatch anyway).
+KNOWN_RANGE_MISMATCH = set()
 
 
 def _schema():
@@ -206,6 +227,53 @@ def _clamp_bounds(leaf):
                 cur = par
                 continue
             break
+    return lo, hi
+
+
+@lru_cache(maxsize=None)
+def _dedicated_clamp_table():
+    """``{dotted_key: (lo, hi)}`` from main.py's ``CLAMP_BOUNDS`` literal.
+
+    P1-1 (t1) moved the inline ``max(0.0, min(0.25, x))`` assignments into a
+    module-level table applied by ``apply_strategy_clamps``; the AST walk in
+    :func:`_clamp_bounds` therefore cannot see them any more.  Without this
+    source the range check below would fall back to the registry range for
+    exactly the two pids the contract exists for — i.e. pass vacuously while
+    ``bold_explore_stuck_s`` had an EMPTY intersection with its clamp.
+    """
+    table = {}
+    for node in ast.walk(_main_tree()):
+        if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Dict):
+            continue
+        if not any(isinstance(t, ast.Name) and t.id == "CLAMP_BOUNDS"
+                   for t in node.targets):
+            continue
+        for key_node, bounds in zip(node.value.keys, node.value.values):
+            if not (isinstance(key_node, ast.Constant)
+                    and isinstance(key_node.value, str)):
+                continue
+            if not isinstance(bounds, ast.Tuple) or len(bounds.elts) != 2:
+                continue
+            lo, hi = _numeric(bounds.elts[0]), _numeric(bounds.elts[1])
+            if lo is None or hi is None:
+                continue
+            table[key_node.value] = (lo, hi)
+    return table
+
+
+def _runtime_clamp(pid):
+    """Tightest runtime ``(lo, hi)`` main.py applies to a registry pid.
+
+    Two sources, because main.py clamps in two shapes: the dedicated
+    ``CLAMP_BOUNDS`` table and inline ``max``/``min`` wrappers around a reader.
+    ``None`` on either side means "unbounded from this source".
+    """
+    leaf = pid.split(".", 1)[1]
+    lo, hi = _clamp_bounds(leaf)
+    dedicated = _dedicated_clamp_table().get(pid)
+    if dedicated is not None:
+        lo = dedicated[0] if lo is None else max(lo, dedicated[0])
+        hi = dedicated[1] if hi is None else min(hi, dedicated[1])
     return lo, hi
 
 
@@ -452,35 +520,138 @@ class TestReflexCooldownMinIsLive:
 
 
 class TestRegistryRangeIntersectsRuntimeClamp:
+    """P1-5: a registered range must describe what the runtime will accept.
+
+    The registry is what the operator panel, the coach prompt and Phase 6's
+    Gaussian search all sample from; the clamps in main.py decide what actually
+    reaches behaviour.  When the two disagree, every legal sample is silently
+    rewritten — the live form of the defect (coach 0.8 / 20.0 -> 0.25 / 10).
+    """
+
     def _pairs(self):
+        """``{pid: (registry, clamp, intersection)}``.
+
+        ``intersection`` is the TRUE intersection of the two spans.  The
+        original form substituted the clamp bound for the registry bound
+        whenever a clamp existed, i.e. it compared the clamp with itself and
+        could never see the pair it was written for: [15, 180] vs [1, 10]
+        intersects as [max(15,1), min(180,10)] = [15, 10] — empty.  That is why
+        the mismatch had to be written into the whitelist by hand.
+        """
         pairs = {}
         for pid, meta in _params().items():
             registry = (float(meta["min"]), float(meta["max"]))
-            clamp = _clamp_bounds(pid.split(".", 1)[1])
-            lo = registry[0] if clamp[0] is None else clamp[0]
-            hi = registry[1] if clamp[1] is None else clamp[1]
+            clamp = _runtime_clamp(pid)
+            lo = registry[0] if clamp[0] is None else max(registry[0], clamp[0])
+            hi = registry[1] if clamp[1] is None else min(registry[1], clamp[1])
             pairs[pid] = (registry, clamp, (lo, hi))
         return pairs
+
+    def test_the_range_whitelist_is_empty(self):
+        """P1-5 requirement 2: no known range mismatch may remain."""
+        assert KNOWN_RANGE_MISMATCH == set(), (
+            "an exception was added back to KNOWN_RANGE_MISMATCH: the range "
+            "contract must hold for every wired pid (align the registry or the "
+            "clamp instead): %s" % sorted(KNOWN_RANGE_MISMATCH))
+
+    def test_the_dedicated_clamp_table_is_visible_to_this_file(self):
+        """Guard the guard: the two clamps of the P1-5 defect must be read.
+
+        If ``CLAMP_BOUNDS`` ever moves again, this fails instead of the range
+        check quietly falling back to the registry range for those pids.
+        """
+        table = _dedicated_clamp_table()
+        assert table, "main.py's CLAMP_BOUNDS table is no longer readable"
+        for pid in ("exploration.turn_bias", "exploration.bold_explore_stuck_s"):
+            assert pid in table, (
+                "%s is clamped somewhere this file cannot see — the range "
+                "check would pass vacuously for it" % pid)
 
     def test_every_registry_range_intersects_its_runtime_clamp(self):
         bad = []
         for pid, (registry, clamp, span) in self._pairs().items():
-            if span[0] > span[1] and pid not in KNOWN_RANGE_MISMATCH:
+            if span[0] > span[1]:
                 bad.append((pid, registry, clamp))
         assert not bad, (
             "registry range and runtime clamp do not intersect, so every "
             "legal EVO sample is silently rewritten: %s" % bad)
 
+    def test_no_registry_range_is_wider_than_its_runtime_clamp(self):
+        """The stronger P1-5 form: no legal registry sample may be rewritten.
+
+        Intersecting is not enough — ``turn_bias`` [0, 0.4] vs clamp [0, 0.25]
+        intersected and still ate every request above a quarter.  A range that
+        reaches outside its clamp is the silently-rewritten-sample defect.
+        """
+        bad = []
+        for pid, (registry, clamp, _span) in self._pairs().items():
+            lo, hi = clamp
+            outside = ((lo is not None and registry[0] < lo)
+                       or (hi is not None and registry[1] > hi))
+            if outside:
+                bad.append((pid, registry, "runtime clamp %s" % (clamp,)))
+        assert not bad, (
+            "registry ranges reach past the runtime clamp, so values the panel "
+            "and the coach are told are legal get silently rewritten (align "
+            "the registry [min, max] with main.py's clamp, or state the "
+            "narrowed range in the registry description): %s" % bad)
+
     def test_default_lies_in_the_intersection(self):
         bad = []
         for pid, (registry, clamp, span) in self._pairs().items():
-            if pid in KNOWN_RANGE_MISMATCH:
-                continue
             default = float(_params()[pid]["default"])
             if not span[0] <= default <= span[1]:
                 bad.append((pid, default, span))
         assert not bad, (
             "registry default is outside registry∩runtime-clamp: %s" % bad)
+
+    def test_registry_ranges_match_the_coach_prompt_windows(self):
+        """P1-5 requirement 4: the prompt is synced with the registry.
+
+        ``plugin/llm_consult.COACH_NUMERIC_WINDOWS`` is what the coach is told
+        it may ask for; the registry is what the panel/EVO may sample.  They
+        must be the same numbers, or one of the two audiences is being lied to.
+        """
+        from plugin.llm_consult import COACH_NUMERIC_WINDOWS
+
+        shared = {pid: window for pid, window in COACH_NUMERIC_WINDOWS.items()
+                  if pid in _params()}
+        assert set(shared) >= {"exploration.turn_bias",
+                               "exploration.bold_explore_stuck_s"}, (
+            "the coach prompt no longer advertises the two exploration "
+            "windows this alignment is about: %s" % sorted(shared))
+        bad = []
+        for pid, window in shared.items():
+            meta = _params()[pid]
+            registry = (float(meta["min"]), float(meta["max"]))
+            if (float(window[0]), float(window[1])) != registry:
+                bad.append((pid, registry, "coach window %s" % (tuple(window),)))
+        assert not bad, (
+            "the coach prompt's accepted windows drift from the registry: %s"
+            % bad)
+
+    def test_the_two_aligned_pids_are_pinned(self):
+        """The exact P1-5 rows, spelled out so a loosening cannot hide in the
+        generic checks (they are the ones the live probe caught)."""
+        pinned = {
+            "exploration.turn_bias": ((0.0, 0.25), (0.0, 0.25), 0.25),
+            "exploration.bold_explore_stuck_s": ((1.0, 10.0), (1.0, 10.0), 10.0),
+        }
+        for pid, (registry, clamp, default) in pinned.items():
+            meta = _params()[pid]
+            assert (float(meta["min"]), float(meta["max"])) == registry, (
+                "%s registry range is %s, expected %s"
+                % (pid, (meta["min"], meta["max"]), registry))
+            assert _runtime_clamp(pid) == clamp, (
+                "%s runtime clamp is %s, expected %s"
+                % (pid, _runtime_clamp(pid), clamp))
+            assert float(meta["default"]) == default, (
+                "%s default is %s, expected %s"
+                % (pid, meta["default"], default))
+            # requirement 4: the registry description must state the real band
+            assert "可用范围" in meta.get("description", ""), (
+                "%s description must state its real usable range (P1-5 "
+                "requirement 4): %r" % (pid, meta.get("description")))
 
 
 class TestMutatorSearchSpaceIsWiredOnly:

@@ -1748,6 +1748,144 @@ class CoachConsult:
         p.write_text(json.dumps(strategy, indent=2, ensure_ascii=False), "utf-8")
 
 # ═══════════════════════════════════════════════════════════════════════
+# active_strategy.json key contract (RULE-19 / EVO-062 / EVO-072 / P1-3)
+# ═══════════════════════════════════════════════════════════════════════
+
+# Every section the brain or a writer may own.  The registry
+# (brain_tunable_params.json) is the authority and contributes its own
+# prefixes at call time; this tuple only anchors the sections that carry
+# no registry pid (command/dopamine/primitives) plus the three the
+# original EVO-072 fix hardcoded.
+STRATEGY_SECTIONS = (
+    "exploration", "escape", "reflex", "navigation", "coach", "memory",
+    "command", "dopamine", "primitives",
+)
+
+
+def registered_sections() -> set:
+    """Section names owned by the registry pids, plus the built-in sections.
+
+    The registry (``brain_tunable_params.json``) is the single source of
+    truth for "which section does this pid belong to": every pid is a
+    dotted path ``<section>.<leaf>``.  Reading it here (instead of
+    hardcoding a list) is what makes the migration below survive a new
+    section being added by a later parameter.
+    """
+    names = set(STRATEGY_SECTIONS)
+    try:
+        schema = json.loads(
+            (SKILL_DIR / "brain_tunable_params.json").read_text("utf-8"))
+        for pid in (schema.get("params") or {}):
+            if isinstance(pid, str) and "." in pid:
+                names.add(pid.split(".", 1)[0])
+    except Exception:
+        pass
+    return names
+
+
+def normalize_strategy_sections(strat: dict, sections=None,
+                                log: Optional[Callable] = None) -> dict:
+    """Migrate/eradicate EVERY dotted key in an active_strategy payload.
+
+    THE DEFECT (EVO-072 follow-up, P1-3): the first fix used
+    ``prefix = sec + "."`` — it only saw a dead key whose prefix equalled
+    the section it was found in.  ``exploration["escape.commit_ticks"]``
+    (written by the pre-a0208e0 ``_inject``, which put *every* pid into
+    ``strat["exploration"]``) has a foreign prefix, so it was never
+    migrated and never deleted: 5 of them were still on disk and the file
+    kept growing dead keys that no reader consumes.
+
+    Cross-section aware rules, applied to the root AND to every section
+    (the panel's older handler also wrote ``{"escape.commit_ticks": 125}``
+    as a literal top-level key):
+
+    * ``<known-section>.<leaf>``  -> move the value into that section when
+      the section does not already hold ``leaf`` (the registered section's
+      explicit value wins — it is the value the reader actually reads);
+    * ``<same-section>.<leaf>``   -> same rule (the EVO-072 case);
+    * multi-dot or unknown-prefix key -> REPORTED, never silently kept: a
+      key nobody can resolve is dropped so the file cannot carry a dead
+      knob, and the loss is spelled out in ``rejected``.
+
+    Mutates ``strat`` in place and returns a report
+    ``{"migrated": [...], "dropped": [...], "rejected": [...]}`` whose
+    entries are ``"<source-section>::<key>=<value>"`` strings, so a caller
+    can log exactly what was moved, its value, and what was discarded.
+
+    ``fly64/main.py`` carries an equivalent implementation
+    (``normalize_strategy_dot_keys``) because the brain loop must not
+    import this package; ``tests/test_cross_section_keys.py`` pins the two
+    to identical output, so they cannot drift apart.
+    """
+    report = {"migrated": [], "dropped": [], "rejected": []}
+    if not isinstance(strat, dict):
+        return report
+    known = set(sections) if sections else registered_sections()
+    known |= {k for k, v in strat.items() if isinstance(v, dict)}
+
+    def _place(where: str, container: dict, key: str) -> None:
+        """Resolve one dotted key found inside ``container``.
+
+        The report entry carries the dropped VALUE (``section::key=value``):
+        the dead key is deleted, so the log is the only place its value
+        survives — a migration must not be a silent data loss.
+        """
+        value = container.get(key)
+        entry = "%s::%s=%r" % (where, key, value)
+        parts = key.split(".")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            container.pop(key, None)
+            report["rejected"].append(entry)
+            return
+        head, leaf = parts
+        if head in known:
+            target = strat.get(head)
+            if target is None:
+                target = strat[head] = {}
+            elif not isinstance(target, dict):
+                # A scalar occupies the section slot: moving the value in
+                # would destroy it, so refuse loudly instead of guessing.
+                container.pop(key, None)
+                report["rejected"].append(entry)
+                return
+            container.pop(key)
+            if leaf in target:
+                report["dropped"].append(entry)
+            else:
+                target[leaf] = value
+                report["migrated"].append(entry)
+            return
+        # Unknown prefix: no section can be resolved for it.
+        container.pop(key, None)
+        report["rejected"].append(entry)
+
+    for key in [k for k in strat if isinstance(k, str) and "." in k]:
+        _place("<root>", strat, key)
+    for sec in [s for s in strat if isinstance(strat.get(s), dict)]:
+        body = strat[sec]
+        for key in [k for k in body if isinstance(k, str) and "." in k]:
+            _place(sec, body, key)
+
+    moved = report["migrated"] or report["dropped"] or report["rejected"]
+    if moved:
+        for entry in report["migrated"]:
+            (log or (lambda m: _EVO_LOG.warning("%s", m)))(
+                "active_strategy key contract: migrated dead key %s into its "
+                "registered section" % entry)
+        for entry in report["dropped"]:
+            (log or (lambda m: _EVO_LOG.warning("%s", m)))(
+                "active_strategy key contract: dropped dead key %s - the "
+                "registered section already holds the value readers consume"
+                % entry)
+        for entry in report["rejected"]:
+            (log or (lambda m: _EVO_LOG.error("%s", m)))(
+                "active_strategy key contract: REJECTED unresolvable key %s "
+                "(removed: a key that never reaches a reader is a dead knob)"
+                % entry)
+    return report
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Phase 6: Evolve — closed-loop brain parameter evolution
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -1787,9 +1925,23 @@ class BrainMutator:
 
     @property
     def param_paths(self) -> dict[str, str]:
-        """Flatten param id -> dotted key map for active_strategy access."""
-        return {pid: p.get("aliases", [pid])[0]
-                for pid, p in self.live_params.items()}
+        """Flatten param id -> dotted key map for active_strategy access.
+
+        P1-3: the path is always ``<registered-section>.<leaf>`` — derived
+        from the pid's own registration, never from the schema's ``aliases``.
+        An alias (``exploration.turn_bias`` -> ``bold_turn_bias``) is a
+        reader-side synonym INSIDE the same section: using it as a write path
+        is how a value can end up addressed to a section nobody reads, which
+        is the defect family this file now guards (a bare alias names no
+        section at all).
+        """
+        out: dict[str, str] = {}
+        for pid in self.live_params:
+            if "." in pid:
+                out[pid] = pid
+            else:
+                out[pid] = "%s.%s" % (self.registered_section(pid), pid)
+        return out
 
     @property
     def live_params(self) -> dict:
@@ -2046,23 +2198,15 @@ class BrainMutator:
             strat = json.loads((SKILL_DIR / "active_strategy.json").read_text("utf-8"))
         except Exception:
             return {"exploration": {}}
-        # RULE-19 contract fix (EVO-072): migrate dot-prefixed dead keys inside
-        # each section (e.g. exploration["exploration.gate_jump_threshold"]) to
-        # the clean nested key the brain reader consumes
+        # RULE-19 contract fix (EVO-072 + P1-3): migrate dot-prefixed dead keys
+        # to the clean nested key the brain reader consumes
         # (main.py: _expl.get("gate_jump_threshold")).  Without this the EVO
         # evolved value was written but never read — "机制存在、报告成功、无法生效".
+        # P1-3 upgrade: the migration is CROSS-SECTION aware, so a key whose
+        # prefix names a different section (exploration["escape.commit_ticks"])
+        # is moved into THAT section instead of surviving as a dead key.
         if isinstance(strat, dict):
-            for sec in list(strat.keys()):
-                body = strat[sec]
-                if not isinstance(body, dict):
-                    continue
-                prefix = sec + "."
-                for key in list(body.keys()):
-                    if key.startswith(prefix):
-                        clean = key[len(prefix):]
-                        if clean not in body:      # clean key wins if present
-                            body[clean] = body[key]
-                        del body[key]              # dead key removed either way
+            normalize_strategy_sections(strat)
         return strat
 
     @staticmethod
@@ -2070,25 +2214,54 @@ class BrainMutator:
         (SKILL_DIR / "active_strategy.json").write_text(
             json.dumps(cfg, indent=2, ensure_ascii=False), "utf-8")
 
+    def registered_section(self, pid: str) -> str:
+        """The section a pid is REGISTERED in — the writer's only routing input.
+
+        P1-3 root cause: the pre-a0208e0 writer put every pid into
+        ``strat["exploration"]`` (the "current section"), which is how
+        ``exploration["escape.commit_ticks"]`` came to exist.  Routing must be
+        decided by the pid's own registration (registry pid = ``<section>.<leaf>``
+        in ``brain_tunable_params.json``), never by the section the writer
+        happens to be holding.  A dotless pid is matched by leaf against the
+        registry; only a pid the registry does not know falls back to
+        ``exploration`` (the historical default section).
+        """
+        if "." in pid:
+            head = pid.split(".", 1)[0]
+            if head:
+                return head
+        for reg_pid in self.live_params:
+            if reg_pid.split(".")[-1] == pid:
+                return reg_pid.split(".", 1)[0]
+        return "exploration"
+
     def _inject(self, params: dict[str, float]) -> dict:
         """Write a candidate parameter set into active_strategy.json for the
         brain model's active_strategy hot-reload (main.py reads it every 600
         ticks ≈ 12 s).  Supports grouped sections (exploration.* -> strat["exploration"],
-        escape.* -> strat["escape"], reflex.* -> strat["reflex"]).  Returns the full strategy dict."""
+        escape.* -> strat["escape"], reflex.* -> strat["reflex"]).  Returns the full strategy dict.
+
+        The target section comes from :meth:`registered_section` (the registry),
+        NOT from a hardcoded default: a pid registered as ``escape.*`` lands in
+        ``strat["escape"]`` even if the writer was iterating some other section.
+        The pre-existing payload is normalized first, so dead keys from older
+        writers are purged instead of being carried forward on every inject.
+        """
         strat = self._load_active_strategy()
         for pid, meta in self.live_params.items():
-            target = (meta.get("aliases", [pid])[0]
-                      if isinstance(meta, dict) and "aliases" in meta
-                      else pid)
-            # Route to correct section based on prefix
-            section_key = "exploration"  # default
-            param_name = pid
-            if "." in pid:
-                section_key, param_name = pid.split(".", 1)
-            if section_key not in strat:
+            # Route to the pid's REGISTERED section (P1-3 root-cause fix).
+            # The registry's ``aliases`` name reader-side synonyms inside the
+            # same section (exploration.turn_bias -> bold_turn_bias); they are
+            # NOT alternative section paths, and using one as the written key
+            # would move the value off the pid (see test_tunable_wiring.py:
+            # "the writer lost or invented pids").
+            section_key = self.registered_section(pid)
+            param_name = pid.split(".", 1)[1] if "." in pid else pid
+            if section_key not in strat or not isinstance(strat[section_key], dict):
                 strat[section_key] = {}
             default = meta.get("default", 0.0) if isinstance(meta, dict) else 0.0
-            strat[section_key][param_name] = params.get(pid, strat[section_key].get(param_name, default))
+            strat[section_key][param_name] = params.get(
+                pid, strat[section_key].get(param_name, default))
         strat["__generation"] = strat.get("__generation", 0) + 1
         self._write_active_strategy(strat)
         return strat

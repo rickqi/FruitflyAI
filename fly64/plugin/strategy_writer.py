@@ -58,6 +58,14 @@ class StrategyWriter:
         so the dashboard can show why the strategy changed.  t21: pass
         ``what_i_see`` (explicit screen-text readout) to persist it at the
         payload top level.
+
+        P1-2: ``strategy["command"]`` is the coach's direct-control channel and
+        ``strategy["coach_acceptance"]`` is the requested-vs-accepted record
+        produced by ``llm_consult.acceptance_report``; both ride through
+        unchanged.  A ``command`` written here is timestamped (``ts``) when the
+        producer did not do it, because main.py's telemetry reports
+        ``coach_applied.command_ts`` — without a stamp that field was always
+        empty, so "command 有没有被消费" was unobservable.
         """
         payload = dict(strategy or {})
         # RULE-19 contract fix (EVO-072): merge with the on-disk strategy
@@ -81,6 +89,12 @@ class StrategyWriter:
             pass  # no existing file / corrupt — coach payload stands alone
         if what_i_see:
             payload["what_i_see"] = list(what_i_see)
+        # P1-2: stamp the direct-control command so coach_applied.command_ts
+        # (main.py telemetry) can prove it was written and when.  Idempotent:
+        # a producer-supplied ts wins.
+        cmd = payload.get("command")
+        if isinstance(cmd, dict) and cmd.get("type"):
+            payload["command"] = {**cmd, "ts": cmd.get("ts") or round(time.time(), 2)}
         payload["coach_advice"] = advice
         payload["advice_ts"] = round(time.time(), 2)
         payload["source"] = source
@@ -137,6 +151,12 @@ class StrategyWriter:
         t21: ``what_i_see`` (explicit screen-text readout) is stored at the
         payload top level when provided; it also rides inside ``strategy``
         when the caller passes the sanitised strategy dict.
+
+        P1-2: when ``strategy`` carries the ``coach_acceptance`` record
+        (``llm_consult.acceptance_report``), it is also surfaced at the entry
+        and payload top level so an operator can compare "what the coach asked
+        for" against "what the pipeline accepted" — including the effective
+        value the brain's clamp will use — without reading the raw reply.
         """
         data = self.load_advice()
         history = data.get("history")
@@ -151,6 +171,10 @@ class StrategyWriter:
         }
         if what_i_see:
             entry["what_i_see"] = list(what_i_see)
+        acceptance = (strategy or {}).get("coach_acceptance") \
+            if isinstance(strategy, dict) else None
+        if isinstance(acceptance, dict):
+            entry["coach_acceptance"] = acceptance
         history.append(entry)
         history = history[-self.history_limit:]
         payload = {
@@ -162,5 +186,7 @@ class StrategyWriter:
         }
         if what_i_see:
             payload["what_i_see"] = list(what_i_see)
+        if isinstance(acceptance, dict):
+            payload["coach_acceptance"] = acceptance
         self._atomic_write(self.advice_path, payload)
         return payload

@@ -134,7 +134,7 @@ _as_raw.setdefault("exploration", {}).update({
 | 教练模型 | `qwen3.8-27b-uncensored` | 与仓库 `llm.env` 的 `glm-5v-turbo` **不同** |
 | 教练建议 | "别在蓝水里打转了，立刻朝右上角那抹绿色岸边猛转方向并连跳爬上岸！" + 👁 读屏 | 建议质量合理、含读屏 |
 | 教练 strategy | `fallen_recovery.mode=directional_climb`、`exploration.bold_explore_stuck_s=20.0/turn_bias=0.8`、`escape.stuck_threshold_s=8.0`、`command{turn_and_go,45,2.5,70}` | 含 `command` 直控 |
-| `command` 是否落地 | **未落地**（文件中无 `command` 段）| 另一处断链，值得单独查 |
+| `command` 是否落地 | ✅ **已落地**（文件含 `command`）| ⚠️ **本报告初版误判为"未落地"——见 §六 更正** |
 | `coach_frames` | **4,938 个文件** | 与 A3 报告中"0 文件"不同；P2-2 的留痕实际在工作 |
 | `__generation` | 12 | 较低 |
 | 教练建议时效 | 生效约 **26 秒**后被覆写 | 与热加载周期同量级 |
@@ -161,11 +161,54 @@ _as_raw.setdefault("exploration", {}).update({
    - 让钳位对**教练来源**放宽（例如教练经 `command` 直控而非调 `turn_bias`），或
    - 在教练 prompt 中显式给出**可用取值范围**，使 LLM 不再输出必然被钳掉的值（当前 prompt 要求 0–1，而代码只接受 ≤0.25）。
 3. **注释与代码对齐**：`[0, 0.4]` → 实际的 `0.25`（P1-2 已登记）。
-4. **查 `command` 未落地**：教练给出了 `command{turn_and_go}` 但文件无该段，需单独定位。
+4. ~~**查 `command` 未落地**~~ → **已更正为误判，见 §六**。coach-engineer 在 P1-2 中反查证明 `command` 一直在文件中（且顺带修出 4 处同族真缺陷）。
 5. **收敛部署世系**：把 `/root/fly64` 与仓库做一次正式对齐（已有的 "单一真实来源分裂" 待办）。
 6. **磁盘**：`/tmp/f64r_traj-*.npz` 130+ GB，建议加轮转/清理策略。
 
 ---
 
-> **生成**: captain · 2026-09-23  
+## 六、更正记录（captain 自我纠错）
+
+### 6.1 ❌ 「`command` 未落地」是**我的探针的假阴性**
+
+**初版结论**（§四表格）：`command` 未落地（文件中无 `command` 段），推断为"另一处断链"。
+
+**实际**：`command` **一直在文件中**。captain 复验：
+
+```
+live /root/fly64/skills/active_strategy.json
+  top-level keys: 15,  has command = True
+  command = {"type":"turn_and_go","heading":180,"duration_s":2.5,"y":70,"primitive":"dive"}
+```
+
+**根因是我的探针脚本**：`scripts/_probe_coach.sh:28` 打印的是**固定 section 元组**
+
+```python
+for sec in ('exploration','escape','reflex','coach','memory','navigation'):   # 不含 command
+```
+
+因此 `command` 段从未被打印，我却据"输出里没有"推断"文件里没有" —— **把探针的可见范围当成了事实的边界**。
+
+**已修**：探针脚本补入 `'command'`。
+
+**coach-engineer 的独立反证（P1-2）**：45s 只读监视显示文件被非教练写者周期重写而 `advice_ts` 恒定、`command` 始终在；`coach_advice.json` history 中 22:36:37 起每条 sanitized strategy 都含 `command` ⇒ 解析/写入链路从未丢弃它。
+
+### 6.2 更正带出的真实收益
+
+虽然我的推断错了，但这次反查**修出了 4 处同族真缺陷**（coach-engineer 在 P1-2 中完成）：
+
+| 缺陷 | 影响 |
+|------|------|
+| 模型把 `command` 写在 strategy 同级时被静默丢弃 | 直控通道偶发失效 |
+| `command.ts` 从未打戳 | `coach_applied.command_ts` 恒空，无法观测 |
+| `duration_s="2.5s"` / `y="70u"` 抛异常 | **打断整轮咨询** |
+| prompt 无 command 语义/范围 | LLM 不知如何正确使用直控 |
+
+### 6.3 教训
+
+**"我在输出里没看到" ≠ "它在文件里不存在"。** 诊断脚本必须打印**全部键**（或先枚举再选择性展示），而不是固定的白名单元组。这与本轮另一条教训同源（5 次处方错误）：**验证脚本的覆盖范围决定了结论的可靠性上限**。
+
+---
+
+> **生成**: captain · 2026-09-23（rev 2：新增 §六 更正记录，修正 §四 command 误判）  
 > **保存位置**: `docs/analysis/analysis-p0-4-live-verification.md`

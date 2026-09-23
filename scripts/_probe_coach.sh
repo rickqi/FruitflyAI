@@ -25,7 +25,7 @@ import json
 try:
     d=json.load(open('/root/fly64/skills/active_strategy.json',encoding='utf-8'))
     print('  __generation:', d.get('__generation'))
-    for sec in ('exploration','escape','reflex','coach','memory','navigation'):
+    for sec in ('exploration','escape','reflex','coach','memory','navigation','command'):
         s=d.get(sec)
         if isinstance(s,dict):
             print('  [%s] %s' % (sec, ', '.join('%s=%s'%(k,str(v)[:24]) for k,v in list(s.items())[:6])))

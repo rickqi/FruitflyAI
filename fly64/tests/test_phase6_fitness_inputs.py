@@ -31,6 +31,16 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from skills.evolution_skill import BrainMutator, SensorSample  # noqa: E402
 
+#: P1-4 test isolation.  ``BrainMutator.evaluate()`` calls the REAL ``_inject()``,
+#: which writes ``skills/active_strategy.json`` and bumps its ``__generation`` —
+#: the file the brain hot-reloads and EVO uses to detect foreign rewrites.  Three
+#: tests below drive ``evaluate()`` without stubbing the injector, so before this
+#: fixture every run of this file polluted live parameter state (measured: +3
+#: generations per run, 326 → 332).  The sandbox (fly64/conftest.py) redirects
+#: ``SKILL_DIR`` at a temp copy: the real writer stays under test, production does
+#: not move.
+pytestmark = pytest.mark.usefixtures("sandboxed_skill_dir")
+
 
 def _sample(**kw):
     """A SensorSample with the fields the COLLECTOR really populates."""
@@ -346,3 +356,38 @@ class TestBayesianOptimization:
         m.evaluate(s)  # same-sample -> short-circuit -> records to history
         assert len(m._trial_history) == before + 1, (
             "trial must be recorded in _trial_history even when short-circuited")
+
+
+# ── P1-4 (t4): this file must not write production parameter state ──────────
+
+class TestNoProductionStrategyWrites:
+    def test_real_injector_writes_the_sandbox_not_production(self, sandboxed_skill_dir):
+        """Pin for the write path that used to pollute live EVO state.
+
+        ``evaluate()`` calls the REAL ``_inject()``; before P1-4 that write went
+        to ``skills/active_strategy.json`` and bumped its ``__generation`` by one
+        per trial — measured live as 326 → 332 (three trials per run of this
+        file).  The module-level ``sandboxed_skill_dir`` fixture redirects
+        ``SKILL_DIR``, and this test asserts BOTH ends: the injector still writes
+        (to the sandbox), and the production file's bytes are untouched.
+        """
+        import time
+        live = REPO_ROOT / "skills" / "active_strategy.json"
+        before = live.read_bytes() if live.exists() else None
+
+        m = BrainMutator()
+        s = _sample(timestamp=300.0)
+        m._trial = {"exploration.turn_bias": 0.3}
+        m._trial_start = time.time() - 200.0
+        m._baseline_fitness = m.fitness(s)
+        m._baseline_components = m.fitness_components(s)
+        m._baseline_sample = s
+        m.evaluate(s)  # real _inject() runs on this path
+
+        assert (sandboxed_skill_dir / "active_strategy.json").is_file(), (
+            "the injector did not write at all — the sandbox is not exercising "
+            "the real write path")
+        after = live.read_bytes() if live.exists() else None
+        assert after == before, (
+            "the test modified the LIVE skills/active_strategy.json — production "
+            "parameter state (including __generation) must never move in a test")
