@@ -1078,6 +1078,149 @@ class SceneDatabase:
 
 
 # ---------------------------------------------------------------------------
+# Progress ledger — ONE unit convention for every "is this progress?" gate
+# ---------------------------------------------------------------------------
+# P0-4 / A2 §1.2 D2 (U1).  Before this block the same question was answered by
+# three incompatible gates, and they cancelled each other:
+#
+#   * ``main.py`` L2a asked ``coverage_rate < 0.05``.  ``coverage_rate`` is
+#     **percentage points of newly visited cells per 1000 ticks** (see
+#     ``SpatialMemoryMap.coverage_rate``), NOT a distance ratio: the live
+#     counter-example was ``coverage_rate 1.14`` (09-18 16:18, seq=331573)
+#     while the fly was weaving in place, so a 0.05 threshold on that number
+#     can never fire for a fast weave.
+#   * ``MotionStateDetector._detect_oscillating`` returned False on
+#     ``disp_60s > 300``.
+#   * ``MotionStateDetector._detect_micro_loop`` Tier-2 returned False on
+#     ``disp_60s > 300 and loop_score < 0.8``.
+#
+# The last two read raw 60 s displacement as "progress" — which is exactly the
+# misreading that hid the 316 u/s / 28 u-per-60 s weave: the fly moves fast but
+# never leaves its cell.  Motion is therefore no longer accepted as progress.
+#
+# UNIT CONVENTION (single source of truth; main.py's L2a + burst precondition
+# and plugin/runner.py's check_help_needed reference this block):
+#
+#   disp_60s     : game units of net displacement inside the 60 s window.
+#   median_speed : game units per second — median of the measured per-tick
+#                  speeds inside the SAME 60 s window
+#                  (``median_speed_from_trace`` below).
+#   displacement_per_speed = disp_60s / (median_speed * 60)
+#                : dimensionless progress efficiency in [0, 1]; 1.0 means every
+#                  unit of speed became displacement, ~0 means weaving in place.
+#   coverage_rate: percentage points / 1000 ticks — never compared against a
+#                  displacement ratio.
+PROGRESS_EFFICIENCY_FLOOR = 0.25   # < 25% of the achievable distance = weave
+MOTION_DISP_60S = 300.0            # u / 60 s above which the fly "is moving"
+WEAVE_STUCK_DURATION = 45.0        # s of unproductive time = weave (user 09-17)
+
+
+def displacement_per_speed(disp_60s: float | None,
+                           median_speed: float | None) -> float | None:
+    """Progress efficiency ``disp_60s / (median_speed * 60)`` — see the unit
+    convention block above.  ``None`` when it cannot be evaluated (no 60 s
+    displacement yet, or no speed reference)."""
+    if disp_60s is None or median_speed is None:
+        return None
+    try:
+        disp = float(disp_60s)
+        speed = float(median_speed)
+    except (TypeError, ValueError):
+        return None
+    if disp < 0.0 or speed <= 0.0:
+        return None
+    return disp / (speed * 60.0)
+
+
+def progress_is_ineffective(disp_60s: float | None,
+                            median_speed: float | None = None) -> bool:
+    """True when the last 60 s produced no real progress.
+
+    Two prongs, one convention (unit block above):
+
+    A. speed known — ``displacement_per_speed`` below
+       ``PROGRESS_EFFICIENCY_FLOOR``: the fly wasted most of its speed.
+    B. speed unknown — the fly *is moving* (``disp_60s > MOTION_DISP_60S``).
+       Motion alone must never be read as progress; this is the D2 inversion
+       (the old gate ``disp_60s > 300 -> False`` is what made the high-speed
+       weave invisible).  Callers always combine this with a stuck clock.
+
+    ``False`` means "no opinion" (nothing to measure), never "progress proven"
+    — callers must not treat it as a health signal.
+    """
+    eff = displacement_per_speed(disp_60s, median_speed)
+    if eff is not None:
+        return eff < PROGRESS_EFFICIENCY_FLOOR
+    if disp_60s is None:
+        return False
+    try:
+        disp = float(disp_60s)
+    except (TypeError, ValueError):
+        return False
+    return disp > MOTION_DISP_60S
+
+
+def median_speed_from_trace(trace, subsample: int = 120) -> float | None:
+    """Median measured speed (game units / s) of a ``(t, x, z)`` pose trace.
+
+    ``trace`` is the same 60 s window main.py uses for ``disp_60s``, so
+    ``displacement_per_speed`` compares like with like.  Sub-sampled to at most
+    *subsample* speed samples to keep the per-tick cost bounded (the result is
+    still a median of measured per-tick speeds).
+    """
+    if trace is None or len(trace) < 3:
+        return None
+    step = max(1, len(trace) // max(subsample, 1))
+    speeds = []
+    prev = None
+    for i in range(0, len(trace), step):
+        t, x, z = trace[i][0], trace[i][1], trace[i][2]
+        if prev is not None:
+            dt = t - prev[0]
+            if dt > 0.0:
+                speeds.append(math.hypot(x - prev[1], z - prev[2]) / dt)
+        prev = (t, x, z)
+    if not speeds:
+        return None
+    speeds.sort()
+    return speeds[len(speeds) // 2]
+
+
+def deadlock_burst_ready(*, stuck_duration: float | None,
+                         loop_score: float | None,
+                         disp_60s: float | None = None,
+                         median_speed: float | None = None,
+                         loop_breakout_threshold: float = 0.90,
+                         stuck_floor: float = WEAVE_STUCK_DURATION) -> bool:
+    """Behaviour-only precondition for the exploration-deadlock burst.
+
+    P0-4 step 4: this used to require ``anomaly_state_name == "oscillating"``
+    (``main.py`` burst block) — a field the very same displacement gate pins to
+    ``idle`` whenever the fly weaves *fast*, i.e. the burst could not open in
+    the reported form.  The precondition is derived from behaviour instead:
+
+      * ``loop_score`` above the breakout threshold (near-fully revisiting), OR
+      * ``stuck_duration > 60 s`` (the historical floor), OR
+      * ``stuck_duration >= WEAVE_STUCK_DURATION`` AND the 60 s window shows no
+        real progress (``progress_is_ineffective``) — the high-speed weave.
+
+    ``loop_score`` is itself decayed by sustained displacement (R31-fix10), so
+    it must not be the only way in either; that is what the third clause adds.
+    """
+    try:
+        loop = float(loop_score or 0.0)
+        stuck = float(stuck_duration or 0.0)
+    except (TypeError, ValueError):
+        return False
+    if loop > float(loop_breakout_threshold):
+        return True
+    if stuck > 60.0:
+        return True
+    return (stuck >= float(stuck_floor)
+            and progress_is_ineffective(disp_60s, median_speed))
+
+
+# ---------------------------------------------------------------------------
 # MotionStateDetector — 5-state motion anomaly detection with majority vote
 # ---------------------------------------------------------------------------
 
@@ -1143,13 +1286,19 @@ class MotionStateDetector:
                            heading_rate: float) -> bool:
         return ramp_score > 0.5 and stuck_duration > 15.0 and heading_rate < 0.05
 
-    def _detect_oscillating(self, disp_60s: float | None = None) -> bool:
+    def _detect_oscillating(self, disp_60s: float | None = None,
+                            median_speed: float | None = None) -> bool:
         """Detect oscillation in control.x: ≥3 alternations between ≤-60 and ≥+60.
         
-        R31-fix12: displacement gate — when there is genuine progress the
-        alternating pattern is not a stuck oscillation but zig-zag navigation.
+        R31-fix12 / P0-4: displacement evidence gate — the alternating pattern is
+        zig-zag *navigation* only when the 60 s window shows real progress, i.e.
+        ``displacement_per_speed >= PROGRESS_EFFICIENCY_FLOOR`` (progress-ledger
+        unit block at the top of this module).  The old test was raw
+        ``disp_60s > 300``, which read "moving fast" as "making progress" and so
+        classified the 316 u/s / 28 u-per-60 s weave as idle (D2).
         """
-        if disp_60s is not None and disp_60s > 300.0:
+        if (disp_60s is not None
+                and not progress_is_ineffective(disp_60s, median_speed)):
             return False
         if len(self._ctrl_x_buf) < 6:
             return False
@@ -1173,15 +1322,20 @@ class MotionStateDetector:
 
     def _detect_micro_loop(self, visited_cells: int, loop_score: float,
                            stuck_duration: float,
-                           disp_60s: float | None = None) -> bool:
+                           disp_60s: float | None = None,
+                           median_speed: float | None = None) -> bool:
         # Tier 1: classic micro-loop in small area
         if visited_cells < 5 and loop_score > 0.5 and stuck_duration > 30.0:
             return True
         # Tier 2: general stuck — any cell count, stuck > 90s (covers exploration gaps)
         if stuck_duration > 90.0 and loop_score > 0.5:
-            # R31-fix6: if there's genuine displacement AND loop isn't extreme,
-            # this is "zig-zag progress" not true stuck — let CPG layer handle.
-            if (disp_60s is not None and disp_60s > 300.0 and loop_score < 0.8):
+            # R31-fix6 / P0-4: only genuine progress may suppress Tier-2 —
+            # "zig-zag progress" now means displacement_per_speed >= floor
+            # (progress-ledger unit block at the top of this module), not a raw
+            # disp_60s > 300 reading, which a high-speed weave also satisfies.
+            if (disp_60s is not None
+                    and not progress_is_ineffective(disp_60s, median_speed)
+                    and loop_score < 0.8):
                 return False
             return True
         return False
@@ -1198,7 +1352,8 @@ class MotionStateDetector:
               visited_cells: int = 0,
               loop_score: float = 0.0,
               pos_y: float | None = None,
-              disp_60s: float | None = None) -> str:
+              disp_60s: float | None = None,
+              median_speed: float | None = None) -> str:
         """Return the per-frame state name, prioritised by severity."""
         # EVO R16 · P1-A3: pos_y validity gate.  Unknown elevation (None or
         # the historical 0.0 default) must not vote FALLEN — SM64 ground sits
@@ -1206,9 +1361,10 @@ class MotionStateDetector:
         fallen_active = pos_y is not None and pos_y != 0.0 and self._detect_fallen(pos_y)
         if fallen_active:
             return self.FALLEN
-        if self._detect_micro_loop(visited_cells, loop_score, stuck_duration, disp_60s=disp_60s):
+        if self._detect_micro_loop(visited_cells, loop_score, stuck_duration,
+                                   disp_60s=disp_60s, median_speed=median_speed):
             return self.MICRO_LOOP
-        if self._detect_oscillating(disp_60s=disp_60s):
+        if self._detect_oscillating(disp_60s=disp_60s, median_speed=median_speed):
             return self.OSCILLATING
         if self._detect_wall_stuck(wall_score, escape_behavior, stuck_duration):
             return self.WALL_STUCK
@@ -1231,6 +1387,7 @@ class MotionStateDetector:
         pos_y: float | None = None,
         control_x: int = 0,
         disp_60s: float | None = None,       # R31-fix6: progress gate
+        median_speed: float | None = None,   # P0-4: same-window speed (u/s)
     ) -> dict:
         """Feed one tick; returns ``get_state()``."""
         self._total_ticks += 1
@@ -1247,6 +1404,7 @@ class MotionStateDetector:
             loop_score=loop_score,
             pos_y=pos_y,
             disp_60s=disp_60s,
+            median_speed=median_speed,
         )
         self._vote_buffer.append(vote)
 
@@ -1870,6 +2028,10 @@ class MemoryController:
             pos_y=pos_y,
             control_x=control_x,
             disp_60s=getattr(self, "disp_60s", None),
+            # P0-4: the anomaly classifier reads the SAME progress convention as
+            # main.py's L2a / burst precondition and plugin/runner.py — see the
+            # progress-ledger unit block at the top of this module.
+            median_speed=getattr(self, "median_speed", None),
         )
         self._latest_anomaly_conf = anomaly_result["confidence"]
         self._latest_anomaly_dur = anomaly_result["duration_in_state"]

@@ -1,9 +1,9 @@
 {
   "$schema": "fly64/evolution-history/1.0",
   "canonical_versions": {
-    "brain": "2.23.11",
-    "skill": "3.4.2",
-    "as_of": "2026-09-18T01:08:22.683057+08:00"
+    "brain": "2.23.12",
+    "skill": "3.5.0",
+    "as_of": "2026-09-23T00:01:31+08:00"
   },
   "records": [
     {
@@ -1472,6 +1472,27 @@
       ],
       "source": "本次会话 t17；工具 scripts/attribute_phase6_failures.py、audit_motor_injections.py、build_unimplemented_register.py、measure_evolution_health.py",
       "notes": "**版本轨**：仅 skill 3.4.1 → 3.4.2（patch；Phase 6 的适应度计算与搜索决策改变，属缺陷修复）。脑行为未变，BRAIN_VERSION 保持 canonical。**方法论价值（本轮最大收获）**：四条建议里“用仪表定位 Phase 6 根因”一条，让我先看到 41% 零 delta，再用逐输入变化次数把范围缩到四个**恒为常量**的字段，最后确认它们在 dataclass 上根本不存在——**没有改动任何阈值或窗口就得到了根因**，这正是当初拒绝凭推断调参的价值。**自我更正**：我先前把两处失败判为 real-bug，实测都是测试误调用 API/漏传参数；登记册与基线中的 cause 因此改为 test-drift，并各自留下可复现的实测命令。**P4.4 广度（建议①）**：snapshot 实测 promoted=1、signature_reuse_rate 已由 0% 升至 **8.3%**、可用 outcome 36 条——趋势文件已建立，后续按快照比较而非目测。"
+    },
+    {
+      "id": "EVO-072",
+      "date": "2026-09-22",
+      "time": "18:22:03 +0800",
+      "round": "R31 键名归一化 + coach 合并写入（commit 879d983）",
+      "kind": "skill",
+      "brain_version": "2.23.12",
+      "skill_version": "3.5.0",
+      "trigger": "RULE-19 契约审计发现（“机制存在、报告成功、无法生效”家族第 7 例）：EVO _inject 写入嵌套清洁键，但 active_strategy.json 中历史遗留的点号扁平死键与其共存（exploration['exploration.gate_jump_threshold']），脑模型读取 _expl.get('gate_jump_threshold') 只命中默认值——**进化值从未真正生效**；另一路 coach 写入整体覆盖 active_strategy.json，抹掉 EVO 的 __generation 与未被 coach 提及的进化参数。原始诉求：09-22 18:12 [99cab60f seq=2753]“修复 _inject/读取方的键名归一化……Coach 与 EVO 写同一文件会产生互相覆盖”。",
+      "changes": [
+        "evolution_skill.py: BrainMutator._load_active_strategy 迁移点号前缀死键 → 清洁键（prefix = sec + '.'），保留兄弟键与 __generation",
+        "plugin/strategy_writer.py: coach StrategyWriter.write_strategy 改为与磁盘现有内容逐 section 合并（merged[sec] = {**merged[sec], **body}，coach 键胜出、EVO 键保留），不再整体覆盖",
+        "fly64/main.py: 热加载端防御性归一化（不依赖 EVO 先跑）",
+        "tests/test_strategy_key_contract.py: 新增 7 项 PIN（点号键迁移 / 清洁键胜出 / 兄弟键保留 / __generation 保留 / writer 合并保留 EVO 键等）",
+        "tests/test_phase6_fitness_inputs.py: 修正 test_candidates_stay_within_param_bounds 适配子集采样语义（39 维 wired，每 trial 随机 5 维）"
+      ],
+      "tests": "tests/test_strategy_key_contract.py 7/7 PIN 通过（879d983 新增）；tests/test_phase6_fitness_inputs.py 适配后通过。⚠️ 已知残留（A3 §4.3 实测）：归一化只清“同段前缀”死键，真实 active_strategy.json 的 exploration 段内跨段 escape.* 死键（forward_accum_step 0.015757 vs 清白键 0.005）未迁移，且文件本体未被修正（修复只在读取端）。",
+      "deployed": true,
+      "source": "commit 879d983 fix(EVO-072): active_strategy键名归一化 + coach合并写入 — 修复EVO进化值从未生效（2026-09-22 18:22:03 +0800）",
+      "notes": "**版本轨**：该 commit 上 main.py 已为 BRAIN_VERSION 2.23.12 / SKILL_VERSION 3.5.0，本条为 skill 侧修正（3.4.2 → 3.5.0）。**本条为 P0-1 补录**：提交信息声称已按 agent.md 规则 15 记录，但 evolution_history.json 此前止于 EVO-071（79 条）且不含 EVO-072；补录依据为 879d983 的 diff 与 tests/test_strategy_key_contract.py 的 7 条 PIN（A3 §2.4 / A2 D10）。"
     }
   ]
 }

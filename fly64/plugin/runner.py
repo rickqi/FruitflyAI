@@ -258,7 +258,72 @@ class PluginRunner:
                 "cpg": mem.get("cpg") or {},
                 "help_components": components,
             }
+        # P0-4 / A2 §1.2 D2 (U1): HIGH-SPEED WEAVE — motion is not progress.
+        # The two branches above both require an `anomaly` verdict or a >60 s
+        # stuck clock; in the reported form (median speed 316 u/s, 60 s
+        # displacement 28-2100 u, loop_score 0.93-0.99, stuck 54.2 s, health
+        # 0.62) the classifier says idle — the same displacement misreading
+        # pins it there — so the coach was never woken.  The question is now
+        # decided by the ONE unit convention documented in fly64/memory.py's
+        # progress-ledger block:
+        #   displacement_per_speed = disp_60s / (median_speed * 60).
+        weave = self._weave_escalation(mem, stuck, pos_y_ctx)
+        if weave is not None:
+            return weave
         return None
+
+    def _weave_escalation(self, mem: dict, stuck: float,
+                          pos_y_ctx) -> Optional[dict]:
+        """P0-4: high-speed weave escalation — the coach's wake-up call that
+        the classifier-gated branches cannot deliver (A2 §1.2 D2 / §5 U1).
+
+        Contract (units in fly64/memory.py's progress-ledger block):
+          * ``stuck_duration >= WEAVE_STUCK_DURATION`` (45 s, the relaxation the
+            user proposed on 09-17: ``loop_score >= 0.95 AND escape AND
+            stuck >= 45``), and
+          * ``progress_is_ineffective(disp_60s, median_speed)`` — motion alone
+            never counts as progress.
+
+        ``reflex_active`` and ``anomaly_state`` are deliberately NOT consulted:
+        an active reflex that weaves is the incident itself (EVO R12), and no
+        field polluted by the old displacement gate may veto the escalation.
+        Returns ``None`` when the prong does not apply (or when the brain
+        package is not importable — the coach must never crash, D1).
+        """
+        try:
+            from fly64.memory import (WEAVE_STUCK_DURATION,
+                                      displacement_per_speed,
+                                      progress_is_ineffective)
+        except ImportError:  # pragma: no cover — never break the escalation path
+            return None
+        disp = mem.get("disp_60s")
+        if stuck < WEAVE_STUCK_DURATION:
+            return None
+        if not progress_is_ineffective(disp, mem.get("median_speed")):
+            return None
+        return {
+            "help_reason": "weave_no_progress",
+            "scene_name": mem.get("scene_name", "?"),
+            "position": mem.get("position") or {},
+            "pos_y": pos_y_ctx,
+            "diagnosis": (
+                f"weave_no_progress: stuck={stuck:.1f}s ≥ "
+                f"{WEAVE_STUCK_DURATION:.0f}s while the 60 s window shows no "
+                f"real progress (disp_60s={disp}, median_speed="
+                f"{mem.get('median_speed')}, displacement_per_speed="
+                f"{displacement_per_speed(disp, mem.get('median_speed'))}); "
+                f"anomaly_state={mem.get('anomaly_state', '?')} and "
+                f"reflex_active={mem.get('reflex_active')} "
+                f"(classifier/reflex disagree with behaviour)"),
+            "stuck_duration": stuck,
+            "anomaly_state": mem.get("anomaly_state", "?"),
+            "health_score": float(mem.get("health_score", 1.0)),
+            "disp_60s": disp,
+            "median_speed": mem.get("median_speed"),
+            "displacement_per_speed": displacement_per_speed(
+                disp, mem.get("median_speed")),
+            "cpg": mem.get("cpg") or {},
+        }
 
     def capture_frame(self) -> Optional[str]:
         """Fetch the SM64 game screen (base64) for GLM multimodal input.

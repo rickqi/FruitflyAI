@@ -952,7 +952,7 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 ### 完整进化历史档案
 
 <!-- EVOLUTION-HISTORY-TABLE:START
-下表由 `skills/evolution_skill.py --history-md` 从权威记录 `skills/evolution_history.json` 自动生成（79 条，权威版本 Brain v2.23.6 / Skill v3.4.2）。**请勿手改本表**——更新记录后重新执行该命令再粘贴。
+下表由 `skills/evolution_skill.py --history-md` 从权威记录 `skills/evolution_history.json` 自动生成（80 条，权威版本 Brain v2.23.12 / Skill v3.5.0）。**请勿手改本表**——更新记录后重新执行该命令再粘贴。
 
 | ID | 时间 | 轮次 | Brain | Skill | 触发原因 | 关键变更 | 测试 | 来源 |
 |----|------|------|-------|-------|---------|---------|------|------|
@@ -1035,6 +1035,7 @@ pose 状态机（grounded/airborne）────┘   （脑发门控，相位�
 | EVO-069 | 2026-09-17 21:36 | R31-fix9 | 2.23.6 | 3.4.1 | 教练建议完全无法影响多巴胺系统——coach 看见虚空跳冲无效但无法传入奖惩信号 | main.py: load_active_strategy 透传 dopamine 键；主循环将 dopamine.bi；model.py: init _coach_dopamine_bias；dopamine 求和时加 bias（clamp；tests/test_coach_dopamine.py: 7 用例（解析/模型/接线契约） | coach_dopamine 7/7 + autonomy 17/17 | 用户要求教练建议影响训练 → R31-fix9 |
 | EVO-070 | 2026-09-17 21:53 | t16 里程碑：首个本能晋级 + 课程阶梯晋级 | 2.23.6 | 3.4.1 | 对 EVO-058（P4.4 本能固化可达化 + 课程渐进阶梯）与 EVO-065（课程三态判定）的端到端验证：此前两者都只有单元测试与受控注入证据，本轮在**不加任何人为干预**的真实运行中观察到它们按设计产生结果。 | （无代码改动）本条为运行观测记录，用于闭合 EVO-058/065 的端到端验证义务 | 实测（brain 2.23.6 / skill 3.4.1，运行中）：① **首个本能晋级**：场景 '山坡·天空'，显 | 本次会话 t16 运行时观测；证据库 51 条 outcome / 18 签名 / 8 场景 |
 | EVO-071 | 2026-09-18 01:08 | t17 执行四条建议：度量工具化 + Phase 6 根因修复 + 登记册 | 2.23.6 | 3.4.2 | 执行上一轮的四条建议。过程中**修正了我自己对两处失败的误判**（原记为 real-bug，实测均为 test-drift），并借助 EVO-067 上线的新仪表**定位到 Phase 6 的真实根因**：适应度函数读取了 SensorSa | **Phase 6 根因修复**（本轮的实质缺陷）：fitness_components 原先用 getattr(sam；保留 _legacy_fitness_components 作为**审计预言机**（复现修复前的数值，含静默默认语义）；新增 tests/test_phase6_fitness_inputs.py 11 条：真实 SensorSample （等 9 项） | ['test_phase6_fitness_inputs 11 + test_phase6_attribution 13 | 本次会话 t17；工具 scripts/attribute_phase6_failures.py、audit_motor |
+| EVO-072 | 2026-09-22 18:22 | R31 键名归一化 + coach 合并写入（commit 879d983） | 2.23.12 | 3.5.0 | RULE-19 契约审计发现（“机制存在、报告成功、无法生效”家族第 7 例）：EVO _inject 写入嵌套清洁键，但 active_strategy.json 中历史遗留的点号扁平死键与其共存（exploration['explora | evolution_skill.py: BrainMutator._load_active_strategy 迁移点号前；plugin/strategy_writer.py: coach StrategyWriter.write_strate；fly64/main.py: 热加载端防御性归一化（不依赖 EVO 先跑）（等 5 项） | tests/test_strategy_key_contract.py 7/7 PIN 通过（879d983 新增）；t | commit 879d983 fix(EVO-072): active_strategy键名归一化 + coach合并写 |
 <!-- EVOLUTION-HISTORY-TABLE:END -->
 
 > **档案维护规则**：本表由 `--history-md` 从权威 JSON 再生成，新进化轮次只写 `evolution_history.json`（规则 15），然后执行 `python3 fly64/skills/evolution_skill.py --history-md` 重新生成并替换 `<!-- EVOLUTION-HISTORY-TABLE -->` 标记之间的内容，随代码一起提交。

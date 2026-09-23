@@ -282,5 +282,5 @@
     }
   },
   "wired_note": "wired=true means a component in fly64/ or plugin/ actually reads this dotted path from active_strategy.json, so a value written here can change behaviour.  wired=false are documented-but-unimplemented knobs: they were verified to have ZERO occurrences anywhere in the source, so mutating or tuning them cannot affect the fly.  BrainMutator searches only wired params (otherwise ~2/3 of its search dimensions are pure noise and a trial's fitness delta cannot be attributed), and the operator panel shows the rest as inert.  Re-check with scripts/audit_contract_pairs.py before flipping a flag.",
-  "wired_audited_at": "2026-09-17T20:52:38.854226+08:00"
+  "wired_audited_at": "2026-09-23T00:06:46.472173+08:00"
 }

@@ -30,7 +30,9 @@ from .bridge import CHANNELS, HEIGHT, WIDTH, SharedBridge
 from .model import FlyModel
 from .retina import BASES, CALIBRATION
 from .telemetry import Observatory
-from .memory import MemoryController
+from .memory import (MemoryController, deadlock_burst_ready,
+                     displacement_per_speed, median_speed_from_trace,
+                     progress_is_ineffective)
 from .scene_recognition import SceneRecognizer
 
 # ── Brain model version ──────────────────────────────────────────────
@@ -1140,9 +1142,15 @@ async def run(args) -> None:
                     (memory_ctrl.reflex_active and _disp60 < 30.0)
                     or _circling)
                 memory_ctrl.disp_60s = round(_disp60, 1)
+                # P0-4: the SAME 60 s window's median measured speed (u/s), so
+                # displacement_per_speed = disp_60s / (median_speed * 60) is a
+                # like-for-like ratio.  Unit convention: progress-ledger block
+                # in fly64/memory.py.
+                memory_ctrl.median_speed = median_speed_from_trace(_disp_trace)
             else:
                 memory_ctrl.reflex_ineffective = False
                 memory_ctrl.disp_60s = None
+                memory_ctrl.median_speed = None
             heading = pose_ev[3]
             control, spikes = model.step(frame, model.step_count * model.dt,
                                          novelty=memory_ctrl.novelty,
@@ -1218,10 +1226,26 @@ async def run(args) -> None:
                     {"help_reason": None}).encode()
 
             # ---- L2a: stuck/circling help trigger — fast-looping case ----
+            # P0-4 / A2 §1.2 D2: this gate used to require
+            # ``spatial.coverage_rate < 0.05``.  coverage_rate is in
+            # **percentage points / 1000 ticks** (memory.py progress-ledger
+            # block), so the live weave form (coverage_rate 1.14 at 316 u/s,
+            # 28 u / 60 s) could never pass it — the coach was not woken at the
+            # one moment it was needed.  The gate now asks the shared question
+            # "was there real progress?" via the SAME convention used by
+            # memory.py's anomaly classifier and plugin/runner.py:
+            #   displacement_per_speed = disp_60s / (median_speed * 60).
+            # coverage_stalled (coverage_rate ≈ 0) is kept only as an OR
+            # fallback for the pre-60 s warm-up window, so the historical
+            # slow-stall case keeps firing too.
             _now = time.monotonic()
-            _stuck_no_progress = (memory_ctrl.stuck_score >= 0.8
-                                  and memory_ctrl.spatial.coverage_rate < 0.05
-                                  and memory_ctrl.stuck_duration > 5.0)
+            _stuck_no_progress = (
+                memory_ctrl.stuck_score >= 0.8
+                and (progress_is_ineffective(
+                         getattr(memory_ctrl, "disp_60s", None),
+                         getattr(memory_ctrl, "median_speed", None))
+                     or bool(memory_ctrl.spatial.coverage_stalled))
+                and memory_ctrl.stuck_duration > 5.0)
             if _stuck_no_progress:
                 if _stuck_no_coverage_start is None:
                     _stuck_no_coverage_start = _now
@@ -1323,14 +1347,20 @@ async def run(args) -> None:
                     # Wire dopamine_revisit_cost into model
                     model._dopamine_revisit_cost = float(
                         _expl.get("dopamine_revisit_cost", 0.20))
-                    # Wire stuck_ramp_cooldown into reflex controller
-                    memory_ctrl.reflex.cooldown_duration = max(1.0, min(15.0, float(
+                    # Wire stuck_ramp_cooldown into reflex controller: the
+                    # reflex's base post-fire cooldown is cooldown_duration.
+                    _reflex_base_cd = max(1.0, min(15.0, float(
                         _expl.get("stuck_ramp_cooldown", 5.0))))
-                    # Wire breakout_forward_bias into model (max escape forward gain)
-                    # NOTE: these five live in escape/reflex sections — read from
-                    # _esc, NOT _expl (registry pids are escape.*/reflex.*).
+                    # Wire breakout_forward_bias into model (max escape forward
+                    # gain).  Its registry pid is exploration.breakout_forward_bias
+                    # (brain_tunable_params.json), so the panel/EVO value arrives
+                    # in the exploration section: read _expl, NOT _esc.  ea509a9
+                    # moved this reader to _esc while the pid stayed
+                    # exploration.*, which turned the knob into a dead parameter
+                    # (A3 §4.2a).  The three escape.* knobs below ARE registered
+                    # under escape.* and are therefore read from _esc.
                     model._max_escape_forward = max(0.15, min(0.60, float(
-                        _esc.get("breakout_forward_bias", 0.50))))
+                        _expl.get("breakout_forward_bias", 0.50))))
                     # Wire escape.commit params into model
                     model._forward_accum_step = max(0.001, min(0.02, float(
                         _esc.get("forward_accum_step", 0.005))))
@@ -1342,6 +1372,16 @@ async def run(args) -> None:
                     _reflex_sec = _as_raw.get("reflex", {}) or {}
                     memory_ctrl._adaptive_cooldown_scale = max(0.01, min(0.15, float(
                         _reflex_sec.get("adaptive_cooldown_scale", 1.0 / 120.0))))
+                    # Wire reflex.cooldown_min (P0-2): its consumer is the
+                    # reflex's post-fire cooldown.  The registry declares it as
+                    # the MINIMUM cooldown of every reflex, so it floors the
+                    # base duration that stuck_ramp_cooldown set above — one
+                    # assignment, so neither pid can silently overwrite the
+                    # other (ea509a9 had left this pid with no consumer at all).
+                    memory_ctrl.reflex.cooldown_duration = max(
+                        _reflex_base_cd,
+                        max(0.5, min(5.0, float(
+                            _reflex_sec.get("cooldown_min", 2.0)))))
                     # ── Navigation circuit weights (CX goal vectors) ──
                     _nav = _as_raw.get("navigation", {}) or {}
                     memory_ctrl.navigation_danger_weight = max(0.0, min(3.0, float(
@@ -1561,18 +1601,29 @@ async def run(args) -> None:
                     if _py_ >= -200:
                         memory_ctrl.escape_behavior = True
 
-            # ---- Exploration deadlock override: oscillating→straight burst ----
-            # When escape_behavior AND anomaly_state==oscillating AND
-            # stuck_duration>300, override the (±70,±70) oscillating reflex with
-            # a straight-ahead forward burst (ctrl_x=0, ctrl_y=127) for 60 ticks,
-            # then release — breaking the triple-deadlock where oscillating
-            # reflex + alternating bold + LIF zero-sum locks heading=180.
-            # A cooldown ensures at least 300 ticks of normal reflex operation
-            # between bursts so the brain can recover naturally.
-            if (memory_ctrl.anomaly_state_name == "oscillating"
-                    and (memory_ctrl.stuck_duration > 60
-                         or memory_ctrl.spatial.loop_score > float(
-                              _expl.get("loop_breakout_threshold", 0.90)))
+            # ---- Exploration deadlock override: weave/no-progress → burst ----
+            # P0-4 step 4 (A2 §1.2 D2 / §5 U1): the precondition used to read
+            # ``anomaly_state_name == "oscillating"`` — the exact field the same
+            # displacement gate pins to "idle" whenever the fly weaves FAST, so
+            # the burst could never open in the reported 316 u/s / 28 u-per-60 s
+            # form.  It is now derived from behaviour only, through the shared
+            # progress convention (progress-ledger block in fly64/memory.py):
+            #   loop_score > loop_breakout_threshold   (near-fully revisiting)
+            #   or stuck_duration > 60 s               (historical floor)
+            #   or stuck_duration >= 45 s AND no real progress
+            #      (displacement_per_speed = disp_60s / (median_speed * 60)
+            #       below PROGRESS_EFFICIENCY_FLOOR)
+            # The third clause matters because loop_score is itself decayed by
+            # sustained displacement (R31-fix10), i.e. both polluted fields can
+            # read "healthy" while the fly weaves in place (P1-6 finalises the
+            # burst closed loop; the precondition is unbound here).
+            if (deadlock_burst_ready(
+                    stuck_duration=memory_ctrl.stuck_duration,
+                    loop_score=memory_ctrl.spatial.loop_score,
+                    disp_60s=getattr(memory_ctrl, "disp_60s", None),
+                    median_speed=getattr(memory_ctrl, "median_speed", None),
+                    loop_breakout_threshold=float(
+                        _expl.get("loop_breakout_threshold", 0.90)))
                     and not getattr(memory_ctrl, '_last_burst_tick', 0) == model.step_count):
                 if _deadlock_burst_cooldown <= 0:
                     _deadlock_burst_remaining = 200  # ~4s forward burst
@@ -2297,6 +2348,12 @@ async def run(args) -> None:
                     except Exception:
                         pass
                 xs, zs, heats = memory_ctrl.spatial.get_heatmap()
+                # P0-4: publish the progress ledger so the coach layer
+                # (plugin/runner.py) reads the same numbers/units the brain
+                # decided with — see fly64/memory.py's progress-ledger block.
+                _ms = getattr(memory_ctrl, "median_speed", None)
+                _dps = displacement_per_speed(
+                    getattr(memory_ctrl, "disp_60s", None), _ms)
                 DashboardHTTP.memory_json = json.dumps({
                     # visited-cell heat grid (same source as the 2D heatmap) +
                     # traversal topology, for the 3D trajectory map overlay
@@ -2318,8 +2375,19 @@ async def run(args) -> None:
                     "exploration_mode": memory_ctrl.spatial.exploration_mode,
                     "visited_cells": memory_ctrl.spatial.visited_cells,
                     "coverage_pct": round(memory_ctrl.coverage_pct, 1),
+                    # P0-4: coverage_rate is percentage points / 1000 ticks (NOT
+                    # a distance ratio) — do not compare it against a
+                    # displacement ratio.  The progress question (did the 60 s
+                    # window move the fly?) is answered by the pair below, whose
+                    # unit convention lives in fly64/memory.py's
+                    # progress-ledger block:
+                    #   displacement_per_speed = disp_60s / (median_speed * 60)
                     "coverage_rate": round(memory_ctrl.coverage_rate, 4),
                     "exploration_speed": round(memory_ctrl.coverage_rate * 60, 2),
+                    "median_speed": None if _ms is None else round(_ms, 1),
+                    "displacement_per_speed": None if _dps is None else round(_dps, 4),
+                    "progress_ineffective": progress_is_ineffective(
+                        getattr(memory_ctrl, "disp_60s", None), _ms),
                     "dead_end_count": memory_ctrl.dead_end_count,
                     "dead_end_cells": [[k[0], k[1]] for k in memory_ctrl.dead_end_cells][:50],
                     "cx_novelty_direction": round(getattr(model, "cx_novelty_direction", 0.0), 3),

@@ -37,7 +37,7 @@ except ImportError:
     HAS_JSONSCHEMA = False
     ValidationError = type("ValidationError", (Exception,), {})
 
-SKILL_VERSION = "3.4.2"
+SKILL_VERSION = "3.5.0"
 SKILL_NAME = "evolution_skill"
 SKILL_DIR = Path(__file__).resolve().parent
 WORKSPACE = SKILL_DIR.parent.parent
@@ -1592,6 +1592,8 @@ class PatternCatalog:
         self.patterns: list[dict] = []
         self.schema_version: str = "2.0"
         self._load()
+        if self.patterns:
+            _EVO_LOG.debug("PatternCatalog loaded %d patterns from %s", len(self.patterns), self.path or "(default)")
 
     def _load(self):
         if self.path and self.path.exists():
@@ -1600,9 +1602,38 @@ class PatternCatalog:
                 if HAS_JSONSCHEMA: validate(instance=raw, schema=PATTERN_SCHEMA)
                 self._raw = raw; self.patterns = raw["patterns"]
                 self.schema_version = raw.get("$schema_version", "2.0")
+                # Self-check: verify pattern count and critical IDs after successful load
+                _plog = logging.getLogger("PatternCatalog")
+                _expected_count = 16
+                if len(self.patterns) < _expected_count:
+                    _plog.warning(
+                        "Loaded %d patterns from %s (expected >= %d). Some patterns may be missing.",
+                        len(self.patterns), self.path, _expected_count,
+                    )
+                _critical_ids = {
+                    "circle_loop", "ramp_trap", "reflex_cooldown_gap",
+                    "low_coverage_stagnation", "below_ground_stuck",
+                    "fallen_recovery_stuck", "suspended_animation",
+                    "wall_corner_command_decoupled", "dopamine_plateau",
+                    "cliff_standoff", "micro_loop_weave", "micro_loop_weave_signal",
+                    "mbon_saturation", "primitive_timeout", "primitive_zero_disp",
+                    "mbon_wrong_direction",
+                }
+                _loaded_ids = {p.get("id") for p in self.patterns}
+                _missing = _critical_ids - _loaded_ids
+                if _missing:
+                    _plog.warning(
+                        "Critical pattern IDs missing after loading %s: %s",
+                        self.path, sorted(_missing),
+                    )
                 return
-            except: pass
-        self._raw = DEFAULT_PATTERNS; self.patterns = DEFAULT_PATTERNS["patterns"]; self.schema_version = "2.0"
+            except Exception as e:
+                import logging
+                logging.getLogger("PatternCatalog").error(
+                    "Failed to load patterns from %s: %s. Patterns will be empty!",
+                    self.path, e
+                )
+        self._raw = {}; self.patterns = []; self.schema_version = "2.0"
 
     @classmethod
     def from_dict(cls, data: dict) -> PatternCatalog:

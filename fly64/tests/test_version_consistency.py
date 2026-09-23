@@ -1,18 +1,27 @@
 """Version consistency tests — agent.md rule 8 enforcement.
 
-Ensures BRAIN_VERSION is synchronised across all three declared locations:
-  fly64/fly64/main.py — authoritative constant
+Ensures BRAIN_VERSION is synchronised across every declared location:
+  fly64/fly64/main.py — authoritative constant (single source of truth)
   fly64/skills/skills.md — header badge (two occurrences)
   fly64/skills/evolution_history.json — canonical_versions.brain
+  fly64/tests/test_version_consistency.py — EXPECTED (imported from main.py,
+  never hardcoded — P0-1 removed the fourth drift source)
 """
 
 import json
 import re
+import sys
 from pathlib import Path
 
 import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent  # fly64/
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+# P0-1: the guard must read main.py, not a copy of it (no fourth hardcoded value)
+from fly64.main import BRAIN_VERSION as MAIN_BRAIN_VERSION  # noqa: E402
+
 SKILLS_DIR = PROJECT_ROOT / "skills"
 MAIN_PY = PROJECT_ROOT / "fly64" / "main.py"
 SKILLS_MD = SKILLS_DIR / "skills.md"
@@ -39,15 +48,20 @@ def _get_canonical_brain_from_history() -> str:
     return data["canonical_versions"]["brain"]
 
 
-EXPECTED = "2.23.11"
+EXPECTED = MAIN_BRAIN_VERSION  # imported from fly64/fly64/main.py — never hardcoded
 
 
 class TestVersionConsistency:
     """agent.md rule 8: version tri-sync (main.py ↔ skills.md ↔ history)."""
 
     def test_main_py_is_expected(self):
-        """main.py declares the expected BRAIN_VERSION."""
-        assert _get_brain_version_from_main() == EXPECTED
+        """main.py declares the expected BRAIN_VERSION, and both readers agree."""
+        parsed = _get_brain_version_from_main()
+        assert parsed == MAIN_BRAIN_VERSION, (
+            f"regex parse of {MAIN_PY} gave {parsed!r} but the import gave "
+            f"{MAIN_BRAIN_VERSION!r}"
+        )
+        assert parsed == EXPECTED
 
     def test_skills_md_badges_match_main(self):
         """Every BRAIN_VERSION badge in skills.md matches main.py."""
