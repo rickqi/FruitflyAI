@@ -125,9 +125,12 @@ A3 §5.2 里“NEW = 34”会包含 2 条 09-18 之前就红的用例，也说�
 | 22 | `test_retina_calibration.py::test_emd_pairs_stay_within_eye` | `real-bug` | ✔ 765188d 通过 / ✔ `1badb40` 仍通过 / ✔ `cd9a5a7` 失败 |
 | 23 | `test_regression_detector.py::TestBaselineIsWellFormed::test_every_entry_has_a_cause_and_note` | — | 由**本次分类**直接转绿，故从基线中移除（见 §4.2） |
 
-### 3.1 在途未跟踪工作（第 1–12 条）——需要 captain 决策，本次未擅自处理
+### 3.1 在途未跟踪工作（第 1–12 条）——`68ca39c` 已入库；其中 11 条是真实的契约不一致（t8 已修完）
 
-`git status` 显示：
+> **2026-09-23 重写（t8）**：下面记录的“未跟踪半成品”状态属于 09-22 记录基线时的事实，
+> 已被 `68ca39c` 改变。本节按现状改写，历史判据保留在下方代码块中。
+
+`git status` 当时显示（**历史状态，已不成立**）：
 
 ```
 ?? fly64/skills/fix_template_interpreter.py
@@ -135,7 +138,7 @@ A3 §5.2 里“NEW = 34”会包含 2 条 09-18 之前就红的用例，也说�
 ?? fly64/tests/test_trigger_conflict.py          # t3 的新测试，已通过，同样未提交
 ```
 
-关键事实（纯净 HEAD 上的实测）：
+关键事实（当时纯净 HEAD 上的实测）：
 
 ```
 ERROR collecting tests/test_fix_executor.py
@@ -151,12 +154,24 @@ ERROR collecting tests/test_fix_executor.py
 也就是说：**这不是“多余的脏文件”，而是“已提交代码依赖、但尚未完成且未提交”的半成品**。
 删除会立刻打断 HEAD 的导入链；提交则会把 11 条红测试带进主干。
 
-- **本次决定（在 inScope 之外，不动代码）**：把 12 条按 `real-bug` 记入基线，
-  note 写明“在途未跟踪 + HEAD 依赖 + 两条出路”，并在交付里请 captain 派单。
-- **建议出路**：另开任务把 `fix_template_interpreter.py` 做到 24/24 绿（差异集中在
+**现状（`68ca39c` 之后 + t8 收口之后）——按事实更正：**
+
+| 项 | 当时（09-22） | 现在（09-23） |
+|---|---|---|
+| `skills/fix_template_interpreter.py` | `??` 未跟踪 | **已入库**（`68ca39c`），HEAD 可正常导入 |
+| `tests/test_fix_template_interpreter.py` | `??` 未跟踪 | **已入库**（`68ca39c`） |
+| 第 1–11 条（`test_fix_template_interpreter.py`） | 记入基线 `cause=real-bug`，描述为“在途未跟踪工作” | **是真实的“模块 ↔ 测试契约不一致”，即未完成交付**，而不是脏文件问题：`# Change:`/`# To:` 产出 `action='replace'` 而契约要求 `change`；`# Files: a, b` 只登记首个目标（并留下 `_multi_file_registration` 这种执行器无法消费的伪动作）；`# Add after <anchor>` 产出 **0 条**指令（3 条退化模式的 rewrite 因此完全不可执行）；`# Check:`/`# Adjust:` 行被静默丢弃。**t8 已全部修完并转绿（33 passed / 0 failed），这 11 条已从基线移除。** |
+| 第 12 条 `test_fix_executor.py::TestParseFixTemplate::test_manual_fallback` | 与第 1–11 条合并描述为同一在途模块问题 | **与 t8 无关的独立 drift（已跟踪代码）**：`fix_executor.parse_fix_template()` 的自然语言回退返回 `advisory`（`FixExecutor.execute` 消费该动作名并置 `manual_action_needed=True`，语义等价于“仍需人工”），而这条已跟踪测试仍断言 legacy `manual`。**仍留在基线**，归后续小任务（更新该测试的期望，或收敛 `advisory`/`manual` 两个动作名，二选一）。 |
+
+`fix_executor.py` **不需要改动**：它早就是目标契约的实现（`change`/`to` 载荷键、`# Files:` 逐文件展开、`execute()` 消费 `advisory`），缺的是解释器跟上它。
+
+- **当时的决定（在 inScope 之外，不动代码）**：把 12 条按 `real-bug` 记入基线，
+  note 写明“在途未跟踪 + HEAD 依赖 + 两条出路”，并在交付里请 captain 派单。**该派单已执行（t8）。**
+- **当时的建议出路**：另开任务把 `fix_template_interpreter.py` 做到全绿（差异集中在
   `change-to` 动作名 `replace`→`change`、多文件注册丢目标、`add after <anchor>` 解析为 0 条、
   退化模式重写仍为 `manual`、以及 `parse_fix_template` 的 `advisory` vs `manual` 回退），
-  然后**连同 `tests/test_fix_template_interpreter.py` 与 `test_trigger_conflict.py` 一起提交**。
+  然后连同 `tests/test_fix_template_interpreter.py` 一起提交。**结果：t8 修完前四项并提交；
+  第五项 `advisory` vs `manual` 属 `fix_executor.py` 的独立 drift，未在 t8 内改动（见上表第 12 条）。**
 
 ### 3.2 主因：`skills/default_patterns.json` 的 **UTF-8 BOM** 让目录加载**注定回退**（第 16–17 条）
 

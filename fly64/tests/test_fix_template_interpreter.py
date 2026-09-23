@@ -314,24 +314,77 @@ class TestRewriteDegradationPatterns:
         missing = [pid for pid in self.PATTERN_IDS if pid not in _STRUCTURED_REWRITES]
         assert not missing, f"Missing rewrites for: {missing}"
 
-    def test_each_rewrite_is_structured(self, tmp_workspace):
-        """Each rewrite must produce valid extended directives."""
+    # Patterns whose rewrite carries a concrete edit.  The round trip through
+    # rewrite() -> interpret() must therefore still yield a directive that
+    # FixExecutor.execute has a branch for.
+    EXECUTABLE_PATTERNS = [
+        "circle_loop",
+        "ramp_trap",
+        "reflex_cooldown_gap",
+        "low_coverage_stagnation",
+        "below_ground_stuck",
+        "wall_corner_command_decoupled",
+    ]
+    # Patterns that are diagnostic checklists by design (# Check: / # Adjust:
+    # only — no # Find: / # Change: / # Add: payload anywhere).  There is no
+    # mechanical edit to derive, so the honest result is a single 'manual'
+    # directive carrying the checklist; claiming an executable fix here would
+    # be exactly the "mechanism exists / reports success / cannot take effect"
+    # failure mode this suite guards against.
+    ADVISORY_PATTERNS = ["fallen_recovery_stuck", "suspended_animation"]
+
+    def _interpret_rewrite(self, interp, pid):
+        """rewrite() -> interpret() for one catalog pattern."""
+        return interp.interpret(interp.rewrite({
+            "id": pid,
+            "name": pid.replace("_", " ").title(),
+            "fix_template": f"# Fix: {pid}",
+            "fix_files": ["fly64/fly64/main.py"],
+            "diagnosis": f"Diagnosis for {pid}",
+        }), allow_llm=False)
+
+    def test_pattern_partition_is_complete(self):
+        """Every catalog pattern must be classified exactly once, so a new
+        pattern cannot silently escape the executable/advisory contract."""
+        assert set(self.EXECUTABLE_PATTERNS) | set(self.ADVISORY_PATTERNS) == set(
+            self.PATTERN_IDS)
+        assert not (set(self.EXECUTABLE_PATTERNS) & set(self.ADVISORY_PATTERNS))
+
+    def test_every_rewrite_produces_directives(self, tmp_workspace):
         interp = FixTemplateInterpreter(workspace_root=tmp_workspace)
         for pid in self.PATTERN_IDS:
-            pattern = {
-                "id": pid,
-                "name": pid.replace("_", " ").title(),
-                "fix_template": f"# Fix: {pid}",
-                "fix_files": ["fly64/fly64/main.py"],
-                "diagnosis": f"Diagnosis for {pid}",
-            }
-            result = interp.interpret(interp.rewrite(pattern), allow_llm=False)
+            result = self._interpret_rewrite(interp, pid)
             assert len(result.directives) >= 1, (
                 f"pattern={pid} produced zero directives"
             )
-            assert any(
-                d.get("action") not in ("manual",) for d in result.directives
-            ), f"pattern={pid} is still manual after rewrite"
+
+    def test_executable_rewrites_are_not_manual(self, tmp_workspace):
+        """A rewrite that carries an edit must come back as a runnable action."""
+        interp = FixTemplateInterpreter(workspace_root=tmp_workspace)
+        for pid in self.EXECUTABLE_PATTERNS:
+            result = self._interpret_rewrite(interp, pid)
+            actions = [d.get("action") for d in result.directives]
+            assert any(a not in ("manual", "advisory") for a in actions), (
+                f"pattern={pid} is still manual after rewrite: {actions}")
+            assert result.confidence == 1.0, (
+                f"pattern={pid} reports confidence {result.confidence}")
+            assert all(d.get("file") for d in result.directives), (
+                f"pattern={pid} produced a directive without a target file")
+
+    def test_advisory_rewrites_are_flagged_not_applied(self, tmp_workspace):
+        """# Check: / # Adjust: checklists carry no payload: they must resolve
+        to 'manual' with the checklist preserved, never to a silent success."""
+        interp = FixTemplateInterpreter(workspace_root=tmp_workspace)
+        for pid in self.ADVISORY_PATTERNS:
+            result = self._interpret_rewrite(interp, pid)
+            assert [d.get("action") for d in result.directives] == ["manual"], (
+                f"pattern={pid}: {result.directives}")
+            assert result.confidence == 0.0, (
+                f"pattern={pid} claims confidence {result.confidence}")
+            assert "# Check:" in result.manual_instructions
+            assert "# Adjust:" in result.manual_instructions, (
+                f"pattern={pid} lost part of its checklist: "
+                f"{result.manual_instructions!r}")
 
     def test_circle_loop_specific(self):
         """circle_loop rewrite has # Change: + # To: directives."""
@@ -396,6 +449,116 @@ class TestInterpretAndExecute:
         )
         assert report.manual_action_needed is True
         assert report.manual_instructions != ""
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 6b. End-to-end: the executable rewrites really apply through FixExecutor
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestExecutableRewritesApplyEndToEnd:
+    """The contract is "EVO auto-fix can execute the directive", not "the
+    parser returned a dict" — so every executable rewrite is driven through
+    ``FixExecutor`` against files that contain the anchors it names."""
+
+    MAIN_PY = (
+        "GROUND_NORMAL = 120\n"
+        "\n"
+        "\n"
+        "def cliff_avoidance():\n"
+        "    if wall_score < 0.1 and asymmetry_magnitude < 0.06:  # cliff avoidance triggers\n"
+        "        pass\n"
+        "\n"
+        "\n"
+        "# slope detection:\n"
+        "ramp_score = 0.0\n"
+        "\n"
+        "\n"
+        "# normal escape logic:\n"
+        "def step():\n"
+        "    # control computation:\n"
+        "    control.y = 40\n"
+    )
+    MEMORY_PY = (
+        "class ReflexController:\n"
+        "    def __init__(self):\n"
+        "        self.base_cooldown_duration = 8.0\n"
+        "\n"
+        "    def _start_reflex(self):\n"
+        "        cooldown_duration = 10.0\n"
+        "        return cooldown_duration\n"
+        "\n"
+        "    def fallen(self, pos_y):\n"
+        "        fallen = pos_y < -100\n"
+        "        return fallen\n"
+    )
+    # (pattern id) -> (file, text that can only be there after the edit applied)
+    EXPECTATIONS = {
+        "circle_loop": (
+            "fly64/fly64/main.py", "and ground_angle < 0.3",
+        ),
+        "ramp_trap": (
+            "fly64/fly64/main.py",
+            "if ramp_score > 0.5 and stuck_duration > 180:",
+        ),
+        "reflex_cooldown_gap": (
+            "fly64/fly64/memory.py",
+            "cooldown = max(2.0, self.base_cooldown_duration",
+        ),
+        "low_coverage_stagnation": (
+            "fly64/fly64/main.py",
+            "if coverage_stagnant_120s and visited_cells < 50:",
+        ),
+        "below_ground_stuck": (
+            "fly64/fly64/memory.py", "fallen = pos_y < 50",
+        ),
+        "wall_corner_command_decoupled": (
+            "fly64/fly64/main.py", "expected = control.y * 0.6",
+        ),
+    }
+
+    def _write_fixtures(self, workspace):
+        src = workspace / "fly64" / "fly64"
+        src.mkdir(parents=True, exist_ok=True)
+        (src / "main.py").write_text(self.MAIN_PY, encoding="utf-8")
+        (src / "memory.py").write_text(self.MEMORY_PY, encoding="utf-8")
+
+    @staticmethod
+    def _pattern(pid):
+        return {"id": pid, "name": pid, "fix_template": "",
+                "fix_files": [], "diagnosis": ""}
+
+    def test_each_executable_rewrite_applies(self, tmp_path):
+        interpreter = FixTemplateInterpreter(workspace_root=tmp_path)
+        executor = FixExecutor(workspace_root=tmp_path, backup=False)
+        assert set(self.EXPECTATIONS) == set(
+            TestRewriteDegradationPatterns.EXECUTABLE_PATTERNS)
+        for pid in TestRewriteDegradationPatterns.EXECUTABLE_PATTERNS:
+            self._write_fixtures(tmp_path)          # fresh files per pattern
+            report = interpreter.interpret_and_execute(
+                template=interpreter.rewrite(self._pattern(pid)),
+                executor=executor,
+                fix_id=f"fix_{pid}",
+                pattern_id=pid,
+            )
+            rel, expected = self.EXPECTATIONS[pid]
+            assert report.actions, f"{pid}: nothing was executed at all"
+            assert report.all_applied is True, (
+                f"{pid}: {[a.to_dict() for a in report.actions]}")
+            assert expected in (tmp_path / rel).read_text(encoding="utf-8"), (
+                f"{pid}: {expected!r} missing after execution")
+
+    def test_advisory_rewrites_report_manual_action(self, tmp_path):
+        interpreter = FixTemplateInterpreter(workspace_root=tmp_path)
+        executor = FixExecutor(workspace_root=tmp_path)
+        for pid in TestRewriteDegradationPatterns.ADVISORY_PATTERNS:
+            report = interpreter.interpret_and_execute(
+                template=interpreter.rewrite(self._pattern(pid)),
+                executor=executor,
+                fix_id=f"fix_{pid}",
+                pattern_id=pid,
+            )
+            assert report.manual_action_needed is True, pid
+            assert "# Check:" in report.manual_instructions, pid
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -483,8 +646,21 @@ class TestLegacyCompatibility:
         assert "original cliff logic" in directives[0]["find"]
         assert "revised cliff logic" in directives[0]["replace"]
 
-    def test_parse_fix_template_manual_fallback(self):
+    def test_parse_fix_template_advisory_fallback_for_natural_language(self):
+        """A natural-language-only template resolves to ``advisory``, not the
+        legacy ``manual``.
+
+        ``fix_executor._interpret_natural_language`` classifies verify /
+        investigate templates (``advisory_type`` = ``verify`` | ``investigate``)
+        and ``FixExecutor.execute`` handles that action by setting
+        ``manual_action_needed = True`` — the human still has to act, so the
+        legacy expectation of the bare ``manual`` name is superseded.  The
+        interpreter's own fallback keeps emitting ``manual`` (its LLM-escalation
+        contract), and both names are consumed by the executor.
+        """
         directives = parse_fix_template(
             "# Investigate: weird behavior\n"
         )
-        assert directives[0]["action"] == "manual"
+        assert directives[0]["action"] == "advisory"
+        assert directives[0]["advisory_type"] == "investigate"
+        assert "Investigate" in directives[0]["manual_instructions"]

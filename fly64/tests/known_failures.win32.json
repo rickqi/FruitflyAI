@@ -1,7 +1,7 @@
 {
  "platform": "win32",
- "recorded_at": "2026-09-22T16:29:18.328718+00:00",
- "count": 49,
+ "recorded_at": "2026-09-23T01:09:27.107042+00:00",
+ "count": 36,
  "entries": [
   {
    "id": "tests/test_coach_advice_fix.py::TestBoldTurnBiasChain::test_drive_reaches_turn_pool_current",
@@ -34,74 +34,9 @@
    "note": "decision_source is now produced by resolve_decision_source(...), so the grep for literal `decision_source = \"dialogue\"` no longer matches"
   },
   {
-   "id": "tests/test_evolution_capability.py::TestWallCornerPattern::test_pattern_in_catalog",
-   "cause": "real-bug",
-   "note": "root cause found and verified by running the loader: fly64/skills/default_patterns.json begins with a UTF-8 BOM (bytes ef bb bf), while PatternCatalog._load (fly64/skills/evolution_skill.py, class PatternCatalog) reads it with self.path.read_text(\"utf-8\") - so json.loads ALWAYS raises 'Unexpected UTF-8 BOM' and the class logs 'Failed to load patterns from <path>: Unexpected UTF-8 BOM (decode using utf-8-sig). Falling back to DEFAULT_PATTERNS.' and keeps the embedded DEFAULT_PATTERNS. The embedded catalog (16 patterns) and the on-disk one (16 patterns) have the SAME count but different ids, so the fallback is invisible unless ids are compared - and the embedded one has no 'wall_corner_command_decoupled', which exists only on disk (default_patterns.json:207). HEAD's copy of the file has a SECOND independent defect: literal backslash-n escape text where real newlines belong (first syntax error: line 47 \"stuck_duration\": {\\n \"min\": 60\\n },); the working-tree copy has that one line repaired but uncommitted (4 insertions/1 deletion, mtime 2026-09-23 00:17:03, author outside this task) while the BOM is untouched, so the load fails either way. Pre-existing: also red at 765188d and at pristine HEAD aeac935. Fix: read the catalog with utf-8-sig (or strip the BOM and repair the JSON) and surface the fallback to the caller instead of only logging it."
-  },
-  {
-   "id": "tests/test_evolution_capability.py::TestWallCornerPattern::test_pattern_matches_on_mismatch",
-   "cause": "real-bug",
-   "note": "same root cause as test_pattern_in_catalog in this file: the runtime PatternCatalog is the embedded DEFAULT_PATTERNS fallback because the on-disk skills/default_patterns.json starts with a UTF-8 BOM that read_text('utf-8') cannot parse (PatternCatalog._load catches the exception, logs it, and continues with the embedded catalog), so DiagnosisEngine can never emit wall_corner_command_decoupled and the findings degrade to ['low_coverage_stagnation', 'telemetry_gap']. Pre-existing at HEAD aeac935 (and red already at 765188d), NOT caused by P0-1..P0-4."
-  },
-  {
    "id": "tests/test_fix_executor.py::TestParseFixTemplate::test_manual_fallback",
    "cause": "real-bug",
-   "note": "same in-flight change: parse_fix_template() returns 'advisory' where the tracked test still requires the legacy 'manual' fallback - i.e. the interpreter silently reclassifies templates that no rule matched. untracked in-flight work (git status '??'): skills/fix_template_interpreter.py + tests/test_fix_template_interpreter.py. fly64/skills/__init__.py:36 already imports the module, so at HEAD (aeac935) the `skills` package cannot be imported at all without it (verified in a pristine-HEAD worktree: tests/test_fix_executor.py dies with a collection ERROR, ModuleNotFoundError: No module named 'skills.fix_template_interpreter'). The module exists but does not satisfy the tests' contract yet; decision needed (not taken here, out of this task's scope): finish the interpreter and commit BOTH files - or delete both and drop the import. Pre-P0 and unrelated to P0-1..P0-4."
-  },
-  {
-   "id": "tests/test_fix_template_interpreter.py::TestEdgeCases::test_mixed_code_block_directives",
-   "cause": "real-bug",
-   "note": "a code block mixing several directive kinds parses to 0 actions. untracked in-flight work (git status '??'): skills/fix_template_interpreter.py + tests/test_fix_template_interpreter.py. fly64/skills/__init__.py:36 already imports the module, so at HEAD (aeac935) the `skills` package cannot be imported at all without it (verified in a pristine-HEAD worktree: tests/test_fix_executor.py dies with a collection ERROR, ModuleNotFoundError: No module named 'skills.fix_template_interpreter'). The module exists but does not satisfy the tests' contract yet; decision needed (not taken here, out of this task's scope): finish the interpreter and commit BOTH files - or delete both and drop the import. Pre-P0 and unrelated to P0-1..P0-4."
-  },
-  {
-   "id": "tests/test_fix_template_interpreter.py::TestInterpreterHeuristic::test_interpret_changeto_directive",
-   "cause": "real-bug",
-   "note": "interpret_fix_template() emits action='replace' for a 'change-to' directive. untracked in-flight work (git status '??'): skills/fix_template_interpreter.py + tests/test_fix_template_interpreter.py. fly64/skills/__init__.py:36 already imports the module, so at HEAD (aeac935) the `skills` package cannot be imported at all without it (verified in a pristine-HEAD worktree: tests/test_fix_executor.py dies with a collection ERROR, ModuleNotFoundError: No module named 'skills.fix_template_interpreter'). The module exists but does not satisfy the tests' contract yet; decision needed (not taken here, out of this task's scope): finish the interpreter and commit BOTH files - or delete both and drop the import. Pre-P0 and unrelated to P0-1..P0-4."
-  },
-  {
-   "id": "tests/test_fix_template_interpreter.py::TestLegacyCompatibility::test_parse_fix_template_manual_fallback",
-   "cause": "real-bug",
-   "note": "parse_fix_template() now returns mode/action 'advisory' where the legacy contract requires 'manual'. untracked in-flight work (git status '??'): skills/fix_template_interpreter.py + tests/test_fix_template_interpreter.py. fly64/skills/__init__.py:36 already imports the module, so at HEAD (aeac935) the `skills` package cannot be imported at all without it (verified in a pristine-HEAD worktree: tests/test_fix_executor.py dies with a collection ERROR, ModuleNotFoundError: No module named 'skills.fix_template_interpreter'). The module exists but does not satisfy the tests' contract yet; decision needed (not taken here, out of this task's scope): finish the interpreter and commit BOTH files - or delete both and drop the import. Pre-P0 and unrelated to P0-1..P0-4."
-  },
-  {
-   "id": "tests/test_fix_template_interpreter.py::TestParseExtendedAddAfter::test_add_after_anchor",
-   "cause": "real-bug",
-   "note": "the 'add after <anchor>' directive parses to 0 actions. untracked in-flight work (git status '??'): skills/fix_template_interpreter.py + tests/test_fix_template_interpreter.py. fly64/skills/__init__.py:36 already imports the module, so at HEAD (aeac935) the `skills` package cannot be imported at all without it (verified in a pristine-HEAD worktree: tests/test_fix_executor.py dies with a collection ERROR, ModuleNotFoundError: No module named 'skills.fix_template_interpreter'). The module exists but does not satisfy the tests' contract yet; decision needed (not taken here, out of this task's scope): finish the interpreter and commit BOTH files - or delete both and drop the import. Pre-P0 and unrelated to P0-1..P0-4."
-  },
-  {
-   "id": "tests/test_fix_template_interpreter.py::TestParseExtendedChangeTo::test_change_to_produces_change_action",
-   "cause": "real-bug",
-   "note": "parser emits action='replace' where the new contract requires 'change'. untracked in-flight work (git status '??'): skills/fix_template_interpreter.py + tests/test_fix_template_interpreter.py. fly64/skills/__init__.py:36 already imports the module, so at HEAD (aeac935) the `skills` package cannot be imported at all without it (verified in a pristine-HEAD worktree: tests/test_fix_executor.py dies with a collection ERROR, ModuleNotFoundError: No module named 'skills.fix_template_interpreter'). The module exists but does not satisfy the tests' contract yet; decision needed (not taken here, out of this task's scope): finish the interpreter and commit BOTH files - or delete both and drop the import. Pre-P0 and unrelated to P0-1..P0-4."
-  },
-  {
-   "id": "tests/test_fix_template_interpreter.py::TestParseExtendedChangeTo::test_change_to_with_add_fallback",
-   "cause": "real-bug",
-   "note": "parser emits action='replace' where the new contract requires 'change'. untracked in-flight work (git status '??'): skills/fix_template_interpreter.py + tests/test_fix_template_interpreter.py. fly64/skills/__init__.py:36 already imports the module, so at HEAD (aeac935) the `skills` package cannot be imported at all without it (verified in a pristine-HEAD worktree: tests/test_fix_executor.py dies with a collection ERROR, ModuleNotFoundError: No module named 'skills.fix_template_interpreter'). The module exists but does not satisfy the tests' contract yet; decision needed (not taken here, out of this task's scope): finish the interpreter and commit BOTH files - or delete both and drop the import. Pre-P0 and unrelated to P0-1..P0-4."
-  },
-  {
-   "id": "tests/test_fix_template_interpreter.py::TestParseExtendedMultiFile::test_files_comma_separated",
-   "cause": "real-bug",
-   "note": "only fly64/fly64/main.py is registered twice; the second comma-separated target (fly64/fly64/model.py) is dropped. untracked in-flight work (git status '??'): skills/fix_template_interpreter.py + tests/test_fix_template_interpreter.py. fly64/skills/__init__.py:36 already imports the module, so at HEAD (aeac935) the `skills` package cannot be imported at all without it (verified in a pristine-HEAD worktree: tests/test_fix_executor.py dies with a collection ERROR, ModuleNotFoundError: No module named 'skills.fix_template_interpreter'). The module exists but does not satisfy the tests' contract yet; decision needed (not taken here, out of this task's scope): finish the interpreter and commit BOTH files - or delete both and drop the import. Pre-P0 and unrelated to P0-1..P0-4."
-  },
-  {
-   "id": "tests/test_fix_template_interpreter.py::TestParseExtendedMultiFile::test_files_semicolon_separated",
-   "cause": "real-bug",
-   "note": "2 actions emitted where 3 are expected (multi-file registration + append). untracked in-flight work (git status '??'): skills/fix_template_interpreter.py + tests/test_fix_template_interpreter.py. fly64/skills/__init__.py:36 already imports the module, so at HEAD (aeac935) the `skills` package cannot be imported at all without it (verified in a pristine-HEAD worktree: tests/test_fix_executor.py dies with a collection ERROR, ModuleNotFoundError: No module named 'skills.fix_template_interpreter'). The module exists but does not satisfy the tests' contract yet; decision needed (not taken here, out of this task's scope): finish the interpreter and commit BOTH files - or delete both and drop the import. Pre-P0 and unrelated to P0-1..P0-4."
-  },
-  {
-   "id": "tests/test_fix_template_interpreter.py::TestRewriteDegradationPatterns::test_below_ground_stuck_specific",
-   "cause": "real-bug",
-   "note": "rewriting the below_ground_stuck template yields 0 structured directives. untracked in-flight work (git status '??'): skills/fix_template_interpreter.py + tests/test_fix_template_interpreter.py. fly64/skills/__init__.py:36 already imports the module, so at HEAD (aeac935) the `skills` package cannot be imported at all without it (verified in a pristine-HEAD worktree: tests/test_fix_executor.py dies with a collection ERROR, ModuleNotFoundError: No module named 'skills.fix_template_interpreter'). The module exists but does not satisfy the tests' contract yet; decision needed (not taken here, out of this task's scope): finish the interpreter and commit BOTH files - or delete both and drop the import. Pre-P0 and unrelated to P0-1..P0-4."
-  },
-  {
-   "id": "tests/test_fix_template_interpreter.py::TestRewriteDegradationPatterns::test_circle_loop_specific",
-   "cause": "real-bug",
-   "note": "rewriting the circle_loop template yields 0 structured directives. untracked in-flight work (git status '??'): skills/fix_template_interpreter.py + tests/test_fix_template_interpreter.py. fly64/skills/__init__.py:36 already imports the module, so at HEAD (aeac935) the `skills` package cannot be imported at all without it (verified in a pristine-HEAD worktree: tests/test_fix_executor.py dies with a collection ERROR, ModuleNotFoundError: No module named 'skills.fix_template_interpreter'). The module exists but does not satisfy the tests' contract yet; decision needed (not taken here, out of this task's scope): finish the interpreter and commit BOTH files - or delete both and drop the import. Pre-P0 and unrelated to P0-1..P0-4."
-  },
-  {
-   "id": "tests/test_fix_template_interpreter.py::TestRewriteDegradationPatterns::test_each_rewrite_is_structured",
-   "cause": "real-bug",
-   "note": "pattern 'ramp_trap' is still classified 'manual' after rewriting it with the interpreter. untracked in-flight work (git status '??'): skills/fix_template_interpreter.py + tests/test_fix_template_interpreter.py. fly64/skills/__init__.py:36 already imports the module, so at HEAD (aeac935) the `skills` package cannot be imported at all without it (verified in a pristine-HEAD worktree: tests/test_fix_executor.py dies with a collection ERROR, ModuleNotFoundError: No module named 'skills.fix_template_interpreter'). The module exists but does not satisfy the tests' contract yet; decision needed (not taken here, out of this task's scope): finish the interpreter and commit BOTH files - or delete both and drop the import. Pre-P0 and unrelated to P0-1..P0-4."
+   "note": "INDEPENDENT drift of tracked code - NOT the interpreter's 11 ids that t8 fixed (those are gone from this baseline): fix_executor.parse_fix_template() classifies a natural-language-only template as action='advisory' (advisory_type='verify'|'investigate') via _interpret_natural_language(), and FixExecutor.execute consumes that action by setting manual_action_needed=True - the human still has to act, so the semantic is preserved. The tracked test still asserts the legacy bare 'manual' name for the same input. Resolution is a decision, not a bug hunt: either update tests/test_fix_executor.py to the advisory contract, or converge the two 'needs a human' action names ('manual' emitted by the interpreter, 'advisory' emitted by the executor's own NL classifier). Both files are committed (68ca39c) and fly64/skills/__init__.py:36 imports the module, so the earlier 'untracked in-flight work / HEAD cannot import skills' wording no longer applies."
   },
   {
    "id": "tests/test_invariants.py::test_full_graph_incoming_normalization",

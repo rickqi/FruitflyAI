@@ -6,6 +6,37 @@ Extends the heuristic ``parse_fix_template`` parser (in ``fix_executor.py``) wit
 an LLM subagent fallback for templates that cannot be fully resolved into
 structured directives (action="manual").
 
+Directive contract
+------------------
+Producer: :func:`parse_extended_directives` (this module) and
+``fix_executor.parse_fix_template``.  Consumer: ``FixExecutor.execute``.
+Both producers must emit the *same* names and payload keys, otherwise the
+executor answers ``unknown action`` or silently drops the edit:
+
+==================  =========================================  ==================
+action              template form                              payload keys
+==================  =========================================  ==================
+``replace``         ``# Find:`` / ``# Search:`` + ``# Replace:``  find, replace
+``change``          ``# Change:`` + ``# To:`` (or ``# Add:``)  change, to
+``insert_after``    ``# Add after <anchor>``, ``# Add below   find, add
+                    <anchor>``, ``# After:``, or ``# Find:``
+                    with an ``# Add:`` payload
+``insert_before``   ``# Add before <anchor>``, ``# Insert      find, add
+                    before <anchor>``, ``# Before:``
+``append``          ``# Add:`` with no anchor                  add
+``manual``          no structured payload at all               manual_instructions
+``advisory``        classified natural-language verify /       advisory_type,
+                    investigate template (produced only by      manual_instructions
+                    ``fix_executor._interpret_natural_language``)
+==================  =========================================  ==================
+
+``# Files: a, b`` makes the following block apply to every listed file (one
+directive per file).  A ``# Code:`` block — or, for an anchor written without
+that marker, the raw lines that follow it — becomes the directive's ``add``
+payload.  ``# Check:`` / ``# Adjust:`` / ``# Symbol:`` / ``# Note:`` lines are
+advisory: they never become payload, and a template made only of them resolves
+to ``manual`` so it cannot be reported as applied.
+
 Key responsibilities:
 
 1.  **LLM-assisted structured parsing**
@@ -82,259 +113,245 @@ class InterpretationResult:
 # ═══════════════════════════════════════════════════════════════════════
 
 # Extended regex patterns beyond the original parse_fix_template
+RE_FILE = re.compile(r"^#\s*File:\s*(.+)$", re.IGNORECASE)
+RE_FILES = re.compile(r"^#\s*Files:\s*(.+)$", re.IGNORECASE)
+RE_FIND = re.compile(r"^#\s*(?:Find|Search):\s*(.+)$", re.IGNORECASE)
 RE_CHANGE = re.compile(r"^#\s*Change:\s*(.+)$", re.IGNORECASE)
 RE_TO = re.compile(r"^#\s*To:\s*(.+)$", re.IGNORECASE)
-RE_FILES = re.compile(r"^#\s*Files:\s*(.+)$", re.IGNORECASE)
+RE_REPLACE = re.compile(r"^#\s*Replace:\s*(.*)$", re.IGNORECASE)
+RE_ADD = re.compile(r"^#\s*Add:\s*(.*)$", re.IGNORECASE)
 RE_ADD_AFTER = re.compile(
     r"^#\s*Add\s+(?:after|below)\s+(.+)$", re.IGNORECASE
 )
 RE_INSERT_BEFORE = re.compile(
     r"^#\s*(?:Insert|Add)\s+before\s+(.+)$", re.IGNORECASE
 )
+RE_AFTER = re.compile(r"^#\s*After:\s*(.+)$", re.IGNORECASE)
+RE_BEFORE = re.compile(r"^#\s*Before:\s*(.+)$", re.IGNORECASE)
 RE_ADJUST = re.compile(
     r"^#\s*Adjust:\s*(.+)$", re.IGNORECASE
 )
 RE_SYMBOL = re.compile(
     r"^#\s*Symbol:\s*(.+)$", re.IGNORECASE
 )
+# ``# Code:`` marks the start of the payload of the pending anchor.
+RE_CODE_MARKER = re.compile(r"^#\s*Code:?\s*$", re.IGNORECASE)
+# Comment lines that are advisory by definition: they never become payload.
+RE_ADVISORY = re.compile(
+    r"^#\s*(?:Check|Adjust|Symbol|Note|Verify|Investigate|Fix):",
+    re.IGNORECASE,
+)
 
 
 def parse_extended_directives(lines: list[str]) -> list[dict]:
-    """Parse extended directive set including ``# Change:`` / ``# To:`` pairs.
+    """Parse the extended directive set into ``FixExecutor``-ready directives.
 
-    This parser processes all directives recognised by the original parser
-    (*File*, *Find/Search*, *Replace*, *Add*, *After*, *Before*) plus the
-    new forms:
+    Recognised forms (see the module docstring for the full action table):
 
-    * ``# Change: <target text>``  →  pairs with a following ``# To:``
-      to produce an inline ``replace`` directive.
-    * ``# Files: <csv list>``      →  multi-file registration.
-    * ``# Add after <anchor>``     →  variant of ``insert_after``.
-    * ``# Add before <anchor>``    →  variant of ``insert_before``.
-    * ``# Adjust: <description>``  →  a parameter-adjustment advisory.
-    * ``# Symbol: <name>``         →  indicates the fix targets a named
-      symbol/constant in the code.
+    * ``# File: <path>`` — target file for the following block.
+    * ``# Files: <a>, <b>`` — the following block applies to *every* listed
+      file; one directive per file is emitted.  A registration marker is never
+      left in the output, because ``FixExecutor.execute`` would report it as
+      ``unknown action``.
+    * ``# Find:`` / ``# Search:`` + ``# Replace:`` — ``replace``.
+    * ``# Change:`` + ``# To:`` (or ``# Change:`` + ``# Add:``) — ``change``
+      with the ``change``/``to`` payload keys the executor consumes.
+    * ``# Add after <anchor>`` / ``# Add below <anchor>`` — ``insert_after``.
+    * ``# Add before <anchor>`` / ``# Insert before <anchor>`` — ``insert_before``.
+    * ``# After:`` / ``# Before:`` — the same two anchor forms.
+    * ``# Add:`` with no anchor — ``append``.
+    * ``# Code:`` — every following line up to the next directive becomes the
+      pending anchor's ``add`` payload.  For an anchor written without the
+      marker, the first raw (non-comment) line starts that payload.
 
-    Returns a list of directive dicts.  Unrecognised lines are accumulated
-    as manual instructions if no directive is found in the template.
+    ``# Check:`` / ``# Adjust:`` / ``# Symbol:`` / ``# Note:`` and any other
+    non-directive line are advisory.  A template with no executable payload
+    resolves to a single ``[{"action": "manual", ...}]`` carrying the original
+    text, so an advisory-only template can never be reported as applied.
     """
     directives: list[dict] = []
-    current_file: str = ""
+    current_files: list[str] = []
     current_find: str = ""
     current_replace: str = ""
     current_add: str = ""
     current_after: str = ""
     current_before: str = ""
     change_buffer: str = ""         # holds text from # Change:
+    code_lines: list[str] = []      # payload of the pending anchor
+    in_code: bool = False
     manual_lines: list[str] = []
     has_any_directive = False
 
     def _flush():
-        nonlocal current_file, current_find, current_replace
+        nonlocal current_files, current_find, current_replace
         nonlocal current_add, current_after, current_before
-        nonlocal change_buffer, has_any_directive
-        if not current_file:
+        nonlocal change_buffer, code_lines, in_code, has_any_directive
+        if not current_files:
             return
         has_any_directive = True
 
-        # Priority: Change+To pair → replace
+        add_text = current_add
+        if code_lines:
+            block = "\n".join(code_lines).strip("\n")
+            add_text = "%s\n%s" % (add_text, block) if add_text else block
+
+        payload: dict | None = None
+
+        # Priority: Change+To pair → change
         if change_buffer and current_replace:
-            directives.append({
-                "file": current_file,
-                "action": "replace",
-                "find": change_buffer.strip(),
-                "replace": current_replace.strip(),
-            })
-        elif change_buffer and current_add:
-            directives.append({
-                "file": current_file,
-                "action": "replace",
-                "find": change_buffer.strip(),
-                "replace": current_add.strip(),
-            })
+            payload = {"action": "change",
+                       "change": change_buffer.strip(),
+                       "to": current_replace.strip()}
+        elif change_buffer and add_text:
+            payload = {"action": "change",
+                       "change": change_buffer.strip(),
+                       "to": add_text.strip()}
         elif current_find and current_replace:
-            directives.append({
-                "file": current_file,
-                "action": "replace",
-                "find": current_find.strip(),
-                "replace": current_replace.strip(),
-            })
-        elif current_after and current_add:
-            directives.append({
-                "file": current_file,
-                "action": "insert_after",
-                "find": current_after.strip(),
-                "add": current_add.strip(),
-            })
-        elif current_before and current_add:
-            directives.append({
-                "file": current_file,
-                "action": "insert_before",
-                "find": current_before.strip(),
-                "add": current_add.strip(),
-            })
-        elif current_find and current_add:
-            directives.append({
-                "file": current_file,
-                "action": "insert_after",
-                "find": current_find.strip(),
-                "add": current_add.strip(),
-            })
-        elif current_add:
-            directives.append({
-                "file": current_file,
-                "action": "append",
-                "add": current_add.strip(),
-            })
+            payload = {"action": "replace",
+                       "find": current_find.strip(),
+                       "replace": current_replace.strip()}
+        elif current_after and add_text:
+            payload = {"action": "insert_after",
+                       "find": current_after.strip(),
+                       "add": add_text}
+        elif current_before and add_text:
+            payload = {"action": "insert_before",
+                       "find": current_before.strip(),
+                       "add": add_text}
+        elif current_find and add_text:
+            payload = {"action": "insert_after",
+                       "find": current_find.strip(),
+                       "add": add_text}
+        elif add_text:
+            payload = {"action": "append", "add": add_text}
         elif current_find and not current_replace:
-            directives.append({
-                "file": current_file,
-                "action": "replace",
-                "find": current_find.strip(),
-                "replace": "",
-            })
+            payload = {"action": "replace",
+                       "find": current_find.strip(),
+                       "replace": ""}
+
+        # ``# Files:`` registers a file LIST: emit one directive per file so
+        # every named file really receives the edit.
+        if payload is not None:
+            for target in current_files:
+                directives.append({"file": target, **payload})
 
         # Reset
-        current_file = ""
+        current_files = []
         current_find = ""
         current_replace = ""
         current_add = ""
         current_after = ""
         current_before = ""
         change_buffer = ""
+        code_lines = []
+        in_code = False
 
     for line in lines:
         stripped = line.strip()
         if not stripped:
             continue
 
-        # --- Recognised directives ---
+        # --- Recognised directives (a directive always ends a code block) ---
 
-        m = re.match(r"^#\s*File:\s*(.+)$", stripped, re.IGNORECASE)
+        m = RE_FILE.match(stripped)
         if m:
             _flush()
-            current_file = m.group(1).strip()
+            current_files = [m.group(1).strip()]
             continue
 
-        m = re.match(r"^#\s*Files:\s*(.+)$", stripped, re.IGNORECASE)
+        m = RE_FILES.match(stripped)
         if m:
             _flush()
-            # Multi-file: treat the first as current, emit a note
-            files_part = m.group(1).strip()
-            files = [f.strip() for f in re.split(r"[,;]\s*", files_part) if f.strip()]
-            if files:
-                current_file = files[0]
-                # If more than one file, we queue them as a special annotation
-                # that downstream expansion will handle
-                if len(files) > 1:
-                    directives.append({
-                        "file": files[0],
-                        "action": "_multi_file_registration",
-                        "files": files,
-                    })
+            current_files = [f.strip() for f in re.split(r"[,;]\s*", m.group(1))
+                             if f.strip()]
             continue
 
-        m = re.match(r"^#\s*(?:Find|Search):\s*(.+)$", stripped, re.IGNORECASE)
-        if m and current_file:
+        m = RE_FIND.match(stripped)
+        if m and current_files:
             current_find = m.group(1).strip()
             continue
 
-        m = re.match(r"^#\s*Change:\s*(.+)$", stripped, re.IGNORECASE)
-        if m and current_file:
+        m = RE_CHANGE.match(stripped)
+        if m and current_files:
             change_buffer = m.group(1).strip()
             continue
 
-        m = re.match(r"^#\s*To:\s*(.+)$", stripped, re.IGNORECASE)
-        if m and current_file:
+        m = RE_TO.match(stripped)
+        if m and current_files:
             current_replace = m.group(1).strip()
             continue
 
-        m = re.match(r"^#\s*Replace:\s*(.*)$", stripped, re.IGNORECASE)
-        if m and current_file:
+        m = RE_REPLACE.match(stripped)
+        if m and current_files:
             current_replace = m.group(1).strip()
             continue
 
-        m = re.match(r"^#\s*Add:\s*(.*)$", stripped, re.IGNORECASE)
-        if m and current_file:
+        m = RE_ADD.match(stripped)
+        if m and current_files:
             current_add = m.group(1).strip()
             continue
 
-        # "Add after <anchor>"
-        m = re.match(
-            r"^#\s*Add\s+(?:after|below)\s+(.+)$", stripped, re.IGNORECASE
-        )
-        if m and current_file:
+        # "Add after <anchor>" / "Add below <anchor>"
+        m = RE_ADD_AFTER.match(stripped)
+        if m and current_files:
             current_after = m.group(1).strip()
             continue
 
         # "Add/Insert before <anchor>"
-        m = re.match(
-            r"^#\s*(?:Insert|Add)\s+before\s+(.+)$", stripped, re.IGNORECASE
-        )
-        if m and current_file:
+        m = RE_INSERT_BEFORE.match(stripped)
+        if m and current_files:
             current_before = m.group(1).strip()
             continue
 
-        m = re.match(r"^#\s*After:\s*(.+)$", stripped, re.IGNORECASE)
-        if m and current_file:
+        m = RE_AFTER.match(stripped)
+        if m and current_files:
             current_after = m.group(1).strip()
             continue
 
-        m = re.match(r"^#\s*Before:\s*(.+)$", stripped, re.IGNORECASE)
-        if m and current_file:
+        m = RE_BEFORE.match(stripped)
+        if m and current_files:
             current_before = m.group(1).strip()
             continue
 
-        # Adjust / Symbol – advisory only; collected into manual
-        m = re.match(r"^#\s*Adjust:\s*(.+)$", stripped, re.IGNORECASE)
-        if m:
-            has_any_directive = True
+        # --- Payload capture ---------------------------------------------
+
+        # Explicit "# Code:" marker: the following lines are the payload.
+        if RE_CODE_MARKER.match(stripped):
+            if current_after or current_before or current_add:
+                in_code = True
             continue
 
-        m = re.match(r"^#\s*Symbol:\s*(.+)$", stripped, re.IGNORECASE)
-        if m:
-            has_any_directive = True
+        # Advisory comment lines stay advisory even inside a code block.
+        if RE_ADVISORY.match(stripped):
+            manual_lines.append(line)
             continue
 
-        # Accumulate non-directive lines
+        if in_code:
+            code_lines.append(line.rstrip("\n"))
+            continue
+
+        # An anchor written without "# Code:": the first raw line starts the
+        # inserted block (the module's own rewrites use this form).
+        if (current_after or current_before) and not stripped.startswith("#"):
+            in_code = True
+            code_lines.append(line.rstrip("\n"))
+            continue
+
+        # Accumulate non-directive lines (advisory / manual instructions)
         manual_lines.append(line)
 
     _flush()
 
     if not has_any_directive:
-        return [{"action": "manual", "manual_instructions": "\n".join(stripped_lines).strip()
-                 if (stripped_lines := [l.strip() for l in lines if l.strip()]) else ""}]
+        stripped_lines = [l.strip() for l in lines if l.strip()]
+        return [{"action": "manual",
+                 "manual_instructions": "\n".join(stripped_lines)}]
 
     if not directives and manual_lines:
         return [{"action": "manual",
                  "manual_instructions": "\n".join(manual_lines).strip()}]
 
     return directives
-
-
-def _flatten_multi_file(directives: list[dict]) -> list[dict]:
-    """Expand ``_multi_file_registration`` entries into per-file directives."""
-    expanded: list[dict] = []
-    multi_file_block: dict | None = None
-
-    for d in directives:
-        if d.get("action") == "_multi_file_registration":
-            multi_file_block = d
-            continue
-        if multi_file_block is not None and d.get("file") == multi_file_block["file"]:
-            # Distribute subsequent same-file directives to all registered files
-            for f in multi_file_block["files"]:
-                if f == multi_file_block["file"]:
-                    expanded.append(dict(d))  # already included
-                else:
-                    copy = dict(d)
-                    copy["file"] = f
-                    expanded.append(copy)
-            multi_file_block = None
-            continue
-        expanded.append(dict(d))
-
-    return expanded
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -431,7 +448,6 @@ class FixTemplateInterpreter:
         """
         lines = template.strip().splitlines()
         heuristic = parse_extended_directives(lines)
-        heuristic = _flatten_multi_file(heuristic)
 
         is_manual = (
             len(heuristic) == 1 and heuristic[0].get("action") == "manual"
@@ -553,7 +569,8 @@ class FixTemplateInterpreter:
             report.completed_at = report.started_at
             return report
 
-        # Build a synthetic template from directives
+        # Build a synthetic template from directives, using exactly the
+        # directive names/keys that FixExecutor.execute consumes.
         lines: list[str] = []
         for d in result.directives:
             f = d.get("file", "")
@@ -563,6 +580,9 @@ class FixTemplateInterpreter:
             if act == "replace":
                 lines.append(f"# Find: {d.get('find', '')}")
                 lines.append(f"# Replace: {d.get('replace', '')}")
+            elif act == "change":
+                lines.append(f"# Change: {d.get('change', '')}")
+                lines.append(f"# To: {d.get('to', '')}")
             elif act in ("insert_after",):
                 lines.append(f"# After: {d.get('find', '')}")
                 lines.append(f"# Add: {d.get('add', '')}")
@@ -573,11 +593,13 @@ class FixTemplateInterpreter:
                 lines.append(f"# Add: {d.get('add', '')}")
         synthetic = "\n".join(lines)
 
+        # Every directive carries its own ``file`` (``# Files:`` is expanded
+        # per file at parse time), so there is no fallback file list to pass.
         return executor.execute(
             fix_id=fix_id,
             pattern_id=pattern_id,
             fix_template=synthetic,
-            fix_files=fix_files if not result.directives[0].get("file") else None,
+            fix_files=None,
         )
 
 
