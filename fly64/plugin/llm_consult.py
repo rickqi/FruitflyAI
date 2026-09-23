@@ -49,7 +49,7 @@ DIALOGUE_ACTIONS = ("press_a", "press_b", "none")
 DEFAULT_DIALOGUE_TIMEOUT = 60.0
 
 PLUGIN_DIR = Path(__file__).resolve().parent
-DEFAULT_MODEL = "glm-5.3-flash"
+DEFAULT_MODEL = "qwen3.8-27b-uncensored"
 DEFAULT_TRANSPORT = "subagent"
 REQUEST_PATH = PLUGIN_DIR / ".consult_request.json"
 RESPONSE_PATH = PLUGIN_DIR / ".consult_response.json"
@@ -233,6 +233,7 @@ class GLMConsultant:
     def __init__(self, transport: Optional[str] = None,
                  base_url: Optional[str] = None, api_key: Optional[str] = None,
                  model: Optional[str] = None,
+                 max_tokens: Optional[int] = None,
                  request_path: Path = REQUEST_PATH,
                  response_path: Path = RESPONSE_PATH,
                  subagent_fn: Optional[Callable[[dict], str]] = None,
@@ -244,6 +245,8 @@ class GLMConsultant:
         self.base_url = base_url or os.environ.get("FLY64_LLM_BASE_URL", "")
         self.api_key = api_key or os.environ.get("FLY64_LLM_API_KEY", "")
         self.model = model or os.environ.get("FLY64_LLM_MODEL", DEFAULT_MODEL)
+        env_max_tokens = os.environ.get("FLY64_LLM_MAX_TOKENS", "").strip()
+        self.max_tokens = max_tokens or (int(env_max_tokens) if env_max_tokens else 131072)
         self.request_path = Path(request_path)
         self.response_path = Path(response_path)
         self.subagent_fn = subagent_fn
@@ -352,6 +355,7 @@ class GLMConsultant:
             "model": self.model,
             "messages": [{"role": "user", "content": content}],
             "temperature": 0.2,
+            "max_tokens": self.max_tokens,
         }
         req = urllib.request.Request(
             self.base_url.rstrip("/") + "/chat/completions",

@@ -1295,11 +1295,13 @@ if (typeof document !== 'undefined') {
 function renderCoachAdvice(d) {
   const panel = $('coachPanel');
   if (!panel) return;
+  // Show the configured/in-use model name even before any advice arrives —
+  // the monitor must always display which LLM is actually being called.
+  const ml = $('coachModelLabel');
+  if (ml) ml.textContent = (d && d.model) ? ' · ' + d.model : '';
   const advice = (d && typeof d.advice === 'string') ? d.advice : '';
   panel.hidden = !advice;
   if (!advice) return;
-  const ml = $('coachModelLabel');
-  if (ml) ml.textContent = d.model ? ' · ' + d.model : '';
   const txt = $('coachAdviceText');
   if (txt) txt.textContent = advice;
   const hist = $('coachHistory');
@@ -1366,7 +1368,10 @@ async function updateCoachStrategy() {
     if (d.advice_ts) rows.push('<span class="note-stat muted">last write ' + new Date(d.advice_ts * 1000).toLocaleTimeString() + '</span>');
     fields.innerHTML = rows.join('');
     const src = $('strategySourceLabel');
-    if (src) src.textContent = d.source ? '· ' + d.source : '';
+    if (src) {
+      const parts = [...new Set([d.source, d.model].filter(Boolean))];
+      src.textContent = parts.map(x => '· ' + x).join(' ');
+    }
   } catch (_) {}
 }
 
@@ -1405,4 +1410,57 @@ async function updateCoachFrames() {
 if (typeof document !== 'undefined') {
   updateCoachFrames();
   setInterval(updateCoachFrames, 5000);
+}
+
+// ── P2-3: EVO health trend panel ──────────────────────────────────────
+
+async function updateHealthTrend() {
+  try {
+    const r = await fetch('/health-trend.json');
+    const rows = r.ok ? await r.json() : [];
+    const count = $('healthTrendCount');
+    if (count) count.textContent = rows.length + ' snapshots';
+    const body = $('healthTrendBody');
+    if (!body) return;
+    if (!rows || !rows.length) {
+      body.innerHTML = '<span class="muted">Waiting for health snapshots…</span>';
+      return;
+    }
+    const last = rows[rows.length - 1];
+    let html = '<table><thead><tr><th>When</th><th>Health</th><th>Stuck</th>'
+      + '<th>Coverage</th><th>Fixes</th><th>Eff%</th><th>Trials</th><th>Pass</th></tr></thead><tbody>';
+    // Show last 10 rows
+    const display = rows.slice(-10);
+    for (const r of display) {
+      const when = (r.ts || '').slice(11, 19);
+      const hs = r.health_score != null ? (Math.round(r.health_score * 100) + '%') : '—';
+      const hsCls = r.health_score >= 0.8 ? 'ht-score-ok' : (r.health_score >= 0.5 ? 'ht-score-warn' : 'ht-score-bad');
+      const stuck = r.stuck_duration != null ? (Math.round(r.stuck_duration) + 's') : '—';
+      const cov = r.coverage_pct != null ? (Math.round(r.coverage_pct) + '%') : '—';
+      const fixes = r.fixes_total != null ? r.fixes_total : '—';
+      const eff = r.fix_effectiveness_rate != null ? (Math.round(r.fix_effectiveness_rate * 100) + '%') : '—';
+      const evoTrials = r.evo_trials != null ? r.evo_trials : '—';
+      const evoPass = r.evo_passed != null ? r.evo_passed : '—';
+      html += '<tr><td>' + when + '</td><td class="' + hsCls + '">' + hs
+        + '</td><td>' + stuck + '</td><td>' + cov + '</td><td>' + fixes
+        + '</td><td>' + eff + '</td><td>' + evoTrials + '</td><td>' + evoPass + '</td></tr>';
+    }
+    html += '</tbody></table>';
+    // Add a summary line for the latest snapshot
+    if (last) {
+      html += '<div style="margin-top:6px;padding:4px 6px;background:#1a2430;border-radius:3px;font-size:10px">';
+      html += '<b>Current</b> health=' + (last.health_score != null ? Math.round(last.health_score * 100) + '%' : '—');
+      html += ' stuck=' + (last.stuck_duration != null ? Math.round(last.stuck_duration) + 's' : '—');
+      html += ' cov=' + (last.coverage_pct != null ? Math.round(last.coverage_pct) + '%' : '—');
+      html += ' fixes=' + (last.fixes_total != null ? last.fixes_total : 0);
+      html += ' evo=' + (last.evo_trials != null ? last.evo_trials + 't/' + (last.evo_passed || 0) + 'p' : '—');
+      html += '</div>';
+    }
+    body.innerHTML = html;
+  } catch (_) {}
+}
+
+if (typeof document !== 'undefined') {
+  updateHealthTrend();
+  setInterval(updateHealthTrend, 5000);
 }

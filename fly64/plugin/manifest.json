@@ -27,7 +27,7 @@
     "brain_reload_ticks": 600
   },
   "llm": {
-    "model": "glm-5.3-flash",
+    "model": "qwen3.8-27b-uncensored",
     "transport_env": "FLY64_LLM_TRANSPORT",
     "transports": ["subagent", "http"],
     "default_transport": "subagent",
