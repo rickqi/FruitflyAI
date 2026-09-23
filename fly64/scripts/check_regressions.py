@@ -22,6 +22,21 @@ Usage:
     python3 scripts/check_regressions.py --report r.txt   # parse an existing run
     python3 scripts/check_regressions.py --strict
     python3 scripts/check_regressions.py --update         # rewrite the baseline
+    python3 scripts/check_regressions.py --only tests/test_x.py
+
+`--only TARGET` (repeatable) restricts the pytest run to those paths/node ids.
+It exists for ONE caller: ``tests/test_regression_detector.py``, which must
+prove this detector end-to-end (spawn it -> it runs pytest -> it counts the
+injected failure as NEW -> it exits non-zero) WITHOUT re-running the whole suite
+inside the suite; that nesting made a single test cost as much as the entire
+gate.  The gate itself never passes ``--only``, so its coverage is unchanged.
+``--update`` is refused together with ``--only``: rewriting the tracked baseline
+from a restricted run would silently drop every entry outside the restriction.
+
+Before the pytest run, stale ``tests/test_zz_regression_detector_probe*.py``
+scratch files (left by an interrupted run of the detector's own self-test) are
+deleted with a warning.  Without that sweep such a leftover is collected by the
+suite and counted as a NEW failure — see ``sweep_stale_probes``.
 """
 from __future__ import annotations
 
@@ -68,17 +83,47 @@ def id_of(nodeid: str) -> str:
     return nodeid.split(" ")[0].strip()
 
 
-def run_pytest() -> tuple[list[str], str]:
+#: Scratch file the detector's own self-test used to create at a FIXED path
+#: (see ``tests/test_regression_detector.py``).  One interrupted run left one
+#: behind, every later suite run collected it, and its injected failure is not in
+#: the baseline — so the gate reported ``NEW = 1`` forever: a leftover wearing
+#: the costume of a regression, which is exactly what this baseline exists to
+#: make impossible.  Swept before pytest starts, with a warning, so the poison
+#: can never reach the baseline comparison.
+STALE_PROBE_GLOB = "test_zz_regression_detector_probe*.py"
+
+
+def sweep_stale_probes() -> list[str]:
+    """Delete stale self-test probes; warn instead of failing. Best effort."""
+    removed = []
+    for path in sorted((ROOT / "tests").glob(STALE_PROBE_GLOB)):
+        try:
+            path.unlink()
+            removed.append(path.name)
+        except OSError:
+            pass
+    if removed:
+        print("swept stale probe file(s) left by an interrupted self-test run: %s"
+              % ", ".join(removed), file=sys.stderr)
+    return removed
+
+
+def run_pytest(only: list[str] | None = None) -> tuple[list[str], str]:
+    """Run the suite (or only the given targets) and return its FAILED ids.
+
+    ``only`` is a restriction used by the detector's own self-test; the gate
+    calls this with no arguments and therefore still runs everything.
+    """
     tmp = ROOT / ".pytest-run"
     tmp.mkdir(exist_ok=True)
     env = dict(os.environ)
     env["TMP"] = str(tmp)
     env["TEMP"] = str(tmp)
-    proc = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "-rf", "--basetemp", str(tmp),
-         "-p", "no:cacheprovider"],
-        cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8",
-        errors="replace", env=env)
+    cmd = [sys.executable, "-m", "pytest", "-q", "-rf", "--basetemp", str(tmp),
+           "-p", "no:cacheprovider"]
+    cmd.extend(only or [])
+    proc = subprocess.run(cmd, cwd=str(ROOT), capture_output=True, text=True,
+                          encoding="utf-8", errors="replace", env=env)
     out = (proc.stdout or "") + (proc.stderr or "")
     return sorted({id_of(m.group(1)) for m in FAILED_RE.finditer(out)}), out
 
@@ -101,14 +146,25 @@ def main():
     ap.add_argument("--strict", action="store_true")
     ap.add_argument("--update", action="store_true")
     ap.add_argument("--platform", default=sys.platform)
+    ap.add_argument("--only", action="append", default=[], metavar="TARGET",
+                    help="restrict the pytest run to these targets (repeatable); "
+                         "for the detector's self-test only — the gate runs the "
+                         "whole suite")
     args = ap.parse_args()
+
+    if args.only and args.update:
+        print("refusing --update together with --only: rewriting the baseline "
+              "from a restricted run would drop every entry outside it",
+              file=sys.stderr)
+        return 2
 
     if args.report:
         current = parse_report(Path(args.report))
         tail = ""
     else:
         print("running pytest ...", flush=True)
-        current, tail = run_pytest()
+        sweep_stale_probes()
+        current, tail = run_pytest(args.only)
 
     base = load_baseline(args.platform)
     known = {e["id"] for e in base.get("entries", [])}
@@ -151,6 +207,9 @@ def main():
     if by_cause:
         print("  known failures by cause: %s"
               % ", ".join("%s=%d" % kv for kv in sorted(by_cause.items())))
+    if args.only:
+        print("  NOTE: restricted run (--only) — 'baseline entries that now PASS' "
+              "here only means 'not part of this restricted run'.")
 
     if new:
         print("\n  !!! NEW FAILURES (a regression, or an unclassified pre-existing one):")
