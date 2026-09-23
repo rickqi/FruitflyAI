@@ -1,4 +1,4 @@
-﻿{
+{
  "$schema_version": "2.0",
  "patterns": [
   {
@@ -44,7 +44,10 @@
     "ramp_score": {
      "min": 0.5
     },
-    "stuck_duration": {\n      "min": 60\n     },\n     "position_unchanged_30s": true
+    "stuck_duration": {
+      "min": 60
+     },
+     "position_unchanged_30s": true
    },
    "diagnosis": "Ramp suppression blocks turning; Mario stays on slope.",
    "fix_template": "# Fix: Add ramp escape override when stuck >60s on slope\n# File: fly64/fly64/main.py\n# Add after slope detection:\nif ramp_score > 0.5 and stuck_duration > 60:\n    control.x = rng.integers(60, 80) * (-1 if rng.random() < 0.5 else 1)\n    control.y = 40\n",

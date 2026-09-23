@@ -14,7 +14,9 @@ Key features:
 
 from __future__ import annotations
 
-import json, math, os, random, re, sys, time, argparse, textwrap, urllib.request, urllib.error
+import json, logging, math, os, random, re, sys, time, argparse, textwrap, urllib.request, urllib.error
+
+_EVO_LOG = logging.getLogger("evolution_skill.PatternCatalog")
 from collections import deque
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
@@ -1596,14 +1598,15 @@ class PatternCatalog:
             _EVO_LOG.debug("PatternCatalog loaded %d patterns from %s", len(self.patterns), self.path or "(default)")
 
     def _load(self):
+        import logging as _logging
         if self.path and self.path.exists():
             try:
-                raw = json.loads(self.path.read_text("utf-8"))
+                raw = json.loads(self.path.read_text("utf-8-sig"))
                 if HAS_JSONSCHEMA: validate(instance=raw, schema=PATTERN_SCHEMA)
                 self._raw = raw; self.patterns = raw["patterns"]
                 self.schema_version = raw.get("$schema_version", "2.0")
                 # Self-check: verify pattern count and critical IDs after successful load
-                _plog = logging.getLogger("PatternCatalog")
+                _plog = _logging.getLogger("PatternCatalog")
                 _expected_count = 16
                 if len(self.patterns) < _expected_count:
                     _plog.warning(
@@ -1628,8 +1631,7 @@ class PatternCatalog:
                     )
                 return
             except Exception as e:
-                import logging
-                logging.getLogger("PatternCatalog").error(
+                _logging.getLogger("PatternCatalog").error(
                     "Failed to load patterns from %s: %s. Patterns will be empty!",
                     self.path, e
                 )
