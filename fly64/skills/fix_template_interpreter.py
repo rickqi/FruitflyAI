@@ -70,11 +70,14 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
+import urllib.error
+import urllib.request
 
 logger = logging.getLogger(__name__)
 
@@ -359,26 +362,75 @@ def parse_extended_directives(lines: list[str]) -> list[dict]:
 # ═══════════════════════════════════════════════════════════════════════
 
 def _call_llm_subagent(template: str, context: dict | None = None) -> str | None:
-    """Invoke the LLM subagent to interpret *template* into structured JSON.
+    """Invoke an OpenAI-compatible LLM endpoint to interpret *template* into
+    structured JSON.
 
-    This is a placeholder for the actual LLM invocation.  The production
-    integration should call the team's LLM subagent (or a dedicated model)
-    through the DSH harness, parse the response as JSON, and return the
-    raw response text.
+    Reads environment variables:
+        FLY64_LLM_BASE_URL  — base URL of the OpenAI-compatible endpoint
+        FLY64_LLM_API_KEY   — API key for authentication
+        FLY64_LLM_MODEL     — model name (default: gpt-4o-mini)
 
-    For testing/development, this function logs the attempt and returns None
-    so callers can degrade gracefully.
+    POSTs the prompt built by ``_build_interpret_prompt`` to
+    ``{base_url}/chat/completions`` and returns the response text content.
+
+    Returns ``None`` on any error (HTTP, network, parse) — callers degrade
+    gracefully and fall back to the structured rewrite system.
     """
-    # Placeholder: log the interpretation request.
-    logger.info(
-        "LLM subagent requested for template (len=%d chars, context=%s)",
-        len(template),
-        json.dumps(context) if context else "none",
+    base_url = os.environ.get("FLY64_LLM_BASE_URL")
+    api_key = os.environ.get("FLY64_LLM_API_KEY")
+    model = os.environ.get("FLY64_LLM_MODEL", "gpt-4o-mini")
+
+    if not base_url or not api_key:
+        logger.warning(
+            "LLM subagent not configured: FLY64_LLM_BASE_URL=%s, "
+            "FLY64_LLM_API_KEY=%s",
+            "set" if base_url else "unset",
+            "set" if api_key else "unset",
+        )
+        return None
+
+    prompt = _build_interpret_prompt(template)
+    if context:
+        prompt += f"\n\nAdditional context:\n{json.dumps(context, indent=2)}"
+
+    endpoint = base_url.rstrip("/") + "/chat/completions"
+    payload = json.dumps(
+        {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.1,
+            "max_tokens": 4096,
+        }
+    ).encode("utf-8")
+
+    req = urllib.request.Request(
+        endpoint,
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        },
+        method="POST",
     )
-    # In production, replace with:
-    #   response = some_llm_client.complete(prompt_build(template, context))
-    #   return response.text
-    return None
+
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.HTTPError, urllib.error.URLError, OSError, json.JSONDecodeError) as exc:
+        detail = ""
+        if isinstance(exc, urllib.error.HTTPError):
+            body = exc.read().decode("utf-8", "replace")[:500]
+            detail = f" HTTP {exc.code}: {body}"
+        logger.warning("LLM subagent call failed: %s%s", exc, detail)
+        return None
+
+    try:
+        content = data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        logger.warning("LLM subagent response missing expected structure: %s", exc)
+        return None
+
+    return content
 
 
 def _build_interpret_prompt(template: str) -> str:
@@ -449,9 +501,9 @@ class FixTemplateInterpreter:
         lines = template.strip().splitlines()
         heuristic = parse_extended_directives(lines)
 
-        is_manual = (
-            len(heuristic) == 1 and heuristic[0].get("action") == "manual"
-        )
+        is_manual = all(
+            h.get("action") == "manual" for h in heuristic
+        ) if heuristic else False
 
         if not is_manual:
             # Heuristic succeeded – no LLM needed
@@ -612,14 +664,14 @@ _STRUCTURED_REWRITES: dict[str, str] = {
     "circle_loop": (
         "# Fix: Add ground_angle gate before cliff avoidance\n"
         "# File: fly64/fly64/main.py\n"
-        "# Change: if wall_score < 0.1 and asymmetry_magnitude < 0.06:  # cliff avoidance triggers\n"
+        "# Change: if (not is_ramp or ramp_stuck_override) and model.cliff_confirmed and model.cliff_rate < -0.03:\n"
         "# To: if wall_score < 0.1 and asymmetry_magnitude < 0.06 and ground_angle < 0.3:  # gate: only if ground is angled\n"
     ),
     # ── 2. ramp_trap ──────────────────────────────────────────────────
     "ramp_trap": (
         "# Fix: Add ramp escape override when stuck >180s on slope\n"
         "# File: fly64/fly64/main.py\n"
-        "# Add after slope detection:\n"
+        "# Add after ramp_stuck_override = is_ramp and memory_ctrl.stuck_duration > 30.0\n"
         "# Code:\n"
         "if ramp_score > 0.5 and stuck_duration > 180:\n"
         "    control.x = rng.integers(60, 80) * (-1 if rng.random() < 0.5 else 1)\n"
@@ -629,7 +681,7 @@ _STRUCTURED_REWRITES: dict[str, str] = {
     "reflex_cooldown_gap": (
         "# Fix: Make reflex cooldown adaptive based on stuck_duration\n"
         "# File: fly64/fly64/memory.py\n"
-        "# Change: cooldown_duration = 10.0\n"
+        "# Change: cooldown_duration: float = 5.0,\n"
         "# To: cooldown = max(2.0, self.base_cooldown_duration - stuck_duration * 0.05)\n"
         "# Note: stuck_duration is passed in from anomaly_state context\n"
     ),
@@ -637,7 +689,7 @@ _STRUCTURED_REWRITES: dict[str, str] = {
     "low_coverage_stagnation": (
         "# Fix: Trigger forced_bold_explore immediately when coverage stagnant\n"
         "# File: fly64/fly64/main.py\n"
-        "# Add before normal escape logic:\n"
+        "# Add before                      or bool(memory_ctrl.spatial.coverage_stalled)):\n"
         "# Code:\n"
         "if coverage_stagnant_120s and visited_cells < 50:\n"
         "    forced_bold_explore = True\n"
@@ -645,8 +697,8 @@ _STRUCTURED_REWRITES: dict[str, str] = {
     # ── 5. below_ground_stuck ────────────────────────────────────────
     "below_ground_stuck": (
         "# Fix: Lower fallen detection threshold from -100 to 50\n"
-        "# File: fly64/fly64/memory.py\n"
-        "# Change: fallen = pos_y < -100\n"
+        "# File: fly64/fly64/main.py\n"
+        "# Change: _below_ground = _py < -200\n"
         "# To: fallen = pos_y < 50\n"
         "# Note: SM64 ground level is Y=120; any Y<50 means Mario is below ground surface.\n"
     ),
