@@ -132,9 +132,10 @@ class StuckDetector:
 
     def __init__(self, temporal_threshold: float = 0.05,
                  frame_stuck_s: float = 5.0,
-                 rate_threshold: float = 5.0,
+                 rate_threshold: float = 0.008,   # P0-a2: per-tick fraction; was 5.0 Hz
                  rate_stuck_s: float = 3.0,
                  temporal_stuck_s: float = 2.0,
+                 stuck_release_k: float = 0.005,  # B15: bleed softening coefficient (k·dt decay)
                  y_min: float = 50.0,       # P0-3: -100→50 (SM64 ground~120, Y<50 fallen)
                  y_max: float = 500.0):      # P0-3: 1000→500
         self.temporal_threshold = temporal_threshold
@@ -142,11 +143,13 @@ class StuckDetector:
         self.rate_threshold = rate_threshold
         self.rate_stuck_s = rate_stuck_s
         self.temporal_stuck_s = temporal_stuck_s
+        self.stuck_release_k = stuck_release_k  # B15: bleed softening coefficient
         self.y_min = y_min
         self.y_max = y_max
         self._dt = 0.020
         self._temporal_low_s = 0.0
         self._frame_still_s = 0.0
+        self.disp_60s: float | None = None  # P0-a2: bleed input, set by MemoryController before update()
         self._rate_low_s = 0.0
         self._last_frame_seq = -1
         self._stuck_duration = 0.0
@@ -160,8 +163,15 @@ class StuckDetector:
         self.map_reset_ticks = 10        # ~200 ms below floor before reset
 
     def update(self, temporal_energy: float, frame_seq: int,
-               forward_rate: float, pos_y: float = 0.0) -> tuple[float, float, bool]:
-        """Return ``(stuck_score, stuck_duration, fallen)`` for this tick."""
+               forward_rate: float, pos_y: float = 0.0,
+               intent_active: bool = True) -> tuple[float, float, bool]:
+        """Return ``(stuck_score, stuck_duration, fallen)`` for this tick.
+
+        ``intent_active`` (B15): when False, the rate sub-signal does NOT
+        accumulate low-forward-rate time — standing still without intent to
+        move is not stuck.  Default ``True`` preserves backward compatibility
+        for callers that do not pass this argument.
+        """
         # --- Y-axis state: altitude alone is NOT "fallen" (R31-fix4) ---
         # The old predicate `pos_y < y_min or pos_y > y_max` mislabelled
         # legal high ground (towers/platforms at y>500) as a fall and had no
@@ -203,8 +213,15 @@ class StuckDetector:
         self._last_frame_seq = frame_seq
 
         # --- forward rate ---
-        if forward_rate < self.rate_threshold:
-            self._rate_low_s += self._dt
+        # P0-a2: both sides are per-tick fractions ∈ [0,1] (see RULE-19).
+        # B15: intent_active gate — when the model is NOT commanding forward
+        # movement (forward_rate == 0), standing still is not being stuck.
+        # Accumulate rate-low time only when the model intends to move.
+        if intent_active:
+            if forward_rate < self.rate_threshold:
+                self._rate_low_s += self._dt
+            else:
+                self._rate_low_s = 0.0
         else:
             self._rate_low_s = 0.0
 
@@ -227,6 +244,13 @@ class StuckDetector:
             self._stuck_duration += self._dt
         else:
             self._stuck_duration = 0.0
+        # B15: stateful bleed softening — disp_60s input set by MemoryController before update().
+        # Hard reset (-= 1.0 per tick) zeroed stuck_duration instantly while
+        # stuck_score remained 1.0 (the "score==1.0 ∧ dur==0.0" contradiction).
+        # Replaced with a gentle k·dt decay so the history persists but does
+        # not grow unbounded when the fly demonstrates net displacement.
+        if self.disp_60s is not None and self.disp_60s > 500.0 and self._stuck_duration > 0.0:
+            self._stuck_duration = max(0.0, self._stuck_duration - self.stuck_release_k * self._dt)
         self._was_stuck = currently_stuck
 
         return stuck_score, self._stuck_duration, self._fallen
@@ -316,6 +340,13 @@ class SpatialMemoryMap:
         self._adj: dict[tuple[tuple[int, int, int], tuple[int, int, int]], int] = {}
         self._scene_db = SceneDatabase()
 
+        # Coverage plateau breakout state (Mechanism 3)
+        self._coverage_plateau_counter: int = 0
+        self._coverage_plateau_triggered: bool = False
+        self._last_new_cell_tick: int = 0
+        self.coverage_plateau_threshold_ticks: int = 1200  # 【待标定】实测 1500→1200：加速平台期打破反应
+        self.coverage_plateau_duration_ticks: int = 30     # 【待标定】
+
     # -- helpers ----------------------------------------------------------
 
     def _key(self, x: float, y: float = 0.0, z: float = 0.0) -> tuple[int, int, int]:
@@ -353,6 +384,29 @@ class SpatialMemoryMap:
         if n == 0:
             return None
         vec = (sx / n, sz / n)
+        norm = math.hypot(*vec)
+        if norm < 1e-6:
+            return None
+        return (vec[0] / norm, vec[1] / norm)
+
+    def visited_repulsion_vector(self, x: float, z: float,
+                                  radius: int = 3) -> tuple[float, float] | None:
+        """Return **away** from the centroid of recently visited cells within
+        *radius* grid steps of (x, z).  Returns None when the local area is
+        completely unvisited (nothing to repel from).  (Mechanism 2)"""
+        cxk = self._key(x, 0.0, z)
+        sx = sz = n = 0
+        for dx in range(-radius, radius + 1):
+            for dz in range(-radius, radius + 1):
+                k = (cxk[0] + dx, cxk[1], cxk[2] + dz)
+                if k in self._cells:
+                    sx += dx
+                    sz += dz
+                    n += 1
+        if n == 0:
+            return None
+        # Vector from centroid outward
+        vec = (-sx / n, -sz / n)
         norm = math.hypot(*vec)
         if norm < 1e-6:
             return None
@@ -449,6 +503,7 @@ class SpatialMemoryMap:
             self._cells[key] = np.uint16(1)
             self._recency[key] = 1.0
             self._last_tick[key] = self._total_ticks
+            self._last_new_cell_tick = self._total_ticks  # plateau detection
         else:
             # existing cell — increment
             v = int(self._cells[key]) + 1
@@ -462,6 +517,15 @@ class SpatialMemoryMap:
         if self._total_ticks - self._last_coverage_tick >= 100:
             self._last_coverage_tick = self._total_ticks
             self._coverage_history.append((self._total_ticks, self.coverage_percentage))
+
+        # Coverage plateau detection: no new cell for N ticks (Mechanism 3)
+        threshold = getattr(self, 'coverage_plateau_threshold_ticks', 1500)
+        if self._total_ticks - self._last_new_cell_tick >= threshold:
+            self._coverage_plateau_counter += 1
+        else:
+            self._coverage_plateau_counter = 0
+        dur = getattr(self, 'coverage_plateau_duration_ticks', 30)
+        self._coverage_plateau_triggered = (self._coverage_plateau_counter >= dur)
         
         return self._novelty(key)
 
@@ -547,6 +611,10 @@ class SpatialMemoryMap:
     @property
     def visited_cells(self) -> int:
         return len(self._cells)
+
+    @property
+    def coverage_plateau_triggered(self) -> bool:
+        return self._coverage_plateau_triggered
 
     @property
     def total_ticks(self) -> int:
@@ -1113,6 +1181,7 @@ class SceneDatabase:
 PROGRESS_EFFICIENCY_FLOOR = 0.25   # < 25% of the achievable distance = weave
 MOTION_DISP_60S = 300.0            # u / 60 s above which the fly "is moving"
 WEAVE_STUCK_DURATION = 45.0        # s of unproductive time = weave (user 09-17)
+SURRENDER_WINDOW_S = 60.0          # P2-c2: window length behind ``disp_60s`` (main.py)
 
 
 def displacement_per_speed(disp_60s: float | None,
@@ -1221,8 +1290,56 @@ def deadlock_burst_ready(*, stuck_duration: float | None,
 
 
 # ---------------------------------------------------------------------------
-# MotionStateDetector — 5-state motion anomaly detection with majority vote
+# P2-c3 · oscillation observation window — measured cadence, R5 record-only
 # ---------------------------------------------------------------------------
+# H3 (as written in the plan): the fixed 30-frame window was believed to sit on
+# the same scale as the alternation period (≈17–18 ticks for one ±60 round
+# trip), so ``alternations >= 3`` was decided by a handful of frames and the
+# verdict flickered.  The plan's remedy was to size the window from the
+# system's OWN period:
+#
+#     W = clip(OSC_CYCLES_PER_WINDOW · T_alt, OSC_WINDOW_MIN, OSC_WINDOW_MAX)
+#
+# **t3/t5 measurement (the decisive fact)**: ``memory_ctrl.update()`` has exactly
+# one call site, main.py's publish block, which runs behind the publish gate — so
+# ONE DETECTOR FRAME IS ≈0.21 s OF REAL TIME, not the 0.02 s model tick the plan
+# assumed.  On the real 6000-point ctrl_x series the median ±60 flip gap is
+# **1 frame** ⇒ ``W = clip(6·1, 30, 300) = 30`` = the historical floor, and a
+# faithful replay is **tick-for-tick identical to the pre-P2-c3 fixed-30
+# detector (0/6000 differing verdicts)**.  The adaptive window therefore cannot
+# change any verdict at the production cadence.
+#
+# ⇒ Per §4 P2-c3 **R5** the mechanism is ROLLED BACK to the fixed window and the
+# new observables are kept **RECORD ONLY** (``OSC_ADAPTIVE_ENABLED = False``):
+# W stays at the floor, T_alt (frames and real seconds) is still measured and
+# published for M4-d3 calibration, and the detection drives exactly what HEAD
+# drove — no new drive, nothing withdrawn.  Re-enabling is a one-line change
+# once calibration shows a cadence where W > OSC_WINDOW_MIN.
+#
+# The THRESHOLD COUNT IS NOT TOUCHED (OSC_ALT_MIN = 3, raising to 5 is the
+# documented roll-back), no new jump gate is introduced, and the four saturating
+# clip(·, ±70) decoder forms are not modified (C3 / C6).
+#
+# Evidence boundary: the E-4 numbers quoted around H3 (stuck_score=1.0,
+# stuck_duration=1100.72, reflex_active=False, median_speed=0.0) are **检测伪影**
+# (detector artifacts) under assumption **H1** — they are the object under
+# review.  All P2-c3 numbers (OSC_TICK_DT, T_alt, W) are 【待标定】 and are
+# measured from the live stream / real series, never assumed.
+OSC_WINDOW_MIN = 30            # frames — the historical fixed window (floor) 【待标定】
+OSC_WINDOW_MAX = 300           # frames — deque bound / ceiling 【待标定】
+OSC_CYCLES_PER_WINDOW = 6      # observation window = N measured alternation cycles 【待标定】
+OSC_ALT_MIN = 3                # UNCHANGED alternation threshold (R-回退: 5)
+#: Real detector tick = the publish gate.  t5-verified on the 6000-point real
+#: series: p10 0.20 s / median 0.210 s / mean 0.221 s / p90 0.23 s.  The values
+#: quoted here are **measured** (they are what OSC_TICK_DT is set from), but the
+#: constant itself is not signed off as a frozen design number — same 【待标定】
+#: class as the three window constants above (block-level note at the P2-c3
+#: header; R2 收口: the per-line tag was missing).
+OSC_TICK_DT = 0.21             # frames → seconds (was 0.02 = 10.5x too small) 【待标定】
+OSC_ALT_HISTORY = 12           # alternation gaps kept for the median T_alt
+#: R5 rollback latch — False = fixed OSC_WINDOW_MIN window, record-only.
+OSC_ADAPTIVE_ENABLED = False
+
 
 class MotionStateDetector:
     """Detect motion anomaly states with majority-vote over a sliding window.
@@ -1230,8 +1347,13 @@ class MotionStateDetector:
     States detected:
       ``idle``        — no anomaly (default)
       ``stuck_ramp``  — ramp_score > 0.5 AND stuck_duration > 15 s AND heading_rate < 0.05
-      ``oscillating`` — control.x alternates between ≤ -60 and ≥ +60 within 30 frames
-      ``wall_stuck``  — wall_score > 0.4 AND escape_behavior AND stuck_duration > 10 s
+      ``oscillating`` — control.x alternates between ≤ -60 and ≥ +60,
+                        ≥ ``OSC_ALT_MIN`` times inside the observation window
+                        (P2-c3: fixed at ``OSC_WINDOW_MIN`` = 30 frames — the
+                        adaptive sizing is latched off by R5, see the P2-c3 block
+                        above)
+      ``wall_stuck``  — wall_score > 0.4 AND (escape_behavior OR terminal surrender)
+                        AND stuck_duration > 10 s
       ``micro_loop``  — visited_cells < 5 AND loop_score > 0.5 AND stuck_duration > 30 s
       ``fallen``      — pos_y < -100 OR pos_y > 1000
 
@@ -1277,8 +1399,17 @@ class MotionStateDetector:
         # active >30s, consumed by the EVO/coach escalation path.
         self._anomaly_persistent: bool = False
 
-        # Oscillation detection: history of control.x for sign-change counts
-        self._ctrl_x_buf: deque[int] = deque(maxlen=window)
+        # Oscillation detection: history of control.x for sign-change counts.
+        # P2-c3: the buffer keeps the CEILING of the adaptive window; the
+        # effective window W is sliced per tick from the measured T_alt.
+        self._ctrl_x_buf: deque[int] = deque(maxlen=OSC_WINDOW_MAX)
+        # P2-c3: alternation-period tracking (frames) → adaptive window W.
+        self._osc_last_band: int = 0            # 0 unknown / +1 ≥+60 / -1 ≤-60
+        self._osc_last_switch_tick: int | None = None
+        self._osc_gaps: deque[int] = deque(maxlen=OSC_ALT_HISTORY)
+        self._osc_alt_frames: float | None = None   # T_alt (frames)
+        self._osc_window: int = OSC_WINDOW_MIN      # W (frames)
+        self._osc_detected: bool = False            # per-frame verdict (telemetry)
 
     # ---- per-frame detection helpers ----------------------------------------
 
@@ -1287,9 +1418,22 @@ class MotionStateDetector:
         return ramp_score > 0.5 and stuck_duration > 15.0 and heading_rate < 0.05
 
     def _detect_oscillating(self, disp_60s: float | None = None,
-                            median_speed: float | None = None) -> bool:
-        """Detect oscillation in control.x: ≥3 alternations between ≤-60 and ≥+60.
-        
+                            median_speed: float | None = None,
+                            window: int | None = None) -> bool:
+        """Detect oscillation in control.x: ≥ ``OSC_ALT_MIN`` alternations
+        between ≤-60 and ≥+60 inside the observation window ``W``.
+
+        P2-c3 / R5 (H3): the plan sized ``W`` from the measured period
+        (``W = clip(OSC_CYCLES_PER_WINDOW · T_alt, OSC_WINDOW_MIN,
+        OSC_WINDOW_MAX)``), but at the production cadence one detector frame is
+        ≈0.21 s and the measured flip gap is 1 frame, so W equals the historical
+        floor (30) and the mechanism cannot change any verdict.  The latch
+        ``OSC_ADAPTIVE_ENABLED`` is therefore OFF (R5 rollback) and the window is
+        the fixed 30 frames, with W/T_alt published as records.  The ALTERNATION
+        THRESHOLD IS UNCHANGED — ``window=None`` ⇒ the detector's current W.  No
+        new gate, no control write, and the severity order in :meth:`_vote` is
+        untouched (C3/C5/C6).
+
         R31-fix12 / P0-4: displacement evidence gate — the alternating pattern is
         zig-zag *navigation* only when the 60 s window shows real progress, i.e.
         ``displacement_per_speed >= PROGRESS_EFFICIENCY_FLOOR`` (progress-ledger
@@ -1299,10 +1443,16 @@ class MotionStateDetector:
         """
         if (disp_60s is not None
                 and not progress_is_ineffective(disp_60s, median_speed)):
+            self._osc_detected = False       # P2-c3: telemetry mirrors the verdict
             return False
         if len(self._ctrl_x_buf) < 6:
+            self._osc_detected = False
             return False
+        _w = self._osc_window if window is None else int(window)
+        _w = max(OSC_WINDOW_MIN, min(int(_w), OSC_WINDOW_MAX))
         buf = list(self._ctrl_x_buf)
+        if len(buf) > _w:
+            buf = buf[-_w:]      # effective window W (tail of the ring)
         alternations = 0
         prev_was_neg = None
         for v in buf:
@@ -1314,11 +1464,73 @@ class MotionStateDetector:
                 if prev_was_neg is True:    # was neg, now pos
                     alternations += 1
                 prev_was_neg = False
-        return alternations >= 3
+        self._osc_detected = bool(alternations >= OSC_ALT_MIN)  # alternations >= 3 (gate UNCHANGED)
+        return self._osc_detected
+
+    def _update_oscillation_tracking(self, control_x: int) -> None:
+        """P2-c3 / R5: record the measured alternation gap; keep W fixed.
+
+        A "sign change" is a flip of the ±60 band membership — the very event
+        :meth:`_detect_oscillating` counts — so T_alt is measured on the same
+        convention the verdict uses.  Values inside the dead band (-60, +60) do
+        not start or break an event (the detector behaves the same way).
+
+        With ``OSC_ADAPTIVE_ENABLED = False`` (R5, the shipped state) W is the
+        historical floor (30) on every tick, so the detector is byte-identical
+        to the pre-P2-c3 one; ``oscillation_window_frames`` /
+        ``oscillation_alt_median_s`` (real seconds via ``OSC_TICK_DT``) are
+        published as RECORDS for M4-d3 calibration.
+        """
+        band = 1 if control_x >= 60 else (-1 if control_x <= -60 else 0)
+        if band != 0:
+            if self._osc_last_band != 0 and band != self._osc_last_band:
+                if self._osc_last_switch_tick is not None:
+                    gap = self._total_ticks - self._osc_last_switch_tick
+                    if gap > 0:
+                        self._osc_gaps.append(gap)
+                self._osc_last_switch_tick = self._total_ticks
+            elif self._osc_last_switch_tick is None:
+                self._osc_last_switch_tick = self._total_ticks
+            self._osc_last_band = band
+        if self._osc_gaps:
+            self._osc_alt_frames = float(np.median(list(self._osc_gaps)))
+        else:
+            self._osc_alt_frames = None
+        # F2 / R5: the window is FIXED at the historical floor — the adaptive
+        # sizing is latched off because it provably cannot change a verdict at
+        # the real cadence (see the P2-c3 block above).  T_alt keeps being
+        # recorded for calibration; the latch is the only difference.
+        if OSC_ADAPTIVE_ENABLED and self._osc_alt_frames is not None:
+            self._osc_window = int(max(
+                OSC_WINDOW_MIN,
+                min(OSC_CYCLES_PER_WINDOW * self._osc_alt_frames, OSC_WINDOW_MAX)))
+        else:
+            self._osc_window = OSC_WINDOW_MIN
 
     def _detect_wall_stuck(self, wall_score: float, escape_behavior: bool,
-                           stuck_duration: float) -> bool:
-        return wall_score > 0.4 and escape_behavior and stuck_duration > 10.0
+                           stuck_duration: float,
+                           surrender_evidence: bool = False) -> bool:
+        """P2-c2 / M4-d5-b — wall-stuck must survive the "gave up" terminal state.
+
+        Original criterion (kept verbatim): ``wall_score > 0.4 and
+        escape_behavior and stuck_duration > 10.0``.  ``escape_behavior`` is the
+        *struggle* flag, but the failure terminal state is exactly "gave up"
+        (``escape_behavior = False``) ⇒ the gate made the terminal state
+        undetectable and was in turn the result of it (self-lock).
+
+        One parallel OR branch is therefore added — ``surrender_evidence``, the
+        observation-layer ``terminal_surrender`` judgement evaluated by
+        ``MemoryController``.  With ``surrender_evidence = False`` the behaviour
+        is bit-identical to the original criterion.  Judgement only: this
+        function never writes ``control.*`` (hard constraint C1).
+
+        Evidence boundary: the E-4 numbers that motivated this (stuck_score=1.0,
+        stuck_duration=1100.72, reflex_active=False, median_speed=0.0) are
+        **检测伪影** (detector artifacts) under assumption **H1** — they are the
+        object under review, never a calibrated input.
+        """
+        return (wall_score > 0.4 and stuck_duration > 10.0
+                and (escape_behavior or surrender_evidence))
 
     def _detect_micro_loop(self, visited_cells: int, loop_score: float,
                            stuck_duration: float,
@@ -1353,8 +1565,14 @@ class MotionStateDetector:
               loop_score: float = 0.0,
               pos_y: float | None = None,
               disp_60s: float | None = None,
-              median_speed: float | None = None) -> str:
-        """Return the per-frame state name, prioritised by severity."""
+              median_speed: float | None = None,
+              surrender_evidence: bool = False,
+              osc_window: int | None = None) -> str:
+        """Return the per-frame state name, prioritised by severity.
+
+        P2-c3: ``osc_window`` only sizes the oscillation window (default None ⇒
+        the detector's measured W).  The severity order below is unchanged (C5).
+        """
         # EVO R16 · P1-A3: pos_y validity gate.  Unknown elevation (None or
         # the historical 0.0 default) must not vote FALLEN — SM64 ground sits
         # at Y≈120, so 0.0-as-default masqueraded every anomaly as fallen.
@@ -1364,9 +1582,11 @@ class MotionStateDetector:
         if self._detect_micro_loop(visited_cells, loop_score, stuck_duration,
                                    disp_60s=disp_60s, median_speed=median_speed):
             return self.MICRO_LOOP
-        if self._detect_oscillating(disp_60s=disp_60s, median_speed=median_speed):
+        if self._detect_oscillating(disp_60s=disp_60s, median_speed=median_speed,
+                                    window=osc_window):
             return self.OSCILLATING
-        if self._detect_wall_stuck(wall_score, escape_behavior, stuck_duration):
+        if self._detect_wall_stuck(wall_score, escape_behavior, stuck_duration,
+                                   surrender_evidence):
             return self.WALL_STUCK
         if self._detect_stuck_ramp(ramp_score, stuck_duration, heading_rate):
             return self.STUCK_RAMP
@@ -1388,10 +1608,14 @@ class MotionStateDetector:
         control_x: int = 0,
         disp_60s: float | None = None,       # R31-fix6: progress gate
         median_speed: float | None = None,   # P0-4: same-window speed (u/s)
+        surrender_evidence: bool = False,    # P2-c2: terminal_surrender branch
     ) -> dict:
         """Feed one tick; returns ``get_state()``."""
         self._total_ticks += 1
         self._ctrl_x_buf.append(control_x)
+        # P2-c3: measure the alternation gap BEFORE the vote so this tick's
+        # verdict uses the window derived from the live period.
+        self._update_oscillation_tracking(control_x)
 
         # Per-frame vote
         vote = self._vote(
@@ -1405,6 +1629,8 @@ class MotionStateDetector:
             pos_y=pos_y,
             disp_60s=disp_60s,
             median_speed=median_speed,
+            surrender_evidence=surrender_evidence,
+            osc_window=self._osc_window,
         )
         self._vote_buffer.append(vote)
 
@@ -1459,6 +1685,14 @@ class MotionStateDetector:
             "confidence": confidence,
             "duration_in_state": duration_in_state,
             "active": majority_state != self.IDLE,
+            # P2-c3 / M4-d3: adaptive-window observables (published by main.py
+            # to flow.json; consumed by V18 and the evolution_log context).
+            "oscillation_window_frames": self._osc_window,
+            "oscillation_alt_median_s": (
+                None if self._osc_alt_frames is None
+                else round(self._osc_alt_frames * OSC_TICK_DT, 4)),
+            "oscillation_detected": bool(self._osc_detected),
+            "oscillation_adaptive_enabled": bool(OSC_ADAPTIVE_ENABLED),
         }
 
     def get_state(self) -> dict:
@@ -1468,7 +1702,42 @@ class MotionStateDetector:
             "confidence": self._latest_confidence,
             "duration_in_state": self._latest_duration,
             "active": self._active_state != self.IDLE,
+            "oscillation_window_frames": self._osc_window,
+            "oscillation_alt_median_s": (
+                None if self._osc_alt_frames is None
+                else round(self._osc_alt_frames * OSC_TICK_DT, 4)),
+            "oscillation_detected": bool(self._osc_detected),
+            "oscillation_adaptive_enabled": bool(OSC_ADAPTIVE_ENABLED),
         }
+
+    # ---- P2-c3 observation accessors (telemetry, no control effect) ---------
+
+    @property
+    def oscillation_window_frames(self) -> int:
+        """Current observation window W in frames (fixed 30 under R5)."""
+        return self._osc_window
+
+    @property
+    def oscillation_adaptive_enabled(self) -> bool:
+        """False = R5 record-only: W is fixed, the adaptive sizing is latched off."""
+        return bool(OSC_ADAPTIVE_ENABLED)
+
+    @property
+    def oscillation_alt_median_s(self) -> float | None:
+        """Measured median sign-change gap T_alt in REAL seconds (None until seen).
+
+        F2: frames are converted with ``OSC_TICK_DT = 0.21 s`` — one detector
+        frame is the publish-gate interval, not the 0.02 s model tick (the old
+        conversion published 0.02 s for a real 0.21 s gap ⇒ 10.5× unit error).
+        """
+        if self._osc_alt_frames is None:
+            return None
+        return round(self._osc_alt_frames * OSC_TICK_DT, 4)
+
+    @property
+    def oscillation_detected(self) -> bool:
+        """Per-frame oscillating verdict (the adaptive-window detector)."""
+        return self._osc_detected
 
     @property
     def active_state(self) -> str:
@@ -1489,6 +1758,13 @@ class MotionStateDetector:
         self._vote_buffer.clear()
         self._transitions.clear()
         self._ctrl_x_buf.clear()
+        # P2-c3: the measured period belongs to the run that produced it.
+        self._osc_last_band = 0
+        self._osc_last_switch_tick = None
+        self._osc_gaps.clear()
+        self._osc_alt_frames = None
+        self._osc_window = OSC_WINDOW_MIN
+        self._osc_detected = False
         self._active_state = self.IDLE
         self._state_start_tick = self._total_ticks
 
@@ -1910,6 +2186,22 @@ class MemoryController:
 
     MIN_ESCAPE_DURATION = 1.5   # t26 P1: seconds before release may fire
 
+    # ── P2-c2 / M4-d5-b · terminal_surrender thresholds ──────────────────
+    # ALL FOUR VALUES ARE 【待标定】(to be calibrated) — they are design
+    # initial values from the plan (§6.2), NOT measured facts.  Calibration
+    # entry point = M4-d3's observation record (``evolution_log`` ``context``:
+    # stuck_duration_true / loop_score / waste_ratio / net_displacement_rate)
+    # plus the A/B runs; until then this judgement stays observational.
+    #
+    # Evidence boundary: the E-4-layer numbers quoted around this change
+    # (stuck_score=1.0, stuck_duration=1100.72, reflex_active=False,
+    # median_speed=0.0) are **检测伪影** (detector artifacts) under version
+    # boundary **H1** — they must never be copied into these thresholds.
+    SURRENDER_STUCK_T_S = 120.0   # 【待标定】T_s: kinematic stuck seconds
+    SURRENDER_LOOP_L = 0.6        # 【待标定】L: spatial loop_score floor
+    SURRENDER_WASTE_W = 10.0      # 【待标定】W: waste_ratio floor (path / net)
+    SURRENDER_DISP_RATE_D = 0.5   # 【待标定】D: net displacement ceiling (u/s)
+
     def __init__(self,
                  stuck: StuckDetector | None = None,
                  spatial: SpatialMemoryMap | None = None,
@@ -1926,6 +2218,14 @@ class MemoryController:
         self.escape_behavior: bool = False
         self._stuck_score: float = 0.0
         self._stuck_duration: float = 0.0
+        self._stuck_duration_true: float = 0.0  # P0-a3: kinematic true stuck duration
+        # P2-c2: terminal-surrender judgement (observation/diagnostic layer).
+        # ``waste_ratio`` is published by main.py each tick (same value as
+        # flow.json["waste_ratio"], M4-d2's path/net inefficiency); ``None``
+        # until it arrives ⇒ the judgement stays False (never guess).
+        self.waste_ratio: float | None = None
+        self._terminal_surrender: bool = False
+        self._last_pose_for_stuck: tuple | None = None  # P0-a3: last (x, z) for kinematic check
         self._novelty: float = 1.0
         self._fallen: bool = False
         self._last_pos = (0.0, 0.0, 0.0)
@@ -1967,6 +2267,10 @@ class MemoryController:
         self._wall_persist: float = 0.0
         self._wall_persist_heading: float = 0.0  # heading at wall contact start
 
+        # Navigation auxiliary weights (Mechanism 2, 3)
+        self.navigation_repulsion_weight: float = 0.12  # 【待标定】实测 0.30→0.12：过强回绝力导致 speed 下降6×
+        self._plateau_break_heading: float | None = None
+
     def update(self, temporal_energy: float, frame_seq: int,
                forward_rate: float, x: float, z: float,
                pos_y: float = 0.0, heading: float = 0.0,
@@ -1982,23 +2286,44 @@ class MemoryController:
                control_x: int = 0) -> tuple:
         """Feed one tick; returns ``(stuck_score, stuck_duration, novelty,
         escape_behavior, fallen, forced_bold_explore)``."""
+        # P0-a2: pass disp_60s into StuckDetector for stateful bleed (was no-op here).
+        self.stuck.disp_60s = getattr(self, "disp_60s", None)
+        # B15: pass intent_active — rate sub-signal only accumulates when the
+        # model is commanding forward movement (forward_rate > 0).  Standing
+        # still without intent is not stuck.
         self._stuck_score, self._stuck_duration, self._fallen = self.stuck.update(
-            temporal_energy, frame_seq, forward_rate, pos_y
+            temporal_energy, frame_seq, forward_rate, pos_y,
+            intent_active=(forward_rate > 0)
         )
-        # R31-fix11: stuck_duration must measure *unproductive* time, not
-        # continuous anomaly wall-clock.  When there is sustained displacement
-        # (disp_60s > 500) the stuck counter gradually drains — progress,
-        # even while an anomaly classifier is still active, should not inflate
-        # the stuck metric that drives help-escalation and reflex cooldowns.
-        _disp_60s = getattr(self, "disp_60s", None)
-        if _disp_60s is not None and _disp_60s > 500.0 and self._stuck_duration > 0.0:
-            self._stuck_duration = max(0.0, self._stuck_duration - 1.0)
+        # P0-a3: kinematic true stuck duration — consecutive ticks with |Δpose| < 0.5 u
+        _current_pose = (float(x), float(z))
+        if self._last_pose_for_stuck is not None:
+            _dx = _current_pose[0] - self._last_pose_for_stuck[0]
+            _dz = _current_pose[1] - self._last_pose_for_stuck[1]
+            _disp = (_dx * _dx + _dz * _dz) ** 0.5
+            if _disp < 0.5:
+                self._stuck_duration_true += self.stuck._dt
+            else:
+                self._stuck_duration_true = 0.0
+        self._last_pose_for_stuck = _current_pose
         # EVO L2 fix: the 3D grid signature is update(x, y, z) — the old
         # two-arg call landed the real z in the y-slot and recorded every
         # visit at z-cell 0, which desynchronised the memory grid from the
         # true trajectory by thousands of units.
         self._novelty = self.spatial.update(x, pos_y, z,
                                              disp_60s=getattr(self, "disp_60s", None))
+
+        # Coverage plateau breakout: force a one-shot heading injection (Mechanism 3)
+        if self.spatial.coverage_plateau_triggered:
+            # Find a direction off the plateau via the best free heading
+            _free = self.failures.best_free_heading(x, z, heading)
+            _hdiff = (_free - heading) % (2 * math.pi)
+            if _hdiff > math.pi:
+                _hdiff -= 2 * math.pi
+            # Inject a short-lived strong bias — consumed by navigation_vectors
+            self._plateau_break_heading = _hdiff
+        else:
+            self._plateau_break_heading = None
 
         # Update cliff detector with multi-frame confirmation
         self._cliff_state = self.cliff.update(flow_cliff)
@@ -2016,6 +2341,12 @@ class MemoryController:
         if stalled is not None:
             self._stall_flags.append(stalled)
 
+        # P2-c2: terminal-surrender judgement (observation layer only — the
+        # verdict is published as telemetry and unlocks the adaptive face; it
+        # never writes control.*).  Evaluated BEFORE the anomaly update so the
+        # wall_stuck detector can use it as its escape-independent OR branch.
+        self._terminal_surrender = self._evaluate_terminal_surrender()
+
         # Update motion anomaly detector
         anomaly_result = self.anomaly.update(
             ramp_score=ramp_score,
@@ -2032,6 +2363,9 @@ class MemoryController:
             # main.py's L2a / burst precondition and plugin/runner.py — see the
             # progress-ledger unit block at the top of this module.
             median_speed=getattr(self, "median_speed", None),
+            # P2-c2: "gave up" terminal state is an anomaly, not the negation
+            # of detection — the wall_stuck gate accepts it as evidence.
+            surrender_evidence=self._terminal_surrender,
         )
         self._latest_anomaly_conf = anomaly_result["confidence"]
         self._latest_anomaly_dur = anomaly_result["duration_in_state"]
@@ -2203,6 +2537,11 @@ class MemoryController:
         self.escape_behavior = False
         self._stuck_score = 0.0
         self._stuck_duration = 0.0
+        # P2-c2: terminal-surrender observation state
+        self._stuck_duration_true = 0.0
+        self._last_pose_for_stuck = None
+        self.waste_ratio = None
+        self._terminal_surrender = False
         self._novelty = 1.0
         self._fallen = False
         self._fall_pos = (0.0, 0.0, 0.0)
@@ -2221,6 +2560,103 @@ class MemoryController:
 
     @property
     def stuck_duration(self) -> float: return self._stuck_duration
+
+    @property
+    def stuck_duration_true(self) -> float:
+        """P0-a3: kinematic-based true stuck duration.
+        Measures consecutive ticks where net_disp_60s == 0 and |Δpose| < 0.5 u.
+        Coexists with legacy stuck_duration (detector-based)."""
+        return self._stuck_duration_true
+
+    # ── P2-c2 / M4-d5-b · terminal_surrender (observation layer) ──────────
+
+    def _evaluate_terminal_surrender(self) -> bool:
+        """P2-c2: "gave up" terminal-state judgement — diagnostic layer only.
+
+        ``(stuck_duration_true > T_s) AND (loop_score > L)
+           AND (waste_ratio > W)
+           AND (reflex_active = false OR escape_behavior = false)
+           AND (net_displacement_rate < D)``
+
+        ``T_s``/``L``/``W``/``D`` are the 【待标定】 class constants above.
+        The stuck clock is the P0-a3 **kinematic** quantity
+        (``stuck_duration_true``) — the detector-artifact ``self._stuck_duration``
+        is deliberately NOT read on this path (V17③).  Missing inputs keep the
+        judgement ``False``; it never guesses and never writes ``control.*``.
+        """
+        try:
+            stuck_true = float(self._stuck_duration_true)
+            loop = float(self.spatial.loop_score)
+            waste = self.waste_ratio
+            disp_rate = self.net_displacement_rate
+            if waste is None or disp_rate is None:
+                return False
+            gave_up = (not self.reflex_active) or (not self.escape_behavior)
+            return bool(
+                stuck_true > self.SURRENDER_STUCK_T_S
+                and loop > self.SURRENDER_LOOP_L
+                and float(waste) > self.SURRENDER_WASTE_W
+                and gave_up
+                and float(disp_rate) < self.SURRENDER_DISP_RATE_D
+            )
+        except (TypeError, ValueError):
+            return False
+
+    @property
+    def net_displacement_rate(self) -> float | None:
+        """P2-c2: trajectory-kinematic net displacement rate (u/s).
+
+        ``disp_60s`` is the net displacement over the 60 s window published by
+        main.py (see the progress-ledger unit block above); dividing by the
+        window length gives u/s.  ``None`` while the window is not yet
+        available — callers must treat that as "no evidence", not as progress.
+        """
+        disp = getattr(self, "disp_60s", None)
+        if disp is None:
+            return None
+        try:
+            return float(disp) / SURRENDER_WINDOW_S
+        except (TypeError, ValueError):
+            return None
+
+    @property
+    def terminal_surrender(self) -> bool:
+        """P2-c2: True while the agent is in the "gave up" terminal state.
+
+        Observation/diagnostic verdict: published to flow.json and consumed by
+        the ``terminal_surrender_stuck`` pattern + the adaptive-face unlock.
+        It is never a control input.
+        """
+        return self._terminal_surrender
+
+    @property
+    def surrender_evidence(self) -> dict:
+        """P2-c2: the components behind :attr:`terminal_surrender`.
+
+        Every field is a plain scalar (JSON-safe) so it can be published to
+        flow.json / evolution_log ``context`` for M4-d3 calibration.  The
+        ``terminal_surrender`` entry is re-derived here so the snapshot is
+        self-consistent with the components it reports (same tick ⇒ same value
+        as the cached verdict published as ``flow.json["terminal_surrender"]``).
+        """
+        return {
+            "terminal_surrender": bool(self._evaluate_terminal_surrender()),
+            "stuck_duration_true": round(float(self._stuck_duration_true), 3),
+            "loop_score": round(float(self.spatial.loop_score), 4),
+            "waste_ratio": (None if self.waste_ratio is None
+                            else round(float(self.waste_ratio), 3)),
+            "reflex_active": bool(self.reflex_active),
+            "escape_behavior": bool(self.escape_behavior),
+            "net_displacement_rate": (None if self.net_displacement_rate is None
+                                      else round(float(self.net_displacement_rate), 4)),
+            "thresholds": {
+                "T_s": self.SURRENDER_STUCK_T_S,
+                "L": self.SURRENDER_LOOP_L,
+                "W": self.SURRENDER_WASTE_W,
+                "D": self.SURRENDER_DISP_RATE_D,
+                "calibrated": False,   # 【待标定】until M4-d3 calibrates
+            },
+        }
 
     @property
     def health_score(self) -> float:
@@ -2384,6 +2820,28 @@ class MemoryController:
         """Full anomaly state dict for dashboard serialization."""
         return self.anomaly.get_state()
 
+    # ---- P2-c3 oscillation-window observables (M4-d3 landing keys) ----------
+
+    @property
+    def oscillation_window_frames(self) -> int:
+        """Adaptive oscillation window W in frames (fixed 30 under R5)."""
+        return self.anomaly.oscillation_window_frames
+
+    @property
+    def oscillation_adaptive_enabled(self) -> bool:
+        """False = R5 record-only (the adaptive window is latched off)."""
+        return self.anomaly.oscillation_adaptive_enabled
+
+    @property
+    def oscillation_alt_median_s(self) -> float | None:
+        """Measured median alternation gap T_alt in seconds (None until seen)."""
+        return self.anomaly.oscillation_alt_median_s
+
+    @property
+    def oscillation_detected(self) -> bool:
+        """Current oscillating verdict from the adaptive-window detector."""
+        return self.anomaly.oscillation_detected
+
     # ---- Reflex controller properties ----
 
     @property
@@ -2475,7 +2933,8 @@ class MemoryController:
         Returns a list of ``(dx, dz, weight)`` — the CX performs the
         vector-sum competition (FB-style) and picks the dominant goal.
         Sources: away-from-failure (danger), coverage-gap centroid
-        (exploration).  Novelty direction is added by the caller.
+        (exploration), continuous frontier attraction, visited-cell
+        repulsion, and coverage-plateau breakout override.
         """
         vecs: list[tuple[float, float, float]] = []
         to_f = self.failures.nearest_failure_vector(
@@ -2487,6 +2946,26 @@ class MemoryController:
         if gap is not None:
             vecs.append((gap[0], gap[1],
                          getattr(self, 'navigation_frontier_weight', 0.7)))
+
+        # ── Mechanism 1: Continuous frontier attraction (every tick, not only burst) ──
+        fd = self.spatial.frontier_direction(x, 0.0, z, search_radius=50)
+        if fd is not None:
+            vecs.append((fd[0], fd[1],
+                         getattr(self, 'navigation_frontier_weight', 0.7)))
+
+        # ── Mechanism 2: Repulsion from high-density visited zones ──
+        rep = self.spatial.visited_repulsion_vector(x, z, radius=3)
+        if rep is not None:
+            vecs.append((rep[0], rep[1],
+                         getattr(self, 'navigation_repulsion_weight', 0.30)))
+
+        # ── Mechanism 3: Coverage plateau breakout override (one-shot, short-lived) ──
+        _bh = getattr(self, '_plateau_break_heading', None)
+        if _bh is not None:
+            bdx = math.sin(_bh)
+            bdz = math.cos(_bh)
+            vecs.append((bdx, bdz, 1.5))  # High weight to override routine vectors; 实测 2.0→1.5 降低爆发过度干扰
+
         return vecs
 
     @property
