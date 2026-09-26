@@ -1,1 +1,0 @@
-{"fallen_recovery": {"mode": "directional_climb", "climb_period": 2.5}, "exploration": {"bold_explore_stuck_s": 30, "turn_bias": 0.6}, "escape": {"stuck_threshold_s": 1.5, "fallen_forward": 0.42}}
