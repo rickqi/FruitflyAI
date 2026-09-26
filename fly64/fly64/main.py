@@ -774,13 +774,18 @@ def apply_action_entropy(control, *, novelty: float, loop_score: float,
 #   * per-tick fraction  (0 .. 1)      — what Control carries
 #   * Hz                 (0 .. 1/dt)   — what the dashboard telemetry reports
 #     (telemetry.py:77-78 divides the 13-tick window count by `ticks · dt`)
-# Every threshold declared in Hz — skills/brain_tunable_params.json
-# `gate_forward_threshold` / `gate_jump_threshold` — must be compared against
-# the Hz value produced by `rate_per_tick_to_hz()`.  A per-tick fraction can
+# `gate_forward_threshold` is declared in Hz and must be compared against the
+# Hz value produced by `rate_per_tick_to_hz()`.  A per-tick fraction can
 # never exceed 1.0, so comparing it against a threshold declared as 2.0 Hz is
 # unreachable by construction; that is exactly what made `gate_jump`
 # permanently False (max 1.0 < 2.0) and made `gate_forward` look healthy only
-# while the forward pool happened to be saturated.
+# while the forward pool happened to be saturated (the defect that spurred the
+# RULE-19 unit contract).
+#
+# P0-a8 migration: `gate_jump_threshold` unit changed from Hz to ratio
+# (dimensionless) — see skills/brain_tunable_params.json and
+# contract_registry.json ratio_threshold_unit.  The behavioral gate becomes
+# `jump = (jump_rate / max(forward_rate, FWD_RATIO_FLOOR)) > r` (P1-b3).
 #
 # 1/dt = 50 Hz for the 20 ms control loop.
 
@@ -1099,6 +1104,71 @@ def load_active_strategy(path) -> dict:
 # This block also makes the clamp visible: one WARNING per clamped key plus
 # a {key, requested, applied, source} record published in /memory.json
 # under "clamped_keys".
+# P0-a8 runtime interval invariant: every registered pid's live value
+# (after all clamps) must satisfy clamp(live) == live.  The function is
+# called from the hot-reload section after attribution and before write-back.
+# It reads brain_tunable_params.json once per call and checks only the 39
+# wired pids.  A warning is logged on the first violation; subsequent
+# violations increment a counter sentinel so the operator panel can surface
+# the invariant drift without crashing the loop.
+_P0A8_VIOLATION_COUNT = 0
+
+
+def _assert_registry_live_interval_ok(cur_exploration, cur_escape,
+                                       cur_reflex, cur_navigation,
+                                       cur_coach, cur_memory):
+    """P0-a8: verify clamp(live)==live for every registered pid.
+
+    Reads the live section values from the hot-reload context (already-clamped
+    ``_expl`` / ``_esc`` / etc.) and the registry min/max/default from
+    ``skills/brain_tunable_params.json``.  Logs a WARNING on the first
+    violation; subsequent violations increment ``_P0A8_VIOLATION_COUNT`` only
+    (no log flood on every reload).
+    """
+    global _P0A8_VIOLATION_COUNT
+    try:
+        schema_path = Path(__file__).resolve().parent.parent / "skills" / \
+            "brain_tunable_params.json"
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return  # schema unreadable -> skip (defensive)
+    params = schema.get("params", {})
+
+    # Map section name -> live section dict
+    sections = {
+        "exploration": cur_exploration or {},
+        "escape": cur_escape or {},
+        "reflex": cur_reflex or {},
+        "navigation": cur_navigation or {},
+        "coach": cur_coach or {},
+        "memory": cur_memory or {},
+    }
+
+    # Collect clamp bounds from CLAMP_BOUNDS table and inline readers
+    for pid, meta in params.items():
+        if not meta.get("wired", False):
+            continue
+        section, leaf = pid.split(".", 1)
+        live = sections.get(section, {}).get(leaf)
+        if live is None:
+            live = float(meta["default"])
+
+        lo = float(meta["min"])
+        hi = float(meta["max"])
+        # Simulate the same clamp the wire path applies
+        clamped = max(float(lo), min(float(hi), float(live)))
+        if clamped != float(live):
+            if _P0A8_VIOLATION_COUNT == 0:
+                logger.warning(
+                    "P0-a8 interval invariant: clamp(%s=%s) != %s "
+                    "[lo=%s hi=%s] — the value will be silently rewritten",
+                    pid, live, live, lo, hi)
+            _P0A8_VIOLATION_COUNT += 1
+
+
+# P0-a8 runtime interval invariant sentinel for the operator panel.
+P0A8_VIOLATION_COUNT = lambda: _P0A8_VIOLATION_COUNT  # noqa: E731
+
 CLAMP_BOUNDS = {
     "exploration.turn_bias": (0.0, 0.25),
     "exploration.bold_explore_stuck_s": (1.0, 10.0),
@@ -1370,6 +1440,7 @@ async def run(args) -> None:
                 "episode": ep,
                 "scene_name": getattr(model, "scene_name", "") or "",
                 "stuck_duration": round(memory_ctrl.stuck_duration, 1),
+                "stuck_duration_true": round(memory_ctrl.stuck_duration_true, 1),  # P0-a3
                 "anomaly_state": memory_ctrl.anomaly_state_name,
                 "habituated": dialogue_engagements >= 3,
                 "terrain": model.terrain,
@@ -1446,6 +1517,18 @@ async def run(args) -> None:
     # ---- Exploration deadlock-burst state (t2) ----
     _deadlock_burst_remaining: int = 0   # ticks left in the forward burst
     _deadlock_burst_cooldown: int = 0    # ticks until next burst allowed
+    # P1-b5 (§5.5 / F6) observability: the burst *episode* count and the tick at
+    # which the CX last broke a loop.  Both are read-only counters published to
+    # flow.json for V8's burst-off attribution; neither writes a control value.
+    _deadlock_burst_count: int = 0
+    # Frontier heading chosen when a burst opens; it must PERSIST for the whole
+    # episode because the steering branch reads it on every tick of the burst,
+    # not only on the tick that opened it.  Uncommitted regression fix: without
+    # this declaration the read raised NameError on the 2nd tick of every burst.
+    _burst_heading: float = 0.0
+    _cx_prev_jump_seq: int = 0
+    _cx_loop_break_last_tick: int = 0
+    _cx_loop_breaks_burst_off: int = 0
     # EVO R11: displacement feedback window (~2.4 s at 50 Hz) — feeds the
     # mushroom body's dopamine signal so zero-displacement escape contexts
     # are learned as punishers (network-level fix for circling).
@@ -1782,6 +1865,12 @@ async def run(args) -> None:
                     # Wire dopamine_revisit_cost into model
                     model._dopamine_revisit_cost = float(
                         _expl.get("dopamine_revisit_cost", 0.20))
+                    # P1-b1: wire jump_leg_weight into model (gain chain)
+                    model._jump_leg_weight = max(0.10, min(0.80, float(
+                        _expl.get("jump_leg_weight", 0.35))))
+                    # P1-b3: wire gate_jump_threshold (ratio) → model jumper gate
+                    model._jump_rate_ratio_gate = max(0.25, min(4.0, float(
+                        _expl.get("gate_jump_threshold", 0.75))))
                     # Wire stuck_ramp_cooldown into reflex controller: the
                     # reflex's base post-fire cooldown is cooldown_duration.
                     _reflex_base_cd = max(1.0, min(15.0, float(
@@ -1823,6 +1912,14 @@ async def run(args) -> None:
                         _nav.get("danger_weight", 1.2))))
                     memory_ctrl.navigation_frontier_weight = max(0.0, min(3.0, float(
                         _nav.get("frontier_weight", 0.7))))
+                    # Mechanism 2/3: navigation auxiliary weights
+                    memory_ctrl.navigation_repulsion_weight = max(0.0, min(3.0, float(
+                        _nav.get("repulsion_weight", 0.12))))
+                    # Coverage plateau breakout config (set on spatial map)
+                    memory_ctrl.spatial.coverage_plateau_threshold_ticks = max(
+                        300, min(5000, int(_nav.get("coverage_plateau_threshold_ticks", 1200))))
+                    memory_ctrl.spatial.coverage_plateau_duration_ticks = max(
+                        10, min(200, int(_nav.get("coverage_plateau_duration_ticks", 30))))
                     # ── Coach reward/penalty circuit (dopamine / DAN) ──
                     _coach = _as_raw.get("coach", {}) or {}
                     model._coach_reward_gain = max(0.0, min(1.5, float(
@@ -1845,14 +1942,20 @@ async def run(args) -> None:
                     model.mushroom.dopamine_threshold = max(0.05, min(0.9, float(
                         _coach.get("mb_dopamine_threshold", 0.3))))
                     # ── Navigation steering / drives ──
-                    model.cx.steering_gain = max(0.01, min(0.5, float(
+                    # P1-b4: write to _goal_comp (the steering/loop-break source),
+                    # not the CentralComplex proxy, so the value is consumed
+                    # directly without requiring a sync-backref round-trip.
+                    model.cx._goal_comp.steering_gain = max(0.01, min(0.5, float(
                         _nav.get("steering_gain", 0.12))))
-                    model.cx._loop_break_stuck_s = max(10.0, min(120.0, float(
+                    model.cx._goal_comp._loop_break_stuck_s = max(10.0, min(120.0, float(
                         _nav.get("loop_break_stuck_s", 45.0))))
                     model._escape_jump_drive = max(0.1, min(1.0, float(
                         _esc.get("escape_jump_drive", 0.45))))
                     model._bold_turn_drive = max(0.1, min(1.0, float(
                         _esc.get("bold_turn_drive", 0.35))))
+                    # P1-b2: wire jump homeostat intrinsic max from escape section
+                    model._jump_intrinsic_max = max(0.02, min(0.20, float(
+                        _esc.get("jump_intrinsic_max", 0.05))))
                     # ── Memory circuit (spatial map / failure memory) ──
                     _mem = _as_raw.get("memory", {}) or {}
                     memory_ctrl.spatial.recency_decay = max(0.999, min(1.0, float(
@@ -1876,6 +1979,15 @@ async def run(args) -> None:
                                         "source": "self-heal"}, ensure_ascii=False) + "\n")
                     except Exception:
                         pass
+                    # P0-a8 (F-04 落点④): run-time read-back assertion after
+                    # attribution and before write-back.  Verifies
+                    # clamp(live)==live for every registered pid so the
+                    # self-heal cannot silently rewrite a value that was
+                    # already outside the invariant — if it does, the first
+                    # violation logs a WARNING and increments the sentinel.
+                    _assert_registry_live_interval_ok(
+                        _expl, _esc, _reflex_sec,
+                        _nav, _coach, _mem)
                     _as_path.write_text(json.dumps(_as_raw, indent=2, ensure_ascii=False), "utf-8")
                 except Exception:
                     pass
@@ -2067,7 +2179,7 @@ async def run(args) -> None:
                     # instead of going straight ahead — this moves the agent
                     # into novel territory where CX novelty can recover.
                     _fd = memory_ctrl.spatial.frontier_direction(
-                        pose[0], pose[1], pose[2], search_radius=50)
+                        _pose_r[0], _pose_r[1], _pose_r[2], search_radius=50)
                     _burst_heading = 0.0
                     if _fd is not None:
                         _burst_heading = math.degrees(math.atan2(_fd[0], _fd[1]))
@@ -2082,8 +2194,16 @@ async def run(args) -> None:
                 control.jump = False
                 reflex_override = True
                 _deadlock_burst_remaining -= 1
+                if _deadlock_burst_remaining == 0:
+                    # P1-b5 (F6): close the burst episode for the observability
+                    # counter (the CX break interlock only needs "> 0").
+                    _deadlock_burst_count += 1
             elif _deadlock_burst_cooldown > 0:
                 _deadlock_burst_cooldown -= 1
+            # P1-b5 (F6): mirror the burst state so model.py's cx.update() can
+            # suppress the loop break while the burst owns control.x/y.  This
+            # is a *read* mirror for the gate — no new control.* write point.
+            model.burst_active = _deadlock_burst_remaining > 0
 
             # ---- Aggressive mode (P1, audit A5): only the neuromodulatory
             # pathway remains — reflex cooldowns halve via the reflex's own
@@ -2643,11 +2763,28 @@ async def run(args) -> None:
                 # not just the last ~500 publishes.
                 DashboardHTTP.trajectory = json.dumps(DashboardHTTP.trajectory_points, default=str).encode()
 
+                # P2-c2: path/net inefficiency (M4-d2 · L2 waste_ratio) computed
+                # ONCE per publish tick and handed to the memory controller's
+                # terminal-surrender judgement.  The flow_json key below reuses
+                # this same variable — one formula, one input (R3), so the
+                # judgement and the telemetry can never disagree.
+                _tp_now = DashboardHTTP.trajectory_points
+                _waste_ratio = 0.0
+                if len(_tp_now) >= 10:
+                    _path_len = sum(
+                        math.hypot(_tp_now[i]["x"] - _tp_now[i - 1]["x"],
+                                   _tp_now[i]["z"] - _tp_now[i - 1]["z"])
+                        for i in range(1, len(_tp_now)))
+                    _net_disp = math.hypot(_tp_now[-1]["x"] - _tp_now[0]["x"],
+                                           _tp_now[-1]["z"] - _tp_now[0]["z"])
+                    _waste_ratio = round(_path_len / max(_net_disp, 1.0), 2)
+                memory_ctrl.waste_ratio = _waste_ratio
+
                 # Update spatial memory
                 memory_ctrl.update(
                     temporal_energy=model.temporal_energy,
                     frame_seq=last_frame_seq,
-                    forward_rate=getattr(control, 'forward_rate', 0.0),
+                    forward_rate=float(np.clip(getattr(control, 'forward_rate', 0.0), 0.0, 1.0)),  # P0-a2: per-tick fraction ∈ [0,1]
                     x=pose[0], z=pose[2], pos_y=pose[1],
                     heading=pose[3],
                     flow_asymmetry=model.flow_asymmetry,
@@ -2684,19 +2821,12 @@ async def run(args) -> None:
                     except Exception:
                         pass
                 # Mirror memory controller state onto model for dopamine computation
-                model.stuck_duration = memory_ctrl.stuck_duration
+                model.stuck_duration = memory_ctrl.stuck_duration_true  # P0-a3: kinematic true stuck duration; legacy stuck_duration via .stuck_duration
                 model.fallen = memory_ctrl._fallen
                 model._revisit_penalty = memory_ctrl.revisit_penalty
                 # EVO R14: anomaly-state mirror — DAN dopamine input for the
                 # mushroom body's loop-suppression learning.
                 model.anomaly_state_name = memory_ctrl.anomaly_state
-                # P0: anomaly resolution → consolidate scene+action memory
-                # so the brain learns which motor output breaks each anomaly.
-                if memory_ctrl.anomaly._anomaly_resolved:
-                    _kc_sig = getattr(model, "_kc_activity", None)
-                    if _kc_sig is not None:
-                        model.mushroom.consolidate_anomaly_resolution(
-                            _kc_sig, control.x, control.y)
                 # EVO R15: cliff-standoff mirror — standoff duration + the
                 # FailureMemory tangential detour bias (sensory gate only;
                 # the LIF network decides the actual heading).
@@ -2718,6 +2848,25 @@ async def run(args) -> None:
                     pass
                 # EVO R19: restlessness inputs (loop pressure) + recognition
                 model.loop_score = memory_ctrl.spatial.loop_score
+                # P1-b5 (§5.5): publish the *single progress ledger* verdict the
+                # CX gate consumes.  It is None when the ledger itself has no
+                # opinion (no displacement window yet / no median speed), and
+                # None is deliberately propagated as "no verdict supplied" so
+                # the CX keeps the pre-P1-b5 behaviour instead of silently
+                # treating an unmeasured window as progress failure.  When the
+                # ledger does answer, the answer wins — but an active goal
+                # vector still suppresses the break (that invariant lives in
+                # CentralComplex.update and is pinned by
+                # test_cx_loop_break::test_active_goal_is_never_overridden).
+                try:
+                    _pg = progress_is_ineffective(
+                        getattr(memory_ctrl, "disp_60s", None),
+                        getattr(memory_ctrl, "median_speed", None))
+                except Exception:
+                    _pg = None
+                model.progress_ineffective = (
+                    None if (_pg is None or getattr(model, "cx_goal_vectors", None))
+                    else bool(_pg))
                 model.scene_danger = scene_recognizer.danger_level()
                 # EVO R30: mirror pose_y for below-ground forward boost
                 model.pose_y = pose_ev[1] if len(pose_ev) > 1 else 0.0
@@ -2797,9 +2946,14 @@ async def run(args) -> None:
                     "adjacency": memory_ctrl.spatial.adjacency_list(400),
                     "stuck_score": round(memory_ctrl.stuck_score, 3),
                     "stuck_duration": round(memory_ctrl.stuck_duration, 3),
+                    "stuck_duration_true": round(memory_ctrl.stuck_duration_true, 3),  # P0-a3: kinematic true stuck duration
                     "cliff_standoff_s": round(memory_ctrl.cliff_standoff_s, 1),
                     "novelty": round(memory_ctrl.novelty, 3),
                     "escape_behavior": memory_ctrl.escape_behavior,
+                    # P2-c2: terminal-surrender verdict + evidence (observation
+                    # layer; same values as flow.json, single source).
+                    "terminal_surrender": bool(memory_ctrl.terminal_surrender),
+                    "surrender_evidence": memory_ctrl.surrender_evidence,
                     # P1-1: Telemetry 缺口补全 — 控制信号衍生的 pattern 条件字段
                     "control_magnitude": abs(control.x) + abs(control.y),
                     "control_x_zero": control.x == 0,
@@ -2847,6 +3001,15 @@ async def run(args) -> None:
                     "anomaly_state": memory_ctrl.anomaly_state_name,
                     "anomaly_confidence": round(memory_ctrl.anomaly_confidence, 3),
                     "anomaly_duration": round(memory_ctrl.anomaly_duration, 3),
+                    # P2-c3 / M4-d3: the adaptive oscillation window's
+                    # observables — W (frames), the measured T_alt (REAL seconds,
+                    # F2: one frame = the publish-gate interval ≈0.21 s) and the
+                    # per-frame verdict, plus the record-only latch state (R5:
+                    # the adaptive sizing is off, so W stays at the floor 30).
+                    "oscillation_window_frames": int(memory_ctrl.oscillation_window_frames),
+                    "oscillation_alt_median_s": memory_ctrl.oscillation_alt_median_s,
+                    "oscillation_detected": bool(memory_ctrl.oscillation_detected),
+                    "oscillation_adaptive_enabled": bool(memory_ctrl.oscillation_adaptive_enabled),
                     # Reflex state
                     "reflex_active": memory_ctrl.reflex_active,
                     "reflex_type": memory_ctrl.reflex_type,
@@ -2863,21 +3026,19 @@ async def run(args) -> None:
                     # Health scoring
                     "health_score": round(memory_ctrl.health_score, 4),
                     "stall_ratio": round(memory_ctrl.stall_ratio, 3),
-                    "waste_ratio": (lambda _tp=DashboardHTTP.trajectory_points: (
-                        round((sum(math.hypot(_tp[i]["x"]-_tp[i-1]["x"], _tp[i]["z"]-_tp[i-1]["z"])
-                                   for i in range(1, len(_tp)))
-                               / max(math.hypot(_tp[-1]["x"]-_tp[0]["x"], _tp[-1]["z"]-_tp[0]["z"]), 1)), 2)
-                        if len(_tp) >= 10 else 0.0
-                    ))(),
+                    "waste_ratio": _waste_ratio,
                 }, separators=(",", ":")).encode()
                 # RULE-19 gate unit contract: `Control.forward_rate /
                 # turn_rate / jump_rate` are PER-TICK firing fractions
-                # (model.py:1912-1916, 13-tick ≈ 250 ms window mean), while
-                # `gate_forward_threshold` / `gate_jump_threshold` are declared
-                # in Hz (skills/brain_tunable_params.json).  Convert the pool
-                # rates to Hz exactly once, here, with the same 1/dt the
-                # dashboard uses, and publish the converted rates AND the
-                # thresholds so no consumer has to guess a unit.
+                # (model.py:1912-1916, 13-tick ≈ 250 ms window mean).
+                # `gate_forward_threshold` remains Hz (converted from per-tick
+                # by rate_per_tick_to_hz).
+                # P0-a8 migration: `gate_jump_threshold` unit changed to ratio
+                # (dimensionless) — the old Hz comparison is superseded by the
+                # ratio gate `jump_rate / max(forward_rate, FWD_RATIO_FLOOR) > r`
+                # (P1-b3).  The key is reused; flow_json gate_jump_threshold_hz
+                # publishes the raw registry value (now ratio) for observability
+                # until the behavioral migration lands.
                 _rate_dt = float(getattr(model, "dt", GATE_RATE_DT_DEFAULT)
                                  or GATE_RATE_DT_DEFAULT)
                 _forward_rate_hz = rate_per_tick_to_hz(
@@ -2891,7 +3052,18 @@ async def run(args) -> None:
                 # tests/test_gate_units.py::test_main_defaults_equal_the_schema_defaults).
                 _gate_forward_hz = float(
                     _expl.get("gate_forward_threshold", 2.0))
-                _gate_jump_hz = float(_expl.get("gate_jump_threshold", 8.0))
+                _gate_jump_ratio = float(_expl.get("gate_jump_threshold", 0.75))
+                # P1-b5 (§5.5 / F6): update the loop-break observability counters
+                # for this tick.  `burst_active` is sampled at the SAME tick the
+                # break fires, so the burst-off count cannot be spoofed by the
+                # burst's own control writes.  Read-only; no control.* write.
+                _cx_jump_seq_now = int(getattr(model.cx, "_jump_seq", 0))
+                _cx_burst_active_now = bool(getattr(model, "burst_active", False))
+                if _cx_jump_seq_now > _cx_prev_jump_seq:
+                    _cx_loop_break_last_tick = int(model.step_count)
+                    if not _cx_burst_active_now:
+                        _cx_loop_breaks_burst_off += 1
+                    _cx_prev_jump_seq = _cx_jump_seq_now
                 DashboardHTTP.flow_json = json.dumps({
                     "asymmetry": round(model.flow_asymmetry, 4),
                     "true_asymmetry": round(model.true_asymmetry, 4),
@@ -2947,14 +3119,15 @@ async def run(args) -> None:
                     "turn_rate_hz": round(_turn_rate_hz, 4),
                     "jump_rate": round(float(getattr(control, "jump_rate", 0.0)), 4),
                     "jump_rate_hz": round(_jump_rate_hz, 4),
-                    # Gate thresholds in Hz, exposed so an operator can see an
-                    # unreachable gate (threshold > Nyquist 1/dt) instead of
-                    # having to infer the unit from the comparison.
+                    # Gate thresholds: forward stays Hz, jump is ratio (P1-b3).
                     "gate_forward_threshold_hz": round(_gate_forward_hz, 4),
-                    "gate_jump_threshold_hz": round(_gate_jump_hz, 4),
-                    # Hz-vs-Hz comparisons (no implicit unit conversion here).
+                    "gate_jump_threshold_ratio": round(_gate_jump_ratio, 4),
+                    # Jump gate ratio: jump_rate / max(forward_rate, FWD_RATIO_FLOOR)
+                    # published as Hz here for observability (50 * per-tick rate).
+                    "gate_jump_ratio": (round(
+                        _jump_rate_hz / max(_forward_rate_hz, 0.4), 4)
+                        if _forward_rate_hz > 0 else None),
                     "gate_forward": gate_open_hz(_forward_rate_hz, _gate_forward_hz),
-                    "gate_jump": gate_open_hz(_jump_rate_hz, _gate_jump_hz),
                     "hrc_asymmetry": round(getattr(model, "true_hrc_asymmetry", 0.0), 4),
                     "mb_dopamine": round(getattr(model.mushroom, "dopamine", 0.0), 4),
                     "mb_mbon_forward": round(float(model.mushroom.mbon_outputs[0]), 4),
@@ -3055,6 +3228,24 @@ async def run(args) -> None:
                     "anomaly_state": memory_ctrl.anomaly_state_name or "idle",
                     "reflex_active": memory_ctrl.reflex_active,
                     "escape_behavior": memory_ctrl.escape_behavior,
+                    # F1 (t5 返修): P2-c2's two keys belong to flow.json (spec §4
+                    # interface signature).  They were published to memory_json
+                    # only, so `evolution_skill`'s flow-first read of
+                    # surrender_evidence returned None in production and the
+                    # 【待标定】 T_s/L/W/D calibration entry point was empty.
+                    "terminal_surrender": bool(memory_ctrl.terminal_surrender),
+                    "surrender_evidence": memory_ctrl.surrender_evidence,
+                    # P2-c3: oscillation-window observables on the flow.json side
+                    # (the brain-published surface the evolution DataCollector
+                    # reads).  T_alt is REAL seconds (F2) and the latch records
+                    # the R5 record-only state.
+                    "oscillation_window_frames": int(memory_ctrl.oscillation_window_frames),
+                    "oscillation_alt_median_s": memory_ctrl.oscillation_alt_median_s,
+                    "oscillation_detected": bool(memory_ctrl.oscillation_detected),
+                    "oscillation_adaptive_enabled": bool(memory_ctrl.oscillation_adaptive_enabled),
+                    # P0-a3: kinematic true stuck duration
+                    "stuck_duration_true": round(memory_ctrl.stuck_duration_true, 3),
+                    "stuck_duration_source": "kinematic",
                     "pos_y": round(pose_ev[1], 1) if len(pose_ev) > 1 else 0.0,
                     "cpg_completed": cpg.completed if hasattr(cpg, 'completed') else 0,
                     "cpg_aborted": cpg.aborted if hasattr(cpg, 'aborted') else 0,
@@ -3062,6 +3253,18 @@ async def run(args) -> None:
                     # PER-TICK comparison (0.04/tick = 2.0 Hz): the decoder's own
                     # jump trigger, model.py:2138 — NOT the Hz gate above.
                     "jump_not_active": getattr(control, "jump_rate", 0.0) < 0.04,
+                    # P1-b5 (§5.5 / F6): the five loop-break observables.  The
+                    # counter pair is what makes the CX break attributable
+                    # separately from the forward deadlock burst: a break counted
+                    # here while `burst_active` is false (V8) cannot be the
+                    # burst's behaviour wearing the CX's name.  None of these is
+                    # a control write — they are read-only counters.
+                    "cx_loop_break_count": int(_cx_jump_seq_now),
+                    "cx_loop_break_count_burst_off": int(_cx_loop_breaks_burst_off),
+                    "cx_loop_break_last_ts": int(_cx_loop_break_last_tick),
+                    "no_progress_gate": bool(
+                        getattr(model.cx, "_last_no_progress", False)),
+                    "deadlock_burst_count": int(_deadlock_burst_count),
                 }, separators=(",", ":")).encode()
                 # P2-3: Serve EVO health trend from the JSONL file (if available)
                 try:
@@ -3100,6 +3303,7 @@ async def run(args) -> None:
                     "coverage_pct": round(memory_ctrl.coverage_pct, 1),
                     "stuck_score": round(memory_ctrl.stuck_score, 3),
                     "stuck_duration": round(memory_ctrl.stuck_duration, 3),
+                    "stuck_duration_true": round(memory_ctrl.stuck_duration_true, 3),  # P0-a3
                     "asymmetry": round(model.flow_asymmetry, 4),
                     "true_asymmetry": round(model.true_asymmetry, 4),
                     "heading_rate": round(model.heading_rate, 4),
@@ -3192,6 +3396,7 @@ async def run(args) -> None:
                 "coverage_pct": round(memory_ctrl.coverage_pct, 1),
                 "stuck_score": memory_ctrl.stuck_score,
                 "stuck_duration": memory_ctrl.stuck_duration,
+                "stuck_duration_true": round(memory_ctrl.stuck_duration_true, 3),  # P0-a3
                 "total_ticks": memory_ctrl.spatial.total_ticks,
                 "dead_end_count": memory_ctrl.dead_end_count,
             }))
