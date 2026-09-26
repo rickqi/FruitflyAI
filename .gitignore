@@ -45,8 +45,20 @@ fly64/plugin/llm.env
 
 export logs/
 
-# Temporary test artifacts
+# Temporary test artifacts (root-level)
+.tmp-pytest/
+.tmp_t5/
+.tmp-*
 fly64/.pytest-run/
 fly64/.tmp/
 fly64/.pytest-*/
+
+# Session / runtime artifacts
+session-*.md
+fly64/skills/.evo_loop*
+fly64/skills/active_strategy.json.bak.*
+
+# Analysis / audit utilities (root-level)
+_audit_catalog.py
+
 .omo/
