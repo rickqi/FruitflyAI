@@ -162,6 +162,14 @@ FLY64_BRIDGE=/tmp/f64b_traj \
 ```
 
 > **注意**：`wsl -e bash -c` 中 `setsid nohup` 启动的后台进程会因 WSL 会话退出被清理。**推荐使用 `scripts/wsl_launcher.sh`（tmux 守护启动器）**，从 WSL 内部通过 `bash scripts/wsl_launcher.sh --rom <路径>` 启动，或在 Windows PowerShell 中通过 `.\scripts\wsl_launcher.ps1 -Action launch -RomPath <路径>` 启动。详见 [`docs/wsl-launcher-deployment.md`](docs/wsl-launcher-deployment.md)。
+>
+> **⚠️ WSLg GPU 渲染性能问题**：WSLg 默认使用 D3D12 GPU 直通渲染 OpenGL，但 SM64 的 6 面 cubemap（384×256）渲染 + `glReadPixels` 回读在 D3D12 转换层下极慢（实测约 **1 帧/30 秒**），导致脑模型读取的桥接坐标大幅跳跃、场景签名每帧切换。**解决方案**：使用 Mesa 软件渲染器（llvmpipe）绕过 GPU 转换：
+> ```bash
+> # 启动 SM64 时附加环境变量：
+> MESA_LOADER_DRIVER_OVERRIDE=swrast GALLIUM_DRIVER=llvmpipe LIBGL_ALWAYS_SOFTWARE=1 \
+>   FLY64_BRIDGE=/tmp/f64b_traj ./build/us_pc/sm64.us.f3dex2e --skip-intro
+> ```
+> 软件渲染在 320×240 分辨率下 CPU 占用约 30%（1 核），帧率恢复到可接受的 5-15 FPS，桥接数据稳定，脑模型可正常控制马里奥。详见 FAQ《WSLg 下 SM64 渲染极慢》。
 
 前台交互调试（仅临时，用完即收尾）：
 
@@ -1226,7 +1234,19 @@ Round 4/5 正是**能力边界判定的实战示范**：钥匙门的"行为层"�
 
 #### Q: 仪表板出现红色 **SM64⛔ FROZEN** 徽章
 **含义**（t19）：`SeqlockWatchdog` 检测到共享内存帧 seq 停滞 >5s——SM64 已死或冻结，但大脑还在 tick，画面会静默卡住。
-**处理**: 按启动契约重启 SM64（`setsid nohup env FLY64_BRIDGE=… ./build/us_pc/sm64.us.f3dex2e --skip-intro …`，见 agent.md 启动契约）；seq 恢复前进后徽章自动复位。**禁止**托管后台 job 直接启动游戏（两次事故根源）。
+**注意**：桥接使用 **mmap 共享内存**（非 `write()` 系统调用），因此文件的 `mtime` 不随每帧更新。不能通过 `stat` 检查文件修改时间来判断桥是否活跃，而应通过脑模型 `/memory.json` 中马里奥的位置变化和遍历步数来判断。
+**处理**: 按启动契约重启 SM64（`setsid nohup env FLY64_BRIDGE=… ./build/us_pc/sm64.us.f3dex2e --skip-intro …`，见 agent.md 启动契约）；seq 恢复前进后徽章自动复位。**禁止**托管后台 job 直接启动游戏（两次事故根源）。若 MESA 驱动下脑模型坐标跳跃异常（如 cell_x 从 -6629 跳至 316），见下条《WSLg 下 SM64 渲染极慢》。
+
+#### Q: WSLg 下 SM64 渲染极慢（约 1 帧/30 秒），脑模型坐标跳跃
+**原因**: WSLg 默认使用 D3D12 GPU 直通渲染 OpenGL。SM64 的 Fly64 补丁以 10Hz 频率渲染 **6 面 cubemap（384×256）** 并执行 `glReadPixels` 回读。在 OpenGL → Mesa Gallium → Zink (Vulkan) → DXVK (D3D12) → WSLg 多层转换下，GPU→CPU 回读极慢，实测帧率约 **0.03 FPS**（1 帧/30 秒），导致脑模型读取的桥接坐标大幅跳跃、场景签名每帧切换。
+**解决方案**: 使用 Mesa 软件渲染器绕过 GPU 转换层：
+```bash
+# 启动 SM64 时附加：
+MESA_LOADER_DRIVER_OVERRIDE=swrast GALLIUM_DRIVER=llvmpipe LIBGL_ALWAYS_SOFTWARE=1 \
+  FLY64_BRIDGE=/tmp/f64b_traj ./build/us_pc/sm64.us.f3dex2e --skip-intro
+```
+软件渲染在 320×240 分辨率下 CPU 占用约 **30%（1 核）**，帧率 5-15 FPS，桥接数据稳定，脑模型可正常控制马里奥。预先安装 llvmpipe（通常已随 `libgl1-mesa-dri` 自带，提供 `swrast_dri.so`）。
+**鉴别方法**: 若脑模型 `/memory.json` 的 `cell_x`/`cell_z` 每跳数千单位（如 -6629→316），且 `traversal_steps` 增长停滞，即为 D3D12 渲染过慢导致桥数据陈旧。软渲染后坐标应平滑变化、traversal_steps 稳步增长。
 
 #### Q: 仪表板 "Connecting..."
 WebSocket 未建立，检查 8766 端口可达性；从 Windows 浏览器访问 WSL 内仪表板经 wslrelay 转发（127.0.0.1 的 8765/8766 都要通）。若页面已打开但数据长期不更新，先看是否有 SM64⛔ FROZEN 徽章（桥冻结而非连接问题）。

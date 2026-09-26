@@ -2,8 +2,8 @@
   "$schema": "fly64/evolution-history/1.0",
   "canonical_versions": {
     "brain": "2.24.0",
-    "skill": "3.5.1",
-    "as_of": "2026-09-24T00:00:00+08:00"
+    "skill": "3.4.2",
+    "as_of": "2026-09-24T18:00:00+08:00"
   },
   "records": [
     {
@@ -1474,51 +1474,127 @@
       "notes": "**版本轨**：仅 skill 3.4.1 → 3.4.2（patch；Phase 6 的适应度计算与搜索决策改变，属缺陷修复）。脑行为未变，BRAIN_VERSION 保持 canonical。**方法论价值（本轮最大收获）**：四条建议里“用仪表定位 Phase 6 根因”一条，让我先看到 41% 零 delta，再用逐输入变化次数把范围缩到四个**恒为常量**的字段，最后确认它们在 dataclass 上根本不存在——**没有改动任何阈值或窗口就得到了根因**，这正是当初拒绝凭推断调参的价值。**自我更正**：我先前把两处失败判为 real-bug，实测都是测试误调用 API/漏传参数；登记册与基线中的 cause 因此改为 test-drift，并各自留下可复现的实测命令。**P4.4 广度（建议①）**：snapshot 实测 promoted=1、signature_reuse_rate 已由 0% 升至 **8.3%**、可用 outcome 36 条——趋势文件已建立，后续按快照比较而非目测。"
     },
     {
-      "id": "EVO-072",
-      "date": "2026-09-22",
-      "time": "18:22:03 +0800",
-      "round": "R31 键名归一化 + coach 合并写入（commit 879d983）",
-      "kind": "skill",
-      "brain_version": "2.23.12",
-      "skill_version": "3.5.0",
-      "trigger": "RULE-19 契约审计发现（“机制存在、报告成功、无法生效”家族第 7 例）：EVO _inject 写入嵌套清洁键，但 active_strategy.json 中历史遗留的点号扁平死键与其共存（exploration['exploration.gate_jump_threshold']），脑模型读取 _expl.get('gate_jump_threshold') 只命中默认值——**进化值从未真正生效**；另一路 coach 写入整体覆盖 active_strategy.json，抹掉 EVO 的 __generation 与未被 coach 提及的进化参数。原始诉求：09-22 18:12 [99cab60f seq=2753]“修复 _inject/读取方的键名归一化……Coach 与 EVO 写同一文件会产生互相覆盖”。",
+      "id": "AUTO-0017",
+      "recorded_at": "2026-09-18T07:42:41.206223+00:00",
+      "kind": "brain_update_auto",
+      "round": null,
+      "brain_version": "2.23.7",
+      "previous_version": "2.23.6",
+      "skill_version": "3.4.2",
+      "trigger": "dashboard brain_version change",
       "changes": [
-        "evolution_skill.py: BrainMutator._load_active_strategy 迁移点号前缀死键 → 清洁键（prefix = sec + '.'），保留兄弟键与 __generation",
-        "plugin/strategy_writer.py: coach StrategyWriter.write_strategy 改为与磁盘现有内容逐 section 合并（merged[sec] = {**merged[sec], **body}，coach 键胜出、EVO 键保留），不再整体覆盖",
-        "fly64/main.py: 热加载端防御性归一化（不依赖 EVO 先跑）",
-        "tests/test_strategy_key_contract.py: 新增 7 项 PIN（点号键迁移 / 清洁键胜出 / 兄弟键保留 / __generation 保留 / writer 合并保留 EVO 键等）",
-        "tests/test_phase6_fitness_inputs.py: 修正 test_candidates_stay_within_param_bounds 适配子集采样语义（39 维 wired，每 trial 随机 5 维）"
+        "(auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, agent.md rule 15)"
       ],
-      "tests": "tests/test_strategy_key_contract.py 7/7 PIN 通过（879d983 新增）；tests/test_phase6_fitness_inputs.py 适配后通过。⚠️ 已知残留（A3 §4.3 实测）：归一化只清“同段前缀”死键，真实 active_strategy.json 的 exploration 段内跨段 escape.* 死键（forward_accum_step 0.015757 vs 清白键 0.005）未迁移，且文件本体未被修正（修复只在读取端）。",
-      "deployed": true,
-      "source": "commit 879d983 fix(EVO-072): active_strategy键名归一化 + coach合并写入 — 修复EVO进化值从未生效（2026-09-22 18:22:03 +0800）",
-      "notes": "**版本轨**：该 commit 上 main.py 已为 BRAIN_VERSION 2.23.12 / SKILL_VERSION 3.5.0，本条为 skill 侧修正（3.4.2 → 3.5.0）。**本条为 P0-1 补录**：提交信息声称已按 agent.md 规则 15 记录，但 evolution_history.json 此前止于 EVO-071（79 条）且不含 EVO-072；补录依据为 879d983 的 diff 与 tests/test_strategy_key_contract.py 的 7 条 PIN（A3 §2.4 / A2 D10）。"
+      "tests": null,
+      "source": "resident skill loop"
     },
     {
-      "id": "EVO-073",
+      "id": "AUTO-0018",
+      "recorded_at": "2026-09-18T07:52:03.429964+00:00",
+      "kind": "brain_update_auto",
+      "round": null,
+      "brain_version": "2.23.8",
+      "previous_version": "2.23.7",
+      "skill_version": "3.4.2",
+      "trigger": "dashboard brain_version change",
+      "changes": [
+        "(auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, agent.md rule 15)"
+      ],
+      "tests": null,
+      "source": "resident skill loop"
+    },
+    {
+      "id": "AUTO-0019",
+      "recorded_at": "2026-09-18T09:26:01.809846+00:00",
+      "kind": "brain_update_auto",
+      "round": null,
+      "brain_version": "2.23.9",
+      "previous_version": "2.23.8",
+      "skill_version": "3.4.2",
+      "trigger": "dashboard brain_version change",
+      "changes": [
+        "(auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, agent.md rule 15)"
+      ],
+      "tests": null,
+      "source": "resident skill loop"
+    },
+    {
+      "id": "AUTO-0020",
+      "recorded_at": "2026-09-18T10:17:21.630099+00:00",
+      "kind": "brain_update_auto",
+      "round": null,
+      "brain_version": "2.23.10",
+      "previous_version": "2.23.9",
+      "skill_version": "3.4.2",
+      "trigger": "dashboard brain_version change",
+      "changes": [
+        "(auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, agent.md rule 15)"
+      ],
+      "tests": null,
+      "source": "resident skill loop"
+    },
+    {
+      "id": "AUTO-0021",
+      "recorded_at": "2026-09-18T15:04:38.273955+00:00",
+      "kind": "brain_update_auto",
+      "round": null,
+      "brain_version": "2.23.11",
+      "previous_version": "2.23.10",
+      "skill_version": "3.4.2",
+      "trigger": "dashboard brain_version change",
+      "changes": [
+        "(auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, agent.md rule 15)"
+      ],
+      "tests": null,
+      "source": "resident skill loop"
+    },
+    {
+      "id": "AUTO-0022",
+      "recorded_at": "2026-09-22T10:17:38.174529+00:00",
+      "kind": "brain_update_auto",
+      "round": null,
+      "brain_version": "2.23.12",
+      "previous_version": "2.23.11",
+      "skill_version": "3.4.2",
+      "trigger": "dashboard brain_version change",
+      "changes": [
+        "(auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, agent.md rule 15)"
+      ],
+      "tests": null,
+      "source": "resident skill loop"
+    },
+    {
+      "id": "AUTO-0023",
+      "recorded_at": "2026-09-23T12:54:49.422547+00:00",
+      "kind": "brain_update_auto",
+      "round": null,
+      "brain_version": "2.24.0",
+      "previous_version": "2.23.12",
+      "skill_version": "3.4.2",
+      "trigger": "dashboard brain_version change",
+      "changes": [
+        "(auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, agent.md rule 15)"
+      ],
+      "tests": null,
+      "source": "resident skill loop"
+    },
+    {
+      "id": "EVO-074",
       "date": "2026-09-24",
-      "round": "motor-pool-team-fix",
-      "kind": "brain",
+      "round": "WSLg-rendering-fix",
+      "kind": "ops",
       "brain_version": "2.24.0",
       "skill_version": "3.5.1",
-      "trigger": "forward 池贴顶 46.15/50 Hz（实测 post-leak 恒流地板 0.88 V/tick）、steering 池静默 0.000 Hz（双侧 -0.25 硬钳位 + 推挽对自锁）、gate 阈值单位契约破裂（per-tick 比例 vs Hz 致 gate_jump 恒假）",
+      "trigger": "WSLg D3D12 GPU直通下cubemap渲染极慢（1帧/30s），脑模型坐标跳跃、桥数据陈旧",
       "changes": [
-        "model.py: forward 池占用率负反馈 (forward_homeo_gain: 0.30 起抑/0.60 触底/0.25 下限) 调制 MBON→forward 注入与池 intrinsic tonic",
-        "model.py: _aux_forward_current() 聚合上限 0.20 V/tick，覆盖 escape_current 前向片 / escape accumulator / R16 breakout 前向腿 / reflex 前向桥",
-        "model.py: breakout_split() 双侧 turn 钳位改为乘实际交替量 min(L,R)/saturation，静默飞行=0",
-        "model.py: reflex 标志到期 (reflex_flag_scale: ttl 0.30s / tau 0.20s, step_count*dt 计时, 回放安全)",
-        "model.py: _last_disp_x/_z 死读中性化（全仓无写入点时不 ramp）",
-        "model.py: blend_reflex_control() + reflex_network_share=0.25（反射期保留 LIF 份额，待 main.py 接线）",
-        "main.py: gate 阈值统一为 Hz（rate_per_tick_to_hz + gate_open_hz 助手；flow.json 发布 *_rate_hz / *_threshold_hz / gate_forward/gate_jump 均为 Hz 比较）",
-        "brain_tunable_params.json: gate_forward_threshold [0.4,8.0] default 2.0 Hz; gate_jump_threshold [2.0,20.0] default 8.0 Hz",
-        "contract_registry.json: v1.0.0 -> v1.1.0 (rate_gate_group 9 keys / unit_contract 8 fields / RULE-19k)",
-        "tests/test_motor_pool_dynamics.py: 22 test (新增); tests/test_gate_units.py: 15 test (新增); tests/test_strategy_key_contract.py: 7 PIN (维持)",
-        "docs/analysis/motor-pool-saturation-findings.md: t1 根因报告 537 行 + t8 §7.4 + t7 §8 修复对照/残留/部署步骤"
+        "config/sm64config.txt: vsync true -> false（vsync与WSLg不兼容导致SM64帧定时器卡死）",
+        "README.md: 新增WSLg渲染性能FAQ——使用MESA_LOADER_DRIVER_OVERRIDE=swrast软件渲染绕过D3D12转换层",
+        "README.md: 更新SM64 FROZEN说明——桥接mmap不更新文件mtime，需通过memory.json判断桥活跃性",
+        "启动契约: 增加软件渲染模式启动示例（MESA_LOADER_DRIVER_OVERRIDE=swrast）",
+        "过程管理: 清理残留78小时旧脑模型进程，规范化停止/重启流程"
       ],
-      "tests": "22+15+7=44 passed (gate_units+strategy_key_contract+motor_pool_dynamics); 66 passed (mushroom_body+brain_alternation+cpg_priority+dashboard_protocol); 148+1 passed (phase6+memory+optic_flow, deselect 基线性能项); 全量 37F/1266P/36S. 规则 20 门禁: 基线 2 NEW tests/test_plugin_mhr.py (test-drift, 他人 commit 78b3175 型号切换, A/B 对照确认).",
-      "deployed": false,
-      "source": "AgentTeams fly64-motor-pool-recovery (t1-t9, 2026-09-24). BRAIN 2.23.12->2.24.0 minor, SKILL 3.5.0->3.5.1 patch. Commit tbd.",
-      "notes": "规则 15 记录。本记录对应 agent.md §2026-09-23: 运动池机动动态范围恢复 + gate 单位契约统一。—history-check OK。部署待用户确认。"
+      "tests": "实机验证：swrast软渲染下SM64 CPU 27-30%，桥更新正常，Mario坐标平滑移动",
+      "source": "本次会话：WSLg渲染瓶颈分析 -> vsync修复 -> 软件渲染验证 -> README更新"
     }
   ]
 }

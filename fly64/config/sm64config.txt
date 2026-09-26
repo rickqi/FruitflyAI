@@ -3,7 +3,7 @@ window_x 18
 window_y 160
 window_w 590
 window_h 443
-vsync true
+vsync false
 texture_filtering 1
 master_volume 90
 music_volume 90
