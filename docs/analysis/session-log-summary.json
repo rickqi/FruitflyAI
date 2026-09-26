@@ -1,0 +1,3872 @@
+{
+    "generatedAt": "2026-09-24 08:38:55",
+    "totalSessions": 12,
+    "uniqueSessionIds": 11,
+    "sessions": [
+        {
+            "sessionId": "session-1f8fbe04-52eb-4dc8-9b63-b0f497c48b23",
+            "sessionDir": "dsh-session-session-1f8fbe04-52eb-4dc8-9b63-b0f497c48b23",
+            "title": "Coach执行策略全链路验证",
+            "format": "v0",
+            "createdAt": "2026-09-15 07:55:50",
+            "createdAtEpoch": 1789458950568,
+            "fileSizeBytes": 12542546,
+            "fileSizeKB": 12248.6,
+            "totalLines": 25899,
+            "messageCount": 171,
+            "turnCount": 119,
+            "stepCount": 868,
+            "subagentCount": 14,
+            "toolCalls": {
+                "pwsh": 248,
+                "read": 188,
+                "agent_teams": 174,
+                "write": 33,
+                "grep": 69,
+                "edit": 102,
+                "goal": 2
+            },
+            "toolCallTotal": 816,
+            "fileChanges": [
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\.github\\workflows\\ci.yml"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\README.md"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\_check_telemetry.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\_verify_all.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\central_complex.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\main.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\memory.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\model.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\mushroom_body.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\plugin\\runner.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\skills\\brain_tunable_params.json"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\skills\\default_patterns.json"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\skills\\evolution_skill.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_escape_release.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_fallen_recovery.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_navigation_exploration.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_v220_changes.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.github\\workflows\\ci.yml"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\analysis\\merged-brain-insurance-deliverable.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\docs\\analysis\\insurance\\brain-code-audit-report.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\docs\\analysis\\insurance\\brain-comprehensive-review-v2.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\docs\\analysis\\insurance\\brain-comprehensive-review.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\docs\\analysis\\insurance\\exploration-efficiency-optimization.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\docs\\analysis\\insurance\\exploration-escape-evolution-assessment.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\docs\\analysis\\insurance\\feasibility-execution-plan.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\docs\\analysis\\insurance\\key-problems-solutions.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\docs\\analysis\\insurance\\navigation-exploration-analysis.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\docs\\analysis\\insurance\\p1-1-loop-weave-analysis.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\docs\\analysis\\insurance\\p1-2-csc-performance-analysis.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\docs\\analysis\\insurance\\remaining-issues-analysis.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\_check_fix.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\_check_fix2.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\_check_telemetry.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\_check_version.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\_clean_fix.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\_evo_analysis.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\_find_consts.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\_fix_ramp.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\_fix_test.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\_status.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\_verify_all.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\analysis\\p0-1-evo-verify-analysis.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\analysis\\p0-2-mbon-saturation-analysis.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\analysis\\p0-3-threshold-bug-analysis.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_evo_tunable.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_fallen_recovery.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_navigation_exploration.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_v220_changes.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_verify_persistence.py"
+                }
+            ],
+            "fileChangeCount": 49,
+            "writeCount": 32,
+            "editCount": 17,
+            "themes": [
+                "brain-model",
+                "agent-teams",
+                "ghb-cost-control",
+                "dashboard-ui",
+                "flygym-setup",
+                "document-analysis",
+                "system-diagnostics"
+            ],
+            "firstUserMessage": "分析脑模型目前具备的工程化能力和还具备的能力，分析从功能性角度，他除了能控制一个马里奥游戏还能做什么，为什么？通过互联网搜索全面深度分析这个课题给出全面的分析报告，给出具体的理论依据，特别是基于目前实现的功能做专项进一步探索分析，在金融，保险，机器人控制和其他领域的能力"
+        },
+        {
+            "sessionId": "session-27ed0979-15ec-4711-bd47-c8cf63b109b8",
+            "sessionDir": "dsh-session-session-27ed0979-15ec-4711-bd47-c8cf63b109b8",
+            "title": "行为(action) → 结果(disp/health/coverage) → 多巴胺信号(综合R-P)",
+            "format": "v0",
+            "createdAt": "2026-09-15 15:21:39",
+            "createdAtEpoch": 1789485699474,
+            "fileSizeBytes": 14946349,
+            "fileSizeKB": 14596.0,
+            "totalLines": 40933,
+            "messageCount": 71,
+            "turnCount": 53,
+            "stepCount": 1099,
+            "subagentCount": 0,
+            "toolCalls": {
+                "job_management": 30,
+                "read": 177,
+                "grep": 8,
+                "write": 115,
+                "agent_teams": 19,
+                "web_interaction": 3,
+                "edit": 243,
+                "pwsh": 502,
+                "other": 21,
+                "goal": 3
+            },
+            "toolCallTotal": 1121,
+            "fileChanges": [
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\docs\\analysis\\motor-expansion\\mbon-learning-evaluation.md"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\README.md"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\docs\\analysis\\motor-expansion\\mbon-learning-evaluation.md"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\bridge.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\main.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\memory.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\model.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\motor_primitives.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\mushroom_body.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\telemetry.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\patches\\sm64ex-fly64.patch"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\plugin\\runner.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m3_mbon_eval.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\ver_append_fix6.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\ver_append_r24.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\skills\\evolution_skill.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\skills\\skills.md"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_bridge.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_coach_advice_fix.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_coach_dopamine.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_dashboard_protocol.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_evo_primitive_scoring.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_evolution_capability.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_fall_state_accuracy.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_m2_coach_primitives.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_m32_dopamine_floor.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_memory.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_mushroom_body.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_neural_pools.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_p1_neural_takeover.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\web\\dashboard.js"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\docs\\analysis\\mario_motor_capability_analysis.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\docs\\analysis\\motor-expansion\\bridge-bz-unlock.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\docs\\analysis\\motor-expansion\\cpg-motor-primitives.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\docs\\analysis\\motor-expansion\\dashboard-impact-assessment.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\docs\\analysis\\motor-expansion\\execution-plan.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\docs\\analysis\\motor-expansion\\mbon-learning-evaluation.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\docs\\analysis\\motor-expansion\\neural-pools-extension.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\docs\\analysis\\motor-expansion\\next-optimization-plan.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\motor_primitives.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\fix10_deploy_restart.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\fix11_deploy_restart.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\fix12_deploy_restart.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\fix3_blame_check.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\fix3_blame_diff.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\fix3_deploy_restart.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\fix4_deploy_restart.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\fix5_deploy_restart.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\fix6_deploy_restart.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\fix7_deploy_restart.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\fix8_deploy_restart.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\fix9_deploy_restart.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m10_stability_track.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m10_trajectory_analysis.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m1_deploy_restart.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m1_fix_catalog.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m1_list_python.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m1_list_writes.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m1_locate_json_err.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m2_commit_fix5.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m2_deploy_restart.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m2_live_check.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m32_deploy_restart.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m3_check_sampling.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m3_commit_evalfix.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m3_commit_fix10.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m3_commit_fix6.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m3_commit_fix7.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m3_commit_fix8.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m3_commit_fix9.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m3_deploy_restart.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m3_gate_check.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m3_js_check.js"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m3_mbon_eval.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m3_recover_stash.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m3_resample.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m3_restart_sampler.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m3_trend.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m4_add_breadcrumbs.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m4_add_mbon_pattern.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m4_append_capture.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m4_bump_skill_ver.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m4_capture_v2.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m4_check_live_state.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m4_debug_watch.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m4_deploy_restart.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m4_fix_capture_compile.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m4_game_fg.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m4_health_trend.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m4_liveness_probe.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m4_motion_state.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m4_move_probe.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m4_rebuild.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m4_screen_capture_fix.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m4_screen_fidelity_check.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m4_stack_state.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m4_state_accuracy.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m4_survive_watch.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m5_stuck_ramp_analysis.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m6_state_probe.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m7_coach_check.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m8_add_posy_to_consult.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m8_check_posy.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m8_coach_analysis.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m9_verify_loop.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\phase12_acceptance.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\phase12_c_z_incremental.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\phase12_live_deploy.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\phase12_restart.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\phase3_deploy_restart.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\phase45_deploy_restart.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\phase5_add_patterns.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\phase6_regen_patch.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\tmp_bridge_age.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\tmp_check_history.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\tmp_check_live.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\tmp_diff_patchfiles.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\tmp_extract_diff.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\tmp_inspect_fixes.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\tmp_inspect_patterns.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\tmp_rebuild.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\tmp_relaunch_game.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\ver_append_2191.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\ver_append_fix3.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\ver_append_fix4.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\ver_append_fix5.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\ver_append_fix6.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\ver_append_fix7.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\ver_append_fix8.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\ver_append_fix9.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\ver_append_r24.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\ver_append_screenfix.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\ver_read_034.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\ver_read_record.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_coach_dopamine.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_evo_primitive_scoring.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_fall_state_accuracy.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_m2_coach_primitives.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_m2_state_refinement.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_m32_dopamine_floor.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_m3_mbon_gate.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_mbon_skill_capability.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_motor_primitives.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_neural_pools.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_r31fix3_reward_reshaping.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_screen_fidelity.py"
+                }
+            ],
+            "fileChangeCount": 146,
+            "writeCount": 115,
+            "editCount": 31,
+            "themes": [
+                "brain-model",
+                "agent-teams",
+                "ghb-cost-control",
+                "dashboard-ui",
+                "flygym-setup",
+                "document-analysis",
+                "system-diagnostics"
+            ],
+            "firstUserMessage": "学习文章中的运动模式内容建议，分析目前脑模型可以控制的马里奥运动能力和缺失的能力，玛丽奥还有什么动作可以控制，使用文中建议的思路"
+        },
+        {
+            "sessionId": "session-38542b1c-45e7-4c96-b615-94875cd2bd0e",
+            "sessionDir": "dsh-session-session-38542b1c-45e7-4c96-b615-94875cd2bd0e",
+            "title": "脑模型能力缺陷审计报告",
+            "format": "v0",
+            "createdAt": "2026-09-13 11:07:33",
+            "createdAtEpoch": 1789297653675,
+            "fileSizeBytes": 41149060,
+            "fileSizeKB": 40184.6,
+            "totalLines": 101668,
+            "messageCount": 269,
+            "turnCount": 210,
+            "stepCount": 2823,
+            "subagentCount": 16,
+            "toolCalls": {
+                "pwsh": 1202,
+                "skill_mcp": 4,
+                "read": 454,
+                "write": 116,
+                "agent_teams": 125,
+                "subagent": 5,
+                "other": 15,
+                "edit": 419,
+                "grep": 287,
+                "job_management": 17
+            },
+            "toolCallTotal": 2644,
+            "fileChanges": [
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\.tmp\\check_buttons.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\agent.md"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\check_grid_alignment.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\check_sector_coverage.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\README.md"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\bridge.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\central_complex.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\main.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\memory.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\model.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\mushroom_body.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\retina.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\scene_recognition.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\plugin\\llm_consult.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\plugin\\runner.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\plugin\\service.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\skills\\default_patterns.json"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\skills\\evolution_skill.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\skills\\skills.md"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\node_draft_check.mjs"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_brain_alternation.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_cliff_standoff.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_coach_pipeline.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_cx_goal_competition.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_cx_navigation.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_cx_path_integration.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_frame_to_data_uri.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_mbon_saturation.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_mushroom_body.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_optic_flow.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_spin_loop_fix.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\web\\dashboard.css"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\web\\dashboard.js"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\web\\index.html"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\scripts\\verify_p1.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\test_scene_rec.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\verify_p1p2.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\audit_live.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\brain_wrapper.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\bridge_check.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\bridge_debug.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\build_sm64.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\bump.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\bump2.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\bump3.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\captain_audit.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\check_auto.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\check_brain_log.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\check_bridge_read.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\check_buttons.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\check_coach_result.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\check_env.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\check_help.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\check_import.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\check_nav.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\check_screen.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\check_screen_endpoint.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\check_sm64_screen.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\check_src.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\check_stale.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\check_strategy.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\check_venv.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\cleanup.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\coach_check.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\compile_err.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\dash_monitor.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\deploy_all.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\deploy_fwd.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\deploy_r22.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\deploy_r24.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\diag_crash.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\evo_check.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\evo_check2.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\evo_coach_check.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\evo_status.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\final_check.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\final_deploy.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\final_verify.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\fix_and_build.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\fix_and_verify.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\fix_llm.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\fix_reflex_and_diag.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\full_assessment.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\full_check.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\full_diag.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\full_restart.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\health.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\health_check.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\live_check.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\mb_check.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\motion_check.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\optimize_scan.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\patch_c.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\patch_screen.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\pattern_detect.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\profile_flow.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\quick_check.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\quick_status.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\read_consult_request.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\reapply.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\restart.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\restart_brain.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\restart_check.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\restart_live.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\run_evo.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\run_evo2.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\run_evo_skill.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\spin_diag.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\start_brain.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\start_brain_simple.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\start_sm64_bridge.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\start_sm64_final.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\status_report.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\status_tool.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\sync_deploy.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\sync_r21.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\test_glm.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\test_glm_full.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\test_syntax.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\verify_all.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\verify_c.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\verify_coach_screen.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\verify_final.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\verify_fix.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\verify_r13.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\verify_r14.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\verify_r18.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\verify_r21_fix.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\check_grid_alignment.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\check_sector_coverage.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\docs\\visual_capability_analysis.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_brain_alternation.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_ccl_connectivity.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_cliff_standoff.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_coach_pipeline.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_cx_goal_competition.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_cx_navigation.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_cx_path_integration.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_dan_shaping.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_frame_to_data_uri.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_mbon_saturation.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_mushroom_body.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_restlessness.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_spin_loop_fix.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\scripts\\verify_p1.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\test_rec.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\test_scene_rec.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\verify_p1.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\verify_p1p2.py"
+                }
+            ],
+            "fileChangeCount": 149,
+            "writeCount": 112,
+            "editCount": 37,
+            "themes": [
+                "brain-model",
+                "agent-teams",
+                "ghb-cost-control",
+                "dashboard-ui",
+                "flygym-setup",
+                "document-analysis",
+                "system-diagnostics"
+            ],
+            "firstUserMessage": "根据以下描述进一步分析补充分析果蝇复眼的视觉能力，分析目前视觉能力与果蝇神经元复眼能力的差异 A DEAD FLY'S BRAIN READ SIX CHARACTERS IN 38 MILLISECONDS ON 200 NANOWATTS\r\n\r\nFor a century the wiring of a whole brain was a drawing nobody could run."
+        },
+        {
+            "sessionId": "session-71c21f6d-cb76-4baf-9afb-822765a043e4",
+            "sessionDir": "dsh-session-session-71c21f6d-cb76-4baf-9afb-822765a043e4",
+            "title": "/agent-teams docs/analysis/session_logs_",
+            "format": "v3",
+            "createdAt": "2026-09-20 15:36:33",
+            "createdAtEpoch": 1789918593869,
+            "fileSizeBytes": 596642,
+            "fileSizeKB": 582.7,
+            "totalLines": 287,
+            "messageCount": 30,
+            "turnCount": 16,
+            "stepCount": 36,
+            "subagentCount": 3,
+            "toolCalls": {
+                "agent_teams": 17,
+                "read": 1
+            },
+            "toolCallTotal": 18,
+            "fileChanges": [],
+            "fileChangeCount": 0,
+            "writeCount": 0,
+            "editCount": 0,
+            "themes": [
+                "brain-model",
+                "agent-teams",
+                "ghb-cost-control",
+                "dashboard-ui",
+                "document-analysis",
+                "session-log-analysis",
+                "system-diagnostics"
+            ],
+            "firstUserMessage": "docs/analysis/session_logs_execution_plan.md"
+        },
+        {
+            "sessionId": "session-90dd512b-6955-4848-9216-3c3c94c35b41",
+            "sessionDir": "dsh-session-session-90dd512b-6955-4848-9216-3c3c94c35b41",
+            "title": "evo skill运行状态与模式检查",
+            "format": "v0",
+            "createdAt": "2026-09-13 12:43:47",
+            "createdAtEpoch": 1789303427037,
+            "fileSizeBytes": 30224013,
+            "fileSizeKB": 29515.6,
+            "totalLines": 60449,
+            "messageCount": 83,
+            "turnCount": 65,
+            "stepCount": 1546,
+            "subagentCount": 1,
+            "toolCalls": {
+                "job_management": 15,
+                "read": 183,
+                "pwsh": 727,
+                "grep": 28,
+                "edit": 278,
+                "write": 248,
+                "other": 9,
+                "agent_teams": 22,
+                "subagent": 1
+            },
+            "toolCallTotal": 1511,
+            "fileChanges": [
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\agent.md"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\profile_flow3.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\regen_readme.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\show_rec.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\write_evo061.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\write_evo_records.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\README.md"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\docs\\counterfactual-fallen-marathon.md"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\docs\\evolution-coach-roadmap.md"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\central_complex.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\instinct_bindings.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\main.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\model.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\replay.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\retina.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\plugin\\coach_outcomes.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\plugin\\llm_consult.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\plugin\\runner.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\plugin\\service.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\build_unimplemented_register.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\check_regressions.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m8_add_posy_to_consult.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\measure_evolution_health.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\skills\\default_patterns.json"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\skills\\evolution_skill.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\skills\\skills.md"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_brain_startup_regression.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_coach_advice_fix.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_coach_contract.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_coach_outcomes.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_coach_pipeline.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_consult_context_pos_y.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_evolution_history.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_evolution_ops.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_help_score.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_instinct_bindings.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_invariants.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_optic_flow.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_phase6_attribution.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_phase6_fitness_inputs.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_plugin_mhr.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_propagation_perf.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_regression_detector.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_retina.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_rule17_versions.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_snapshot_320.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_spin_loop_fix.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\web\\evo-params.html"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\add_agent_changelog_071.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\analyse_fingerprint.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\audit_dotted.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\audit_panel_params.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\audit_recon.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\autonomy_diag.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\backfill.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\bench2.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\bench3.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\bench4.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\bench5.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\bench_prop.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\bf2.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\build_baseline.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\check.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\check_agent_md.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\check_eol.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\check_eol_churn.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\check_escape_impl.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\check_evo_status.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\check_fallen_knobs.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\check_frozen_fields.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\check_real_bugs.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\check_sensorsample_fields.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\check_stack.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\check_strat.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\classify_failures.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\classify_linux_baseline.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\commit_msg.txt"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\commit_msg_059.txt"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\commit_msg_062.txt"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\commit_msg_064.txt"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\commit_msg_065.txt"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\commit_msg_066.txt"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\commit_msg_067.txt"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\commit_msg_068.txt"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\commit_msg_068b.txt"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\commit_msg_071.txt"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\controlled_test.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\deploy_phase6.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\detail.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\diag.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\diag_brain.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\diag_brain_start.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\diag_bridge_size.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\diag_crash.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\diag_curriculum.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\diag_evidence.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\diag_loop_score.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\diag_phase6_zero.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\diag_scene_label_gap.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\diag_sync.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\diag_telemetry.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\drift.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\enumerate_injections.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\evo061_deploy_verify.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\evo062_final_sync.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\evo066_deploy_verify.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\evo067_deploy_verify.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\exp_fallen.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\exp_jump.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\exp_timeshare.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\experiment_bypass.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\experiment_signature.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\experiment_signature2.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\facts.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\faq_dual.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\faq_fix.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\final_baseline_check.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\final_check.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\final_state.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\final_summary.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\final_verify.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\final_wsl_ops.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\find.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\find_visual_bypass.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\findanchor.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\findguard.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\findguard2.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\finish_deliveries.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\fix_banner.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\fix_dupe.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\fix_oracle_and_property.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\fix_record_id.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\fix_skills_md_eol.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\fixtest.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\framecheck.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\frameprobe.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\full_audit.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\full_audit2.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\fullcheck.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\fullcheck2.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\hdr_fix.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\hist.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\inspect_help_json.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\inspect_outcomes.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\inspect_outcomes2.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\inspect_promotion.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\inspect_telemetry.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\list_history.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\loopcheck.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\mark_wired.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\mdcheck.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\mdcheck2.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\measure_scene_identity.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\merge12.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\merge_hist.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\merge_history.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\modinfo.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\new_faq.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\normalize_skills_md.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\oc.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\patch_baseline_path.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\patch_help_get.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\patch_phase6_tests.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\post_audit_state.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\probe_cliff_escape.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\probe_fallen.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\probe_loop_score.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\profile_compute_flow.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\profile_final.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\profile_flow.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\profile_flow2.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\profile_flow3.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\pull_evidence.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\purge.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\quick_status.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\rebuild_linux_baseline.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\recon_evo_logs.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\record_t6.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\record_t6_v2.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\refresh.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\refresh2.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\regen_readme.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\restart_brain.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\restart_brain_final.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\restart_evo_loop.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\restart_verify_skill.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\restore_head_main.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\run_t9_replay.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\search_corpus.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\seed_check.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\show_history.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\show_outcomes.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\show_rec.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\sim.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\spmv.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\svc_restart.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\svc_start.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\svcdebug.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\swap_faq.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\sync_and_verify_fixes.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\sync_banner_classify.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\sync_to_wsl.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\sync_versions_and_recheck.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\t12_deploy_verify.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\t1_t2_t5.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\t3_analyze.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\t4_reset_curriculum.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\t4_t3_backfill.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\t9_deploy_restart.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\t9_deploy_v2.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\t9_deploy_v3.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\t9_final_check.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\t9_final_deploy.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\t9_replay_bindings.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\test_frozen_hypothesis.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\trend_snapshot.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\update_agent_md.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\update_skills_md.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\v.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\v2.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\v3.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\v4.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\v5.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\v6.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\verify2.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\verify_14.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\verify_concepts.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\verify_evo061_live.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\verify_findings.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\verify_fix.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\verify_instinct_live.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\verify_live.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\verify_loop_score_fix.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\watch_warmup.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\wire_prev_sample.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\wrap_up.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\write_evo059.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\write_evo061.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\write_evo066.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\write_evo067.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\write_evo068.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\write_evo071_full.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\write_evo_infra_scene.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\write_evo_milestone.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\write_evo_records.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\.tmp\\write_evo_t12.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\conftest.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\docs\\counterfactual-fallen-marathon.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\docs\\evolution-coach-roadmap.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\instinct_bindings.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\plugin\\coach_outcomes.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\attribute_phase6_failures.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\audit_contract_pairs.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\audit_motor_injections.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\build_unimplemented_register.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\check_brain_compat.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\check_regressions.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\m8_add_posy_to_consult.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\measure_evolution_health.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\wsl_check.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\wsl_check2.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\wsl_grep.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\skills\\evolution_history.json"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\skills\\pattern_drafts.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_brain_startup_regression.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_coach_contract.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_coach_outcomes.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_consult_context_pos_y.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_curriculum_unknown_metric.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_cx_loop_break.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_evidence_durability.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_evolution_history.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_evolution_ops.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_help_score.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_instinct_bindings.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_phase6_attribution.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_phase6_fitness_inputs.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_propagation_perf.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_regression_detector.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_rule17_versions.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_snapshot_320.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_strategy_passthrough.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_strategy_update_endpoint.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_tunable_wiring.py"
+                }
+            ],
+            "fileChangeCount": 284,
+            "writeCount": 236,
+            "editCount": 48,
+            "themes": [
+                "brain-model",
+                "agent-teams",
+                "ghb-cost-control",
+                "dashboard-ui",
+                "flygym-setup",
+                "document-analysis",
+                "system-diagnostics"
+            ],
+            "firstUserMessage": "evo skill检查当前状态分析当前运行模式是否有问题"
+        },
+        {
+            "sessionId": "session-99cab60f-fada-4a9e-9d10-ababdd0f4373",
+            "sessionDir": "dsh-session-session-99cab60f-fada-4a9e-9d10-ababdd0f4373",
+            "title": "启动脑模型",
+            "format": "v0",
+            "createdAt": "2026-09-16 12:28:26",
+            "createdAtEpoch": 1789561706255,
+            "fileSizeBytes": 2944365,
+            "fileSizeKB": 2875.4,
+            "totalLines": 6507,
+            "messageCount": 12,
+            "turnCount": 7,
+            "stepCount": 249,
+            "subagentCount": 0,
+            "toolCalls": {
+                "brain": 1,
+                "job_management": 7,
+                "pwsh": 205,
+                "read": 15,
+                "grep": 8,
+                "edit": 7,
+                "write": 7,
+                "other": 1
+            },
+            "toolCallTotal": 251,
+            "fileChanges": [
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\agent.md"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\bridge.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\main.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\check_bridge.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\check_bridge_v2.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\launch_full.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\start_fly64_full.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\start_fly64_wsl.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\scripts\\check_dashboard.py"
+                }
+            ],
+            "fileChangeCount": 9,
+            "writeCount": 6,
+            "editCount": 3,
+            "themes": [
+                "brain-model",
+                "ghb-cost-control",
+                "dashboard-ui",
+                "flygym-setup",
+                "document-analysis",
+                "system-diagnostics"
+            ],
+            "firstUserMessage": "启动脑模型"
+        },
+        {
+            "sessionId": "session-99cab60f-fada-4a9e-9d10-ababdd0f4373",
+            "sessionDir": "dsh-session-session-99cab60f-fada-4a9e-9d10-ababdd0f4373 (1)",
+            "title": "启动脑模型",
+            "format": "v0",
+            "createdAt": "2026-09-16 12:28:26",
+            "createdAtEpoch": 1789561706255,
+            "fileSizeBytes": 3004302,
+            "fileSizeKB": 2933.9,
+            "totalLines": 6644,
+            "messageCount": 12,
+            "turnCount": 7,
+            "stepCount": 254,
+            "subagentCount": 0,
+            "toolCalls": {
+                "brain": 1,
+                "job_management": 7,
+                "pwsh": 208,
+                "read": 15,
+                "grep": 8,
+                "edit": 9,
+                "write": 7,
+                "other": 1
+            },
+            "toolCallTotal": 256,
+            "fileChanges": [
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\agent.md"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\README.md"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\bridge.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\main.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\check_bridge.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\check_bridge_v2.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\launch_full.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\start_fly64_full.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\start_fly64_wsl.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\scripts\\check_dashboard.py"
+                }
+            ],
+            "fileChangeCount": 10,
+            "writeCount": 6,
+            "editCount": 4,
+            "themes": [
+                "brain-model",
+                "ghb-cost-control",
+                "dashboard-ui",
+                "flygym-setup",
+                "document-analysis",
+                "system-diagnostics"
+            ],
+            "firstUserMessage": "启动脑模型"
+        },
+        {
+            "sessionId": "session-b2eeed98-1614-4a9b-846f-058bde87f475",
+            "sessionDir": "dsh-session-session-b2eeed98-1614-4a9b-846f-058bde87f475",
+            "title": "分析监控界面布局优化",
+            "format": "v0",
+            "createdAt": "2026-09-14 15:26:41",
+            "createdAtEpoch": 1789399601909,
+            "fileSizeBytes": 17672293,
+            "fileSizeKB": 17258.1,
+            "totalLines": 42513,
+            "messageCount": 94,
+            "turnCount": 58,
+            "stepCount": 973,
+            "subagentCount": 0,
+            "toolCalls": {
+                "pwsh": 355,
+                "read": 191,
+                "grep": 93,
+                "edit": 241,
+                "job_management": 47,
+                "write": 10,
+                "other": 23
+            },
+            "toolCallTotal": 960,
+            "fileChanges": [
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\README.md"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\main.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\memory.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\layout_audit.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\skills\\brain_tunable_params.json"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\skills\\evolution_skill.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\skills\\fix_catalog.json"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_memory.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\web\\dashboard.css"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\web\\dashboard.js"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\web\\evo-params.html"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\web\\index.html"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\web\\monitor-preview.html"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\web\\trajectory.html"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\npzkeys.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\.tmp\\shot.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\docs\\layout-optimization.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\docs\\layout-wireframe.html"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\docs\\monitor-preview.html"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\layout_audit.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\skills\\brain_tunable_params.json"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\web\\evo-params.html"
+                }
+            ],
+            "fileChangeCount": 22,
+            "writeCount": 8,
+            "editCount": 14,
+            "themes": [
+                "brain-model",
+                "ghb-cost-control",
+                "dashboard-ui",
+                "flygym-setup",
+                "document-analysis",
+                "system-diagnostics"
+            ],
+            "firstUserMessage": "检查分析完整的监控界面完整布局，评估是由有优化的空间"
+        },
+        {
+            "sessionId": "session-d983cef5-3f9c-4b97-9eac-820390a38bbd",
+            "sessionDir": "dsh-session-session-d983cef5-3f9c-4b97-9eac-820390a38bbd",
+            "title": "门禁机制",
+            "format": "v0",
+            "createdAt": "2026-09-13 04:33:13",
+            "createdAtEpoch": 1789273993393,
+            "fileSizeBytes": 12994718,
+            "fileSizeKB": 12690.2,
+            "totalLines": 32434,
+            "messageCount": 143,
+            "turnCount": 86,
+            "stepCount": 876,
+            "subagentCount": 14,
+            "toolCalls": {
+                "agent_teams": 59,
+                "job_management": 4,
+                "grep": 70,
+                "read": 134,
+                "other": 12,
+                "pwsh": 282,
+                "edit": 209,
+                "write": 45
+            },
+            "toolCallTotal": 815,
+            "fileChanges": [
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\agent.md"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\README.md"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\docs\\causal-chain-implementation.md"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\docs\\causal-chain-ui-design.md"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\main.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\memory.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\model.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\retina.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\telemetry.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\plugin\\DEPLOY_AUTONOMY.md"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\plugin\\llm_consult.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\plugin\\runner.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\plugin\\service.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\plugin\\watchdog.sh"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\consolidate.sh"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\skills\\evolution_skill.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\skills\\skills.md"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\analyze_circling.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\debug_upper_blue.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\run_evo_cycle.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_autonomy_regression.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_dashboard_protocol.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_evolution_capability.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_retina.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\web\\dashboard.css"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\web\\dashboard.js"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\web\\index.html"
+                },
+                {
+                    "tool": "write",
+                    "path": "C:\\Users\\szk220009\\AppData\\Local\\Temp\\replacements.txt"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\docs\\multi-eye-vision-analysis.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\docs\\thin-plugin-design-analysis.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\docs\\visual-enhancement-plan.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\consolidate.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\scripts\\phase2_gate.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\skills\\__init__.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\analyze_circling.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\analyze_dialogue_llm.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\analyze_immobile.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\check_advice_chain.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\check_bridge_mismatch.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\check_control_chain.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\check_control_state.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\check_env_autoload.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\check_game_bridge.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\check_help_trigger.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\check_live_version.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\check_llm_advice.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\check_r12_live.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\check_r13_live.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\check_running.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\check_uptime_gate.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\check_version.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\check_wsl_state.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\debug_enclosure.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\debug_snap_keys.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\debug_upper_blue.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\dump_eye_frame.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\evo_status_report.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\probe_enclosure.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\run_evo_cycle.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\start_sm64.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\sync_inventory.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_t2_t3_live.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_t3_handshake.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\verify_deploy.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\verify_two_fixes.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\verify_watchdog_fix.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\write_llm_env.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\ws_probe.py"
+                }
+            ],
+            "fileChangeCount": 68,
+            "writeCount": 41,
+            "editCount": 27,
+            "themes": [
+                "brain-model",
+                "agent-teams",
+                "ghb-cost-control",
+                "dashboard-ui",
+                "document-analysis",
+                "system-diagnostics"
+            ],
+            "firstUserMessage": "目前仪表板对于视觉输入后触发的神经元用途和产生的具体判断和行动没有直观的显示，分析一种基于UI的展现形式可以只管的显示视觉捕获的信号对于引发的后续神经元处理结果及产生的判断逻辑和具体行为的信息能够只管的显示，分析建议方案给出具体建议"
+        },
+        {
+            "sessionId": "session-ed4b8026-6bfe-40ee-9be8-b5fb3b59e612",
+            "sessionDir": "dsh-session-session-ed4b8026-6bfe-40ee-9be8-b5fb3b59e612",
+            "title": "分析 FlyGym 导出日志报告",
+            "format": "v0",
+            "createdAt": "2026-09-20 12:49:01",
+            "createdAtEpoch": 1789908541687,
+            "fileSizeBytes": 3063448,
+            "fileSizeKB": 2991.6,
+            "totalLines": 3881,
+            "messageCount": 26,
+            "turnCount": 9,
+            "stepCount": 136,
+            "subagentCount": 4,
+            "toolCalls": {
+                "agent_teams": 16,
+                "read": 29,
+                "pwsh": 49,
+                "job_management": 4,
+                "grep": 16,
+                "subagent": 1,
+                "agent_management": 1,
+                "web_interaction": 1,
+                "other": 15,
+                "skill_mcp": 1,
+                "edit": 12
+            },
+            "toolCallTotal": 145,
+            "fileChanges": [
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\docs\\fly64_execution_plan_v2.md"
+                }
+            ],
+            "fileChangeCount": 1,
+            "writeCount": 0,
+            "editCount": 1,
+            "themes": [
+                "brain-model",
+                "agent-teams",
+                "ghb-cost-control",
+                "dashboard-ui",
+                "flygym-setup",
+                "document-analysis",
+                "session-log-analysis",
+                "system-diagnostics"
+            ],
+            "firstUserMessage": "分析 D:\\codes\\flygym\\docs\\fly64_export_logs_analysis_report.md ，给出具体执行计划"
+        },
+        {
+            "sessionId": "session-f953d3fd-dcea-430f-9bee-461b8d73943e",
+            "sessionDir": "dsh-session-session-f953d3fd-dcea-430f-9bee-461b8d73943e",
+            "title": "/agent-teams # 安装 FlyGym v2",
+            "format": "v0",
+            "createdAt": "2026-09-10 10:44:47",
+            "createdAtEpoch": 1789037087359,
+            "fileSizeBytes": 33432485,
+            "fileSizeKB": 32648.9,
+            "totalLines": 79284,
+            "messageCount": 878,
+            "turnCount": 508,
+            "stepCount": 2910,
+            "subagentCount": 58,
+            "toolCalls": {
+                "read": 210,
+                "job_management": 115,
+                "agent_teams": 512,
+                "pwsh": 1249,
+                "web_interaction": 20,
+                "write": 68,
+                "other": 7,
+                "edit": 170,
+                "grep": 90,
+                "subagent": 1,
+                "goal": 1
+            },
+            "toolCallTotal": 2443,
+            "fileChanges": [
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\agent.md"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\README.md"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\bridge.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\main.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\memory.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\model.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\retina.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\fly64\\telemetry.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\plugin\\runner.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\skills\\default_patterns.json"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\skills\\evolution_skill.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\skills\\skills.md"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_evolution_capability.py"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\web\\dashboard.css"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\web\\dashboard.js"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\web\\index.html"
+                },
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\fly64\\web\\trajectory.html"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\README.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\add_trajectory.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\agent.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\analyze_neurons.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\check_api.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\check_control.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\check_fd.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\check_fluctuation.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\check_improved.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\check_preview.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\check_traj.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\check_variation.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\create_bridge.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\debug_vision.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\final_trajectory.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fix_bridge.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fix_final.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fix_framediff.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fix_glew.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fix_model.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fix_model_v2.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fix_synthetic.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fix_synthetic_v2.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fix_synthetic_world.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fix_synthetic_world2.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fix_traj_handler.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fix_traj_v2.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\README.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\ROM-SETUP-GUIDE.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\skills\\__init__.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\skills\\_run_analysis.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\skills\\evolution_agent.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\skills\\skills.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_evolution_capability.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_reflex_jitter.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\tests\\test_t2_t3_live.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\fly64\\web\\trajectory.html"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\inspect_arrow.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\patch_bridge.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\patch_synthetic.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\quick_check.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\smoke_test.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\start_fly64.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\test_ws.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\test_ws_from_win.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\tmp_check_flow.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\tmp_check_loop.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\tmp_check_loop.sh"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\tmp_check_status.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\tmp_coach_check.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\tmp_coach_ocr_check.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\tmp_freeze_check.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\tmp_mem_check.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\tmp_motion_check.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\tmp_png_check.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\tmp_status.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\tmp_test_save.py"
+                },
+                {
+                    "tool": "write",
+                    "path": "D:\\codes\\flygym\\validate_arrow.py"
+                }
+            ],
+            "fileChangeCount": 75,
+            "writeCount": 58,
+            "editCount": 17,
+            "themes": [
+                "brain-model",
+                "agent-teams",
+                "ghb-cost-control",
+                "dashboard-ui",
+                "flygym-setup",
+                "document-analysis",
+                "system-diagnostics",
+                "code-clone-analysis"
+            ],
+            "firstUserMessage": "# 安装 FlyGym v2\r\npip install flygym\r\n\r\n# 运行交互视图\r\npython scripts/launch_interactive_viewer.py"
+        },
+        {
+            "sessionId": "session-fdb47617-7c9a-46b3-8cc0-80588409602c",
+            "sessionDir": "dsh-session-session-fdb47617-7c9a-46b3-8cc0-80588409602c",
+            "title": "docs/analysis/ 全面分析",
+            "format": "v0",
+            "createdAt": "2026-09-15 15:21:37",
+            "createdAtEpoch": 1789485697778,
+            "fileSizeBytes": 3098320,
+            "fileSizeKB": 3025.7,
+            "totalLines": 4905,
+            "messageCount": 16,
+            "turnCount": 11,
+            "stepCount": 117,
+            "subagentCount": 0,
+            "toolCalls": {
+                "agent_teams": 22,
+                "job_management": 9,
+                "read": 45,
+                "other": 5,
+                "write": 2,
+                "pwsh": 13,
+                "grep": 17,
+                "edit": 37
+            },
+            "toolCallTotal": 150,
+            "fileChanges": [
+                {
+                    "tool": "edit",
+                    "path": "D:\\codes\\flygym\\docs\\analysis\\fly64_brain_model_comprehensive_guide.md"
+                },
+                {
+                    "tool": "edit",
+                    "path": "docs/analysis/fly64_brain_model_comprehensive_guide.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "docs/analysis/cross_machine_deployment_analysis.md"
+                },
+                {
+                    "tool": "write",
+                    "path": "docs/analysis/fly64_brain_model_comprehensive_guide.md"
+                }
+            ],
+            "fileChangeCount": 4,
+            "writeCount": 2,
+            "editCount": 2,
+            "themes": [
+                "brain-model",
+                "agent-teams",
+                "ghb-cost-control",
+                "dashboard-ui",
+                "flygym-setup",
+                "document-analysis",
+                "system-diagnostics"
+            ],
+            "firstUserMessage": "@docs/analysis/ 全面完整分析当前文档内容，生成一个完整的果蝇脑模型的技术实现分析方案和应用场景指引说明，全面说明目前脑模型能实现的能力原理和如何实现，生成单一说明文档"
+        }
+    ],
+    "aggregatedStats": {
+        "totalToolCalls": 11130,
+        "totalFileChanges": 817,
+        "totalMessages": 1805,
+        "totalLines": 405404,
+        "totalSizeKB": 171551.3,
+        "totalTurns": 1149,
+        "totalSteps": 11887,
+        "themeBreakdown": [
+            {
+                "theme": "brain-model",
+                "count": 12
+            },
+            {
+                "theme": "ghb-cost-control",
+                "count": 12
+            },
+            {
+                "theme": "dashboard-ui",
+                "count": 12
+            },
+            {
+                "theme": "document-analysis",
+                "count": 12
+            },
+            {
+                "theme": "system-diagnostics",
+                "count": 12
+            },
+            {
+                "theme": "flygym-setup",
+                "count": 10
+            },
+            {
+                "theme": "agent-teams",
+                "count": 9
+            },
+            {
+                "theme": "session-log-analysis",
+                "count": 2
+            },
+            {
+                "theme": "code-clone-analysis",
+                "count": 1
+            }
+        ],
+        "toolBreakdown": {
+            "pwsh": {
+                "total": 5040,
+                "sessionCount": 11
+            },
+            "read": {
+                "total": 1642,
+                "sessionCount": 12
+            },
+            "agent_teams": {
+                "total": 966,
+                "sessionCount": 9
+            },
+            "write": {
+                "total": 651,
+                "sessionCount": 10
+            },
+            "grep": {
+                "total": 694,
+                "sessionCount": 11
+            },
+            "edit": {
+                "total": 1727,
+                "sessionCount": 11
+            },
+            "goal": {
+                "total": 6,
+                "sessionCount": 3
+            },
+            "job_management": {
+                "total": 255,
+                "sessionCount": 10
+            },
+            "web_interaction": {
+                "total": 24,
+                "sessionCount": 3
+            },
+            "other": {
+                "total": 109,
+                "sessionCount": 10
+            },
+            "skill_mcp": {
+                "total": 5,
+                "sessionCount": 2
+            },
+            "subagent": {
+                "total": 8,
+                "sessionCount": 4
+            },
+            "brain": {
+                "total": 2,
+                "sessionCount": 2
+            },
+            "agent_management": {
+                "total": 1,
+                "sessionCount": 1
+            }
+        }
+    }
+}

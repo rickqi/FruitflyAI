@@ -1,5 +1,8 @@
 # 视觉神经因果链路 UI 设计方案（Fly64 Neural Observatory 增量设计）
 
+> **状态**: 🟢 已实现 (Implemented)  
+> 此文档中的 UI 设计方案已编码实现。实现详情参见 `fly64/web/dashboard.js` 及因果链路相关测试。
+>
 > 任务 t2 · 基于 t1 信号链路分析 · 目标：直观呈现「视觉捕获信号 → 神经元处理 → 判断逻辑 → 具体行动」的完整因果链
 > 原则：**增量设计**——在 http://127.0.0.1:8765/ 现有五段布局（Vision / Neurons→controls / Activity map / Spatial memory / Escape Events）之上"缝合"因果视图，不推翻重建。
 
