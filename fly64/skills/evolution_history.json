@@ -2,8 +2,8 @@
   "$schema": "fly64/evolution-history/1.0",
   "canonical_versions": {
     "brain": "2.24.0",
-    "skill": "3.4.2",
-    "as_of": "2026-09-24T18:00:00+08:00"
+    "skill": "3.5.1",
+    "as_of": "2026-09-26T15:03:21.529698+08:00"
   },
   "records": [
     {
@@ -50,6 +50,25 @@
       "tests": "能力回归",
       "deployed": true,
       "source": "agent.md/README 轮次表"
+    },
+    {
+      "id": "EVO-007",
+      "date": "2026-09-13",
+      "round": "R7",
+      "kind": "brain",
+      "brain_version": "2.0.0",
+      "skill_version": null,
+      "trigger": "FlyWire MaleCNS 差距分析：视觉覆盖 38% 过低",
+      "changes": [
+        "P1a 颜色/UV 视觉（danger_red/sky_blue）",
+        "P1b 4方向 EMD",
+        "P2 小目标追踪（中心-周边+卡尔曼+匈牙利匹配）",
+        "P3 多巴胺蘑菇体学习（2000 KC/5 MBON）",
+        "35 新信号，覆盖 38%→90%"
+      ],
+      "tests": "179/179 核心通过",
+      "deployed": true,
+      "source": "agent.md R7 章节"
     },
     {
       "id": "EVO-004",
@@ -103,43 +122,6 @@
       "source": "commit 7a2baa0"
     },
     {
-      "id": "EVO-007",
-      "date": "2026-09-13",
-      "round": "R7",
-      "kind": "brain",
-      "brain_version": "2.0.0",
-      "skill_version": null,
-      "trigger": "FlyWire MaleCNS 差距分析：视觉覆盖 38% 过低",
-      "changes": [
-        "P1a 颜色/UV 视觉（danger_red/sky_blue）",
-        "P1b 4方向 EMD",
-        "P2 小目标追踪（中心-周边+卡尔曼+匈牙利匹配）",
-        "P3 多巴胺蘑菇体学习（2000 KC/5 MBON）",
-        "35 新信号，覆盖 38%→90%"
-      ],
-      "tests": "179/179 核心通过",
-      "deployed": true,
-      "source": "agent.md R7 章节"
-    },
-    {
-      "id": "EVO-008",
-      "date": "2026-09-13",
-      "time": "~22:03 +0800",
-      "round": "R8",
-      "kind": "brain",
-      "brain_version": "2.1.0",
-      "skill_version": "2.5.0",
-      "trigger": "brightness-not-flow：亮度差被误当运动",
-      "changes": [
-        "T4/T5 式 HRC 方向选择运动检测",
-        "LC4 looming 种群",
-        "自适应相关接入碰撞规避"
-      ],
-      "tests": "README 同步轮（71caeff）",
-      "deployed": true,
-      "source": "agent.md R8 章节 + commit 71caeff"
-    },
-    {
       "id": "EVO-009",
       "date": "2026-09-13",
       "time": "22:35 +0800",
@@ -173,6 +155,41 @@
       "tests": "test_retina +3",
       "deployed": true,
       "source": "commit 1f12cf0"
+    },
+    {
+      "id": "EVO-008",
+      "date": "2026-09-13",
+      "time": "~22:03 +0800",
+      "round": "R8",
+      "kind": "brain",
+      "brain_version": "2.1.0",
+      "skill_version": "2.5.0",
+      "trigger": "brightness-not-flow：亮度差被误当运动",
+      "changes": [
+        "T4/T5 式 HRC 方向选择运动检测",
+        "LC4 looming 种群",
+        "自适应相关接入碰撞规避"
+      ],
+      "tests": "README 同步轮（71caeff）",
+      "deployed": true,
+      "source": "agent.md R8 章节 + commit 71caeff"
+    },
+    {
+      "id": "EVO-017",
+      "date": "2026-09-14",
+      "round": "R13a",
+      "kind": "brain",
+      "brain_version": "2.6.1",
+      "skill_version": "2.9.1",
+      "trigger": "stuck=1063s/micro_loop 973s/loop_score 病态 104.9——自适应冷却触底引发反射风暴死循环",
+      "changes": [
+        "loop_score 精确滚动窗口计数（修复病态值）",
+        "micro_loop 重触发位移<30u 镜像翻转转向（自发交替）"
+      ],
+      "tests": "test_spin_loop_fix 7/7",
+      "deployed": true,
+      "source": "agent.md R13 章节",
+      "notes": "与 EVO-018 并发会话双编号 Round 13"
     },
     {
       "id": "EVO-011",
@@ -230,42 +247,6 @@
       "source": "commit fa0b1b3"
     },
     {
-      "id": "EVO-014",
-      "date": "2026-09-14",
-      "time": "21:12 +0800",
-      "round": "R11 完成",
-      "kind": "brain",
-      "brain_version": "2.6.1",
-      "skill_version": "2.9.1",
-      "trigger": "coach 策略键为死写入无消费者",
-      "changes": [
-        "bold_explore_stuck_s→micro_loop 突破阈值",
-        "turn_bias→bold 转向幅度",
-        "escape.stuck_threshold_s→时长型逃脱条件（热重载）"
-      ],
-      "tests": "R11 接线复验",
-      "deployed": true,
-      "source": "commit ebe37cc"
-    },
-    {
-      "id": "EVO-015",
-      "date": "2026-09-14",
-      "time": "~13:00 +0800",
-      "round": "R12",
-      "kind": "infra",
-      "brain_version": "2.6.0",
-      "skill_version": "2.9.0",
-      "trigger": "10s 循环依赖 DSH 会话，会话结束即停——自治不能依赖外部会话",
-      "changes": [
-        "plugin/service.py 常驻服务（健康自检/心跳/LLM 双传输降级 local_diagnosis）",
-        "plugin/watchdog.sh 存活监控",
-        "consolidate.sh 连带重启自治循环"
-      ],
-      "tests": "test_service 10 + autonomy_regression 13",
-      "deployed": true,
-      "source": "agent.md R12 章节"
-    },
-    {
       "id": "EVO-016",
       "date": "2026-09-14",
       "time": "15:15 +0800",
@@ -283,21 +264,22 @@
       "source": "commit ce56cb2"
     },
     {
-      "id": "EVO-017",
+      "id": "EVO-014",
       "date": "2026-09-14",
-      "round": "R13a",
+      "time": "21:12 +0800",
+      "round": "R11 完成",
       "kind": "brain",
       "brain_version": "2.6.1",
       "skill_version": "2.9.1",
-      "trigger": "stuck=1063s/micro_loop 973s/loop_score 病态 104.9——自适应冷却触底引发反射风暴死循环",
+      "trigger": "coach 策略键为死写入无消费者",
       "changes": [
-        "loop_score 精确滚动窗口计数（修复病态值）",
-        "micro_loop 重触发位移<30u 镜像翻转转向（自发交替）"
+        "bold_explore_stuck_s→micro_loop 突破阈值",
+        "turn_bias→bold 转向幅度",
+        "escape.stuck_threshold_s→时长型逃脱条件（热重载）"
       ],
-      "tests": "test_spin_loop_fix 7/7",
+      "tests": "R11 接线复验",
       "deployed": true,
-      "source": "agent.md R13 章节",
-      "notes": "与 EVO-018 并发会话双编号 Round 13"
+      "source": "commit ebe37cc"
     },
     {
       "id": "EVO-018",
@@ -397,6 +379,24 @@
       "source": "commit 6e1751b"
     },
     {
+      "id": "EVO-015",
+      "date": "2026-09-14",
+      "time": "~13:00 +0800",
+      "round": "R12",
+      "kind": "infra",
+      "brain_version": "2.6.0",
+      "skill_version": "2.9.0",
+      "trigger": "10s 循环依赖 DSH 会话，会话结束即停——自治不能依赖外部会话",
+      "changes": [
+        "plugin/service.py 常驻服务（健康自检/心跳/LLM 双传输降级 local_diagnosis）",
+        "plugin/watchdog.sh 存活监控",
+        "consolidate.sh 连带重启自治循环"
+      ],
+      "tests": "test_service 10 + autonomy_regression 13",
+      "deployed": true,
+      "source": "agent.md R12 章节"
+    },
+    {
       "id": "EVO-023",
       "date": "2026-09-15",
       "time": "00:17 +0800",
@@ -467,22 +467,71 @@
       "source": "commit f5e859a"
     },
     {
-      "id": "EVO-027",
-      "date": "2026-09-15",
-      "time": "13:09 +0800",
-      "round": "t19",
-      "kind": "infra",
-      "brain_version": "2.12.1",
+      "id": "AUTO-0001",
+      "recorded_at": "2026-09-15T11:14:24.706289+00:00",
+      "kind": "skill_fix",
+      "round": null,
+      "brain_version": "2.13.3",
       "skill_version": "3.0.0",
-      "trigger": "SM64 被连带 kill 后桥停更，视觉画布静默冻结且无监护",
+      "fix_id": "fix_0014",
+      "pattern_id": "telemetry_gap",
+      "severity": "low",
+      "trigger": "Patterns skipped because their condition fields are absent from telemetry: ['mb_mbon_forward'] (patterns: ['mbon_saturation']). Expose the keys in main.py flow_json so the patterns can evaluate.",
       "changes": [
-        "bridge.py SeqlockWatchdog：同一 even seq 停滞>5s → stale",
-        "flow.json 增 bridge_stale",
-        "仪表板红色 SM64⛔ FROZEN 徽章"
+        "# Expose missing condition keys in main.py flow_json/memory_json"
       ],
-      "tests": "test_seqlock_watchdog 9/9",
-      "deployed": true,
-      "source": "commit 50d22ae"
+      "current_values": {
+        "missing_fields": [
+          "mb_mbon_forward"
+        ],
+        "patterns": [
+          "mbon_saturation"
+        ]
+      },
+      "baseline": {
+        "stuck": 74.16,
+        "coverage": 30.8
+      },
+      "source": "resident skill loop (auto_fix)",
+      "verification": {
+        "passed": false,
+        "effectiveness_score": 0.0,
+        "stuck_reduction_pct": 0,
+        "observed_seconds": 60.4,
+        "verified_at": "2026-09-15T11:15:25.131221+00:00"
+      }
+    },
+    {
+      "id": "AUTO-0002",
+      "recorded_at": "2026-09-15T11:39:39.163222+00:00",
+      "kind": "skill_fix",
+      "round": null,
+      "brain_version": "2.13.3",
+      "skill_version": "3.0.0",
+      "fix_id": "fix_0015",
+      "pattern_id": "mbon_saturation",
+      "severity": "medium",
+      "trigger": "forward MBON saturated at ceiling while behaviour still loops. The built-in homeostatic synaptic scaling should shrink the column; persistent saturation indicates the guard is not triggering or dopamine keeps re-inflating it.",
+      "changes": [
+        "# Verify homeostatic scaling in mushroom_body.py saturation guard"
+      ],
+      "current_values": {
+        "mb_mbon_forward": 0.9687,
+        "loop_score": 0.986,
+        "stuck_duration": 216.6
+      },
+      "baseline": {
+        "stuck": 216.6,
+        "coverage": 30.8
+      },
+      "source": "resident skill loop (auto_fix)",
+      "verification": {
+        "passed": false,
+        "effectiveness_score": 0.0,
+        "stuck_reduction_pct": 0,
+        "observed_seconds": 60.3,
+        "verified_at": "2026-09-15T11:40:39.507408+00:00"
+      }
     },
     {
       "id": "EVO-028",
@@ -501,6 +550,88 @@
       "tests": "CX PIN 用例",
       "deployed": true,
       "source": "commits 654b436/a09555b/2c5ae94"
+    },
+    {
+      "id": "EVO-027",
+      "date": "2026-09-15",
+      "time": "13:09 +0800",
+      "round": "t19",
+      "kind": "infra",
+      "brain_version": "2.12.1",
+      "skill_version": "3.0.0",
+      "trigger": "SM64 被连带 kill 后桥停更，视觉画布静默冻结且无监护",
+      "changes": [
+        "bridge.py SeqlockWatchdog：同一 even seq 停滞>5s → stale",
+        "flow.json 增 bridge_stale",
+        "仪表板红色 SM64⛔ FROZEN 徽章"
+      ],
+      "tests": "test_seqlock_watchdog 9/9",
+      "deployed": true,
+      "source": "commit 50d22ae"
+    },
+    {
+      "id": "AUTO-0003",
+      "recorded_at": "2026-09-15T13:10:05.756411+00:00",
+      "kind": "skill_fix",
+      "round": null,
+      "brain_version": "2.13.3",
+      "skill_version": "3.0.0",
+      "fix_id": "fix_0016",
+      "pattern_id": "below_ground_stuck",
+      "severity": "high",
+      "trigger": "Fallen detection threshold (Y<-100) is too permissive. SM64 normal ground is Y=120. Y<50 already indicates below-ground (void/water). Fix: change fallen threshold from Y<-100 to Y<50.",
+      "changes": [
+        "# Fix: Lower fallen detection threshold from -100 to 50"
+      ],
+      "current_values": {
+        "pos_y": 0.0,
+        "stuck_duration": 30.3,
+        "control_magnitude": 0
+      },
+      "baseline": {
+        "stuck": 30.3,
+        "coverage": 31.3
+      },
+      "source": "resident skill loop (auto_fix)",
+      "verification": {
+        "passed": false,
+        "effectiveness_score": 0.0,
+        "stuck_reduction_pct": 0,
+        "observed_seconds": 60.4,
+        "verified_at": "2026-09-15T13:11:06.185862+00:00"
+      },
+      "resolved": true,
+      "resolution": "已修复：memory.py YAnomaly y_min -100→50.0（P0-3，并发会话落地）；AUTO-0003 的建议已生效，below_ground_stuck 不应再因该阈值触发"
+    },
+    {
+      "id": "AUTO-0004",
+      "recorded_at": "2026-09-15T14:44:21.226042+00:00",
+      "kind": "brain_update_auto",
+      "round": null,
+      "brain_version": "2.13.3",
+      "previous_version": "2.14.0",
+      "skill_version": "3.0.0",
+      "trigger": "dashboard brain_version change",
+      "changes": [
+        "(auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, agent.md rule 15)"
+      ],
+      "tests": null,
+      "source": "resident skill loop"
+    },
+    {
+      "id": "AUTO-0005",
+      "recorded_at": "2026-09-15T14:48:47.341435+00:00",
+      "kind": "brain_update_auto",
+      "round": null,
+      "brain_version": "2.13.3",
+      "previous_version": "2.14.0",
+      "skill_version": "3.0.0",
+      "trigger": "dashboard brain_version change",
+      "changes": [
+        "(auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, agent.md rule 15)"
+      ],
+      "tests": null,
+      "source": "resident skill loop"
     },
     {
       "id": "EVO-029",
@@ -572,270 +703,6 @@
       "notes": "当前 HEAD"
     },
     {
-      "id": "EVO-034",
-      "date": "2026-09-16",
-      "time": "12:58 +0800",
-      "round": "R29",
-      "kind": "brain",
-      "brain_version": null,
-      "skill_version": "3.0.0",
-      "trigger": "stride-2 采样下小目标检测被 CCL 4-连通性阻断",
-      "changes": [
-        "retina.py _connected_components：generate_binary_structure(2,1)→(2,2) + union-find 对角邻居（8 连通）"
-      ],
-      "tests": "test_ccl_connectivity 5/5",
-      "source": "commit 4c3294b"
-    },
-    {
-      "id": "EVO-035",
-      "date": "2026-09-16",
-      "time": "17:17 +0800",
-      "round": "Motor-P1",
-      "kind": "brain",
-      "brain_version": "2.14.0",
-      "skill_version": "3.0.0",
-      "trigger": "电机扩展：摇杆 x/y/jump 之外的动作原语需要 Z 触发键通道",
-      "changes": [
-        "bridge Phase 1：Z-trigger 解锁（电机扩展动作通道）"
-      ],
-      "tests": null,
-      "source": "commit 0510add"
-    },
-    {
-      "id": "EVO-036",
-      "date": "2026-09-16",
-      "time": "17:26 +0800",
-      "round": "Motor-P2",
-      "kind": "brain",
-      "brain_version": "2.15.0",
-      "skill_version": "3.0.0",
-      "trigger": "运动原语需要级联层与神经解码衔接",
-      "changes": [
-        "CPG 运动原语级联层（中央模式发生器）"
-      ],
-      "tests": null,
-      "source": "commit 6c3d222"
-    },
-    {
-      "id": "EVO-037",
-      "date": "2026-09-16",
-      "time": "17:59 +0800",
-      "round": "Motor-P3",
-      "kind": "brain",
-      "brain_version": "2.16.0",
-      "skill_version": "3.0.0",
-      "trigger": "打击/下蹲动作需要独立运动池；蘑菇体输出通道需扩展",
-      "changes": [
-        "strike/crouch 运动池",
-        "MBON 扩至 9 列（原 5 通道）"
-      ],
-      "tests": null,
-      "source": "commit 01364b4"
-    },
-    {
-      "id": "EVO-038",
-      "date": "2026-09-16",
-      "time": "18:30-19:34 +0800",
-      "round": "Motor-P4/P5+M1",
-      "kind": "brain",
-      "brain_version": "2.17.0",
-      "skill_version": "3.0.0",
-      "trigger": "Phase 4 仪表板可视化 + Phase 5 EVO pattern + M1 优化层（债务清理 + 新动作原语 PUNCH/DIVE）",
-      "changes": [
-        "Phase 4 电机扩展仪表板",
-        "Phase 5 EVO patterns + R21 patch backport",
-        "M1.1 既有债务清理（BRAIN_VERSION 2.17.0）",
-        "PUNCH/DIVE 动作原语 + EVO 接线"
-      ],
-      "tests": null,
-      "source": "commits e664bd5/1736cac/f1021bf"
-    },
-    {
-      "id": "EVO-039",
-      "date": "2026-09-16",
-      "time": "20:50:13 +0800",
-      "round": "P1-2 perf",
-      "kind": "analysis",
-      "brain_version": "2.17.0",
-      "skill_version": "3.0.0",
-      "trigger": "P1-2 CSC 传播 8-15ms/step 制约 tick 频率与进化验证吞吐；尝试选择路径微优化（布尔掩码/fancy/gather+bincount）",
-      "changes": [
-        "三变体在真实 25.6M 连接组上交错基准（9 次中位数）：0.95–1.38×，全部落在负载噪声内——负结果",
-        "synaptic_current() 自适应选择保留为等价基线 + 传播点注释留档负结果",
-        "test_propagation_perf.py 7 用例等价性 PIN（全分数段 allclose）"
-      ],
-      "tests": "test_propagation_perf 7/7",
-      "source": "本次会话（负结果留档，防重复尝试）",
-      "notes": "正解方向=稠密核心拆分/GPU 批处理/降边数；选择路径微调不要再试"
-    },
-    {
-      "id": "EVO-048",
-      "date": "2026-09-17",
-      "time": "10:28:30 +0800",
-      "round": "运维收敛",
-      "kind": "infra",
-      "brain_version": "2.19.3",
-      "skill_version": "3.1.0",
-      "trigger": "双循环并发：Windows 循环（09-16 22:00 启动，pwsh 会话）+ WSL 循环（并行 agent 启动，旧代码无锁）——跨文件系统锁互不可见，双写致 AUTO id 撞号、catalog 覆盖、log 交错",
-      "changes": [
-        "Windows 循环停止；WSL 单循环收敛（新代码含锁，pid 13420，锁文件 .evo_loop.lock 生效）",
-        "agent.md 规则 16 固化：resident 循环只能在 WSL 运行，Windows 禁止启动",
-        "FAQ 双循环条目更新（跨文件系统根因 + 现行规则指引）"
-      ],
-      "tests": "锁三态 PIN（test_evolution_ops）+ 循环存活/日志验证",
-      "source": "本次运维（EVO-048）"
-    },
-    {
-      "id": "EVO-049",
-      "date": "2026-09-17",
-      "time": "10:47 +0800",
-      "round": "v2.20.0 发布",
-      "kind": "brain+skill",
-      "brain_version": "2.20.0",
-      "skill_version": "3.1.1",
-      "trigger": "3 项持续缺陷修复：①breakout 电流非自适应（恒定振幅压制转向）②CPG 原语零位移不切换③flow.json 遥测缺 8 字段",
-      "changes": [
-        "breakout_gain 自适应：stuck_duration 映射至最高 +0.50，突破时附跳跃注入",
-        "CPG 原语 disp_60s<30u 时自动切换 SIDE_FLIP（原语零位移治理）",
-        "flow.json 补齐 anomaly_state/reflex_active/escape_behavior 等 8 字段（遥测审计闭环）"
-      ],
-      "tests": "67/67 通过",
-      "source": "commit 103bcb6（含 agent.md 规则 17 版本严格递增契约一并入库）"
-    },
-    {
-      "id": "EVO-050",
-      "date": "2026-09-17",
-      "time": "10:53:13 +0800",
-      "round": null,
-      "kind": "skill_update_auto",
-      "brain_version": "2.20.0",
-      "skill_version": "3.2.0",
-      "trigger": "工作树观测到 SKILL_VERSION 3.1.1→3.2.0（并行会话在途轮）——按规则 15/17 留痕；完整 trigger/changes/tests 条目由执行进化的 agent 补全",
-      "changes": [
-        "（待执行 agent 补全）"
-      ],
-      "tests": null,
-      "source": "版本纪律自动留痕"
-    },
-    {
-      "id": "EVO-054",
-      "date": "2026-09-17",
-      "time": "17:13:59 +0800",
-      "round": "t6 根因修复",
-      "kind": "brain",
-      "brain_version": "2.21.0",
-      "skill_version": "3.2.0",
-      "trigger": "coach 建议从未真正影响 behavior：load_active_strategy() 只返回 fallen_recovery 派生字段，从不透传 exploration/escape/command 段——调用方 _active_strategy.get('exploration'/'escape') 永远返回 {}，所有教练参数静默回退硬编码默认值（funnel verified→effective=0.0 的直接原因）",
-      "changes": [
-        "main.py load_active_strategy: 透传 exploration/escape/command 三段（含 dict 类型校验）",
-        "flow.json 新增 coach_applied 实时遥测（mode/bold_explore_stuck_s/escape_stuck_threshold_s/turn_bias/fallen_forward/command）",
-        "受控端到端验证：写入特征值(33.33/7.77/0.777/0.44) → 600 tick 热加载后全部出现在行为层遥测 (tick=4340)"
-      ],
-      "tests": "test_strategy_passthrough 5/5（透传/命令段/缺失段/畸形段/坏文件回退）",
-      "source": "本次会话 t6 + brain 重启验证"
-    },
-    {
-      "id": "AUTO-0001",
-      "recorded_at": "2026-09-15T11:14:24.706289+00:00",
-      "kind": "skill_fix",
-      "round": null,
-      "brain_version": "2.13.3",
-      "skill_version": "3.0.0",
-      "fix_id": "fix_0014",
-      "pattern_id": "telemetry_gap",
-      "severity": "low",
-      "trigger": "Patterns skipped because their condition fields are absent from telemetry: ['mb_mbon_forward'] (patterns: ['mbon_saturation']). Expose the keys in main.py flow_json so the patterns can evaluate.",
-      "changes": [
-        "# Expose missing condition keys in main.py flow_json/memory_json"
-      ],
-      "current_values": {
-        "missing_fields": [
-          "mb_mbon_forward"
-        ],
-        "patterns": [
-          "mbon_saturation"
-        ]
-      },
-      "baseline": {
-        "stuck": 74.16,
-        "coverage": 30.8
-      },
-      "source": "resident skill loop (auto_fix)",
-      "verification": {
-        "passed": false,
-        "effectiveness_score": 0.0,
-        "stuck_reduction_pct": 0,
-        "observed_seconds": 60.4,
-        "verified_at": "2026-09-15T11:15:25.131221+00:00"
-      }
-    },
-    {
-      "id": "AUTO-0002",
-      "recorded_at": "2026-09-15T11:39:39.163222+00:00",
-      "kind": "skill_fix",
-      "round": null,
-      "brain_version": "2.13.3",
-      "skill_version": "3.0.0",
-      "fix_id": "fix_0015",
-      "pattern_id": "mbon_saturation",
-      "severity": "medium",
-      "trigger": "forward MBON saturated at ceiling while behaviour still loops. The built-in homeostatic synaptic scaling should shrink the column; persistent saturation indicates the guard is not triggering or dopamine keeps re-inflating it.",
-      "changes": [
-        "# Verify homeostatic scaling in mushroom_body.py saturation guard"
-      ],
-      "current_values": {
-        "mb_mbon_forward": 0.9687,
-        "loop_score": 0.986,
-        "stuck_duration": 216.6
-      },
-      "baseline": {
-        "stuck": 216.6,
-        "coverage": 30.8
-      },
-      "source": "resident skill loop (auto_fix)",
-      "verification": {
-        "passed": false,
-        "effectiveness_score": 0.0,
-        "stuck_reduction_pct": 0,
-        "observed_seconds": 60.3,
-        "verified_at": "2026-09-15T11:40:39.507408+00:00"
-      }
-    },
-    {
-      "id": "AUTO-0003",
-      "recorded_at": "2026-09-15T13:10:05.756411+00:00",
-      "kind": "skill_fix",
-      "round": null,
-      "brain_version": "2.13.3",
-      "skill_version": "3.0.0",
-      "fix_id": "fix_0016",
-      "pattern_id": "below_ground_stuck",
-      "severity": "high",
-      "trigger": "Fallen detection threshold (Y<-100) is too permissive. SM64 normal ground is Y=120. Y<50 already indicates below-ground (void/water). Fix: change fallen threshold from Y<-100 to Y<50.",
-      "changes": [
-        "# Fix: Lower fallen detection threshold from -100 to 50"
-      ],
-      "current_values": {
-        "pos_y": 0.0,
-        "stuck_duration": 30.3,
-        "control_magnitude": 0
-      },
-      "baseline": {
-        "stuck": 30.3,
-        "coverage": 31.3
-      },
-      "source": "resident skill loop (auto_fix)",
-      "verification": {
-        "passed": false,
-        "effectiveness_score": 0.0,
-        "stuck_reduction_pct": 0,
-        "observed_seconds": 60.4,
-        "verified_at": "2026-09-15T13:11:06.185862+00:00"
-      },
-      "resolved": true,
-      "resolution": "已修复：memory.py YAnomaly y_min -100→50.0（P0-3，并发会话落地）；AUTO-0003 的建议已生效，below_ground_stuck 不应再因该阈值触发"
-    },
-    {
       "id": "EVO-033",
       "date": "2026-09-15",
       "time": "23:59 +0800",
@@ -864,36 +731,6 @@
       "source": "AgentTeams fly64-bottleneck-roundup t7 集成轮"
     },
     {
-      "id": "AUTO-0004",
-      "recorded_at": "2026-09-15T14:44:21.226042+00:00",
-      "kind": "brain_update_auto",
-      "round": null,
-      "brain_version": "2.13.3",
-      "previous_version": "2.14.0",
-      "skill_version": "3.0.0",
-      "trigger": "dashboard brain_version change",
-      "changes": [
-        "(auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, agent.md rule 15)"
-      ],
-      "tests": null,
-      "source": "resident skill loop"
-    },
-    {
-      "id": "AUTO-0005",
-      "recorded_at": "2026-09-15T14:48:47.341435+00:00",
-      "kind": "brain_update_auto",
-      "round": null,
-      "brain_version": "2.13.3",
-      "previous_version": "2.14.0",
-      "skill_version": "3.0.0",
-      "trigger": "dashboard brain_version change",
-      "changes": [
-        "(auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, agent.md rule 15)"
-      ],
-      "tests": null,
-      "source": "resident skill loop"
-    },
-    {
       "id": "AUTO-0006",
       "recorded_at": "2026-09-16T12:51:36.713732+00:00",
       "kind": "brain_update_auto",
@@ -907,6 +744,21 @@
       ],
       "tests": null,
       "source": "resident skill loop"
+    },
+    {
+      "id": "EVO-034",
+      "date": "2026-09-16",
+      "time": "12:58 +0800",
+      "round": "R29",
+      "kind": "brain",
+      "brain_version": null,
+      "skill_version": "3.0.0",
+      "trigger": "stride-2 采样下小目标检测被 CCL 4-连通性阻断",
+      "changes": [
+        "retina.py _connected_components：generate_binary_structure(2,1)→(2,2) + union-find 对角邻居（8 连通）"
+      ],
+      "tests": "test_ccl_connectivity 5/5",
+      "source": "commit 4c3294b"
     },
     {
       "id": "AUTO-0007",
@@ -955,6 +807,21 @@
       "source": "resident skill loop"
     },
     {
+      "id": "EVO-035",
+      "date": "2026-09-16",
+      "time": "17:17 +0800",
+      "round": "Motor-P1",
+      "kind": "brain",
+      "brain_version": "2.14.0",
+      "skill_version": "3.0.0",
+      "trigger": "电机扩展：摇杆 x/y/jump 之外的动作原语需要 Z 触发键通道",
+      "changes": [
+        "bridge Phase 1：Z-trigger 解锁（电机扩展动作通道）"
+      ],
+      "tests": null,
+      "source": "commit 0510add"
+    },
+    {
       "id": "AUTO-0009",
       "recorded_at": "2026-09-16T17:19:28.890657+00:00",
       "kind": "brain_update_auto",
@@ -968,6 +835,37 @@
       ],
       "tests": null,
       "source": "resident skill loop"
+    },
+    {
+      "id": "EVO-036",
+      "date": "2026-09-16",
+      "time": "17:26 +0800",
+      "round": "Motor-P2",
+      "kind": "brain",
+      "brain_version": "2.15.0",
+      "skill_version": "3.0.0",
+      "trigger": "运动原语需要级联层与神经解码衔接",
+      "changes": [
+        "CPG 运动原语级联层（中央模式发生器）"
+      ],
+      "tests": null,
+      "source": "commit 6c3d222"
+    },
+    {
+      "id": "EVO-037",
+      "date": "2026-09-16",
+      "time": "17:59 +0800",
+      "round": "Motor-P3",
+      "kind": "brain",
+      "brain_version": "2.16.0",
+      "skill_version": "3.0.0",
+      "trigger": "打击/下蹲动作需要独立运动池；蘑菇体输出通道需扩展",
+      "changes": [
+        "strike/crouch 运动池",
+        "MBON 扩至 9 列（原 5 通道）"
+      ],
+      "tests": null,
+      "source": "commit 01364b4"
     },
     {
       "id": "AUTO-0010",
@@ -985,6 +883,42 @@
       "source": "resident skill loop"
     },
     {
+      "id": "EVO-038",
+      "date": "2026-09-16",
+      "time": "18:30-19:34 +0800",
+      "round": "Motor-P4/P5+M1",
+      "kind": "brain",
+      "brain_version": "2.17.0",
+      "skill_version": "3.0.0",
+      "trigger": "Phase 4 仪表板可视化 + Phase 5 EVO pattern + M1 优化层（债务清理 + 新动作原语 PUNCH/DIVE）",
+      "changes": [
+        "Phase 4 电机扩展仪表板",
+        "Phase 5 EVO patterns + R21 patch backport",
+        "M1.1 既有债务清理（BRAIN_VERSION 2.17.0）",
+        "PUNCH/DIVE 动作原语 + EVO 接线"
+      ],
+      "tests": null,
+      "source": "commits e664bd5/1736cac/f1021bf"
+    },
+    {
+      "id": "EVO-039",
+      "date": "2026-09-16",
+      "time": "20:50:13 +0800",
+      "round": "P1-2 perf",
+      "kind": "analysis",
+      "brain_version": "2.17.0",
+      "skill_version": "3.0.0",
+      "trigger": "P1-2 CSC 传播 8-15ms/step 制约 tick 频率与进化验证吞吐；尝试选择路径微优化（布尔掩码/fancy/gather+bincount）",
+      "changes": [
+        "三变体在真实 25.6M 连接组上交错基准（9 次中位数）：0.95–1.38×，全部落在负载噪声内——负结果",
+        "synaptic_current() 自适应选择保留为等价基线 + 传播点注释留档负结果",
+        "test_propagation_perf.py 7 用例等价性 PIN（全分数段 allclose）"
+      ],
+      "tests": "test_propagation_perf 7/7",
+      "source": "本次会话（负结果留档，防重复尝试）",
+      "notes": "正解方向=稠密核心拆分/GPU 批处理/降边数；选择路径微调不要再试"
+    },
+    {
       "id": "AUTO-0011",
       "recorded_at": "2026-09-17T01:07:56.810507+00:00",
       "kind": "brain_update_auto",
@@ -998,6 +932,100 @@
       ],
       "tests": null,
       "source": "resident skill loop"
+    },
+    {
+      "id": "EVO-048",
+      "date": "2026-09-17",
+      "time": "10:28:30 +0800",
+      "round": "运维收敛",
+      "kind": "infra",
+      "brain_version": "2.19.3",
+      "skill_version": "3.1.0",
+      "trigger": "双循环并发：Windows 循环（09-16 22:00 启动，pwsh 会话）+ WSL 循环（并行 agent 启动，旧代码无锁）——跨文件系统锁互不可见，双写致 AUTO id 撞号、catalog 覆盖、log 交错",
+      "changes": [
+        "Windows 循环停止；WSL 单循环收敛（新代码含锁，pid 13420，锁文件 .evo_loop.lock 生效）",
+        "agent.md 规则 16 固化：resident 循环只能在 WSL 运行，Windows 禁止启动",
+        "FAQ 双循环条目更新（跨文件系统根因 + 现行规则指引）"
+      ],
+      "tests": "锁三态 PIN（test_evolution_ops）+ 循环存活/日志验证",
+      "source": "本次运维（EVO-048）"
+    },
+    {
+      "id": "AUTO-0012",
+      "recorded_at": "2026-09-17T10:41:17.901852+00:00",
+      "kind": "brain_update_auto",
+      "round": null,
+      "brain_version": "2.23.1",
+      "previous_version": "2.21.1",
+      "skill_version": "3.3.0",
+      "trigger": "dashboard brain_version change",
+      "changes": [
+        "(auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, agent.md rule 15)"
+      ],
+      "tests": null,
+      "source": "resident skill loop"
+    },
+    {
+      "id": "AUTO-0013",
+      "recorded_at": "2026-09-17T10:42:58.353998+00:00",
+      "kind": "brain_update_auto",
+      "round": null,
+      "brain_version": "2.23.1",
+      "previous_version": "2.23.2",
+      "skill_version": "3.3.0",
+      "trigger": "dashboard brain_version change",
+      "changes": [
+        "(auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, agent.md rule 15)"
+      ],
+      "tests": null,
+      "source": "resident skill loop"
+    },
+    {
+      "id": "AUTO-0014",
+      "recorded_at": "2026-09-17T10:43:03.386008+00:00",
+      "kind": "brain_update_auto",
+      "round": null,
+      "brain_version": "2.23.2",
+      "previous_version": "2.23.1",
+      "skill_version": "3.3.0",
+      "trigger": "dashboard brain_version change",
+      "changes": [
+        "(auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, agent.md rule 15)"
+      ],
+      "tests": null,
+      "source": "resident skill loop"
+    },
+    {
+      "id": "EVO-049",
+      "date": "2026-09-17",
+      "time": "10:47 +0800",
+      "round": "v2.20.0 发布",
+      "kind": "brain+skill",
+      "brain_version": "2.20.0",
+      "skill_version": "3.1.1",
+      "trigger": "3 项持续缺陷修复：①breakout 电流非自适应（恒定振幅压制转向）②CPG 原语零位移不切换③flow.json 遥测缺 8 字段",
+      "changes": [
+        "breakout_gain 自适应：stuck_duration 映射至最高 +0.50，突破时附跳跃注入",
+        "CPG 原语 disp_60s<30u 时自动切换 SIDE_FLIP（原语零位移治理）",
+        "flow.json 补齐 anomaly_state/reflex_active/escape_behavior 等 8 字段（遥测审计闭环）"
+      ],
+      "tests": "67/67 通过",
+      "source": "commit 103bcb6（含 agent.md 规则 17 版本严格递增契约一并入库）"
+    },
+    {
+      "id": "EVO-050",
+      "date": "2026-09-17",
+      "time": "10:53:13 +0800",
+      "round": null,
+      "kind": "skill_update_auto",
+      "brain_version": "2.20.0",
+      "skill_version": "3.2.0",
+      "trigger": "工作树观测到 SKILL_VERSION 3.1.1→3.2.0（并行会话在途轮）——按规则 15/17 留痕；完整 trigger/changes/tests 条目由执行进化的 agent 补全",
+      "changes": [
+        "（待执行 agent 补全）"
+      ],
+      "tests": null,
+      "source": "版本纪律自动留痕"
     },
     {
       "id": "EVO-055",
@@ -1025,6 +1053,21 @@
       "notes": " [ID 冲突修复：与 v2.20.0 发布记录撞号，重命名为 EVO-055]"
     },
     {
+      "id": "AUTO-0015",
+      "recorded_at": "2026-09-17T11:59:30.292216+00:00",
+      "kind": "brain_update_auto",
+      "round": null,
+      "brain_version": "2.23.3",
+      "previous_version": "2.23.2",
+      "skill_version": "3.3.0",
+      "trigger": "dashboard brain_version change",
+      "changes": [
+        "(auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, agent.md rule 15)"
+      ],
+      "tests": null,
+      "source": "resident skill loop"
+    },
+    {
       "id": "EVO-051",
       "date": "2026-09-17",
       "time": "12:17 +0800",
@@ -1044,6 +1087,21 @@
       "tests": "保真度 3/3 PASS（零占比 1.8%→27.9% 自然天空、活流 delta 0.51、与 cubemap 直方图区分）；游戏存活 120s+（旧代码 40s 段错误）；全量套件失败集与基线一致",
       "deployed": true,
       "source": "用户报告 coach 截屏不一致 → captain 根因定位（渲染管线钩子时机/视口/FBO 三重错位）→ 数据驱动修复"
+    },
+    {
+      "id": "AUTO-0016",
+      "recorded_at": "2026-09-17T12:35:20.570428+00:00",
+      "kind": "brain_update_auto",
+      "round": null,
+      "brain_version": "2.23.4",
+      "previous_version": "2.23.3",
+      "skill_version": "3.3.0",
+      "trigger": "dashboard brain_version change",
+      "changes": [
+        "(auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, agent.md rule 15)"
+      ],
+      "tests": null,
+      "source": "resident skill loop"
     },
     {
       "id": "EVO-052",
@@ -1083,6 +1141,23 @@
       "tests": "fall-state 6/6；memory 87 passed（仅剩 2 个基线预存 KeyError）",
       "deployed": true,
       "source": "用户报告 fall 判定不准确 → 准确状态模型（速度+去抖+区分高处）"
+    },
+    {
+      "id": "EVO-054",
+      "date": "2026-09-17",
+      "time": "17:13:59 +0800",
+      "round": "t6 根因修复",
+      "kind": "brain",
+      "brain_version": "2.21.0",
+      "skill_version": "3.2.0",
+      "trigger": "coach 建议从未真正影响 behavior：load_active_strategy() 只返回 fallen_recovery 派生字段，从不透传 exploration/escape/command 段——调用方 _active_strategy.get('exploration'/'escape') 永远返回 {}，所有教练参数静默回退硬编码默认值（funnel verified→effective=0.0 的直接原因）",
+      "changes": [
+        "main.py load_active_strategy: 透传 exploration/escape/command 三段（含 dict 类型校验）",
+        "flow.json 新增 coach_applied 实时遥测（mode/bold_explore_stuck_s/escape_stuck_threshold_s/turn_bias/fallen_forward/command）",
+        "受控端到端验证：写入特征值(33.33/7.77/0.777/0.44) → 600 tick 热加载后全部出现在行为层遥测 (tick=4340)"
+      ],
+      "tests": "test_strategy_passthrough 5/5（透传/命令段/缺失段/畸形段/坏文件回退）",
+      "source": "本次会话 t6 + brain 重启验证"
     },
     {
       "id": "EVO-056",
@@ -1182,21 +1257,6 @@
       "source": "实机分析：applied=(-69,30) 已证明之字形推进，分类器语义脱节。"
     },
     {
-      "id": "AUTO-0012",
-      "recorded_at": "2026-09-17T10:41:17.901852+00:00",
-      "kind": "brain_update_auto",
-      "round": null,
-      "brain_version": "2.23.1",
-      "previous_version": "2.21.1",
-      "skill_version": "3.3.0",
-      "trigger": "dashboard brain_version change",
-      "changes": [
-        "(auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, agent.md rule 15)"
-      ],
-      "tests": null,
-      "source": "resident skill loop"
-    },
-    {
       "id": "EVO-061",
       "date": "2026-09-17",
       "time": "19:58 +0800",
@@ -1234,66 +1294,6 @@
       "tests": "test_strategy_update_endpoint 16/16；test_consult_context_pos_y + test_autonomy_regression 23 passed/3 skipped；活体受控端到端验证（脑 v2.23.4 运行中）：基线 coach_applied turn_bias=0.8 / escape_stuck_threshold_s=5.0 → POST {\"exploration.turn_bias\":0.37,\"escape.stuck_threshold_s\":77.7} → 接口 applied 报出两个已解析路径且 rejected 为空 → 落盘为嵌套结构、顶层无点号死键 → 600-tick 热加载后 coach_applied.turn_bias=0.37 且 escape_stuck_threshold_s=77.7（滑块值真正到达行为层），随后还原原文件、脑日志无 Traceback",
       "source": "本次会话 t10；缺陷②源自并行会话在途补丁（部署前拦截）",
       "notes": "版本轨分类：本轮只递增 brain（2.23.3→2.23.4）。skills/evolution_skill.py 与其治理参数（brain_tunable_params.json / health 权重）均未改动，故 skill 保持 3.3.0；plugin/ 侧的教练插件改动按 infra 处理。EVO-058 曾为 plugin/ 侧课程阶梯递增 skill，因其改变了 skills.md 所记录的“教练授课行为”；本轮 plugin/ 改动只修复缺陷、不改变技能契约，故不递增——分类差异在此显式记录以便审计。同类缺陷累计已达五例（t6 段透传 / CX 死代码 / P4.4 指纹 / 启动 NameError / 本轮点号键），共同形态均为“机制存在、报告成功、无法生效”，规则 19 已就此立规。"
-    },
-    {
-      "id": "AUTO-0013",
-      "recorded_at": "2026-09-17T10:42:58.353998+00:00",
-      "kind": "brain_update_auto",
-      "round": null,
-      "brain_version": "2.23.1",
-      "previous_version": "2.23.2",
-      "skill_version": "3.3.0",
-      "trigger": "dashboard brain_version change",
-      "changes": [
-        "(auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, agent.md rule 15)"
-      ],
-      "tests": null,
-      "source": "resident skill loop"
-    },
-    {
-      "id": "AUTO-0014",
-      "recorded_at": "2026-09-17T10:43:03.386008+00:00",
-      "kind": "brain_update_auto",
-      "round": null,
-      "brain_version": "2.23.2",
-      "previous_version": "2.23.1",
-      "skill_version": "3.3.0",
-      "trigger": "dashboard brain_version change",
-      "changes": [
-        "(auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, agent.md rule 15)"
-      ],
-      "tests": null,
-      "source": "resident skill loop"
-    },
-    {
-      "id": "AUTO-0015",
-      "recorded_at": "2026-09-17T11:59:30.292216+00:00",
-      "kind": "brain_update_auto",
-      "round": null,
-      "brain_version": "2.23.3",
-      "previous_version": "2.23.2",
-      "skill_version": "3.3.0",
-      "trigger": "dashboard brain_version change",
-      "changes": [
-        "(auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, agent.md rule 15)"
-      ],
-      "tests": null,
-      "source": "resident skill loop"
-    },
-    {
-      "id": "AUTO-0016",
-      "recorded_at": "2026-09-17T12:35:20.570428+00:00",
-      "kind": "brain_update_auto",
-      "round": null,
-      "brain_version": "2.23.4",
-      "previous_version": "2.23.3",
-      "skill_version": "3.3.0",
-      "trigger": "dashboard brain_version change",
-      "changes": [
-        "(auto-recorded version change — full trigger/changes/tests entry REQUIRED from the evolving agent, agent.md rule 15)"
-      ],
-      "tests": null,
-      "source": "resident skill loop"
     },
     {
       "id": "EVO-063",
@@ -1564,6 +1564,27 @@
       "source": "resident skill loop"
     },
     {
+      "id": "EVO-072",
+      "date": "2026-09-22",
+      "time": "18:22:03 +0800",
+      "round": "R31 键名归一化 + coach 合并写入（commit 879d983）",
+      "kind": "skill",
+      "brain_version": "2.23.12",
+      "skill_version": "3.5.0",
+      "trigger": "RULE-19 契约审计发现（“机制存在、报告成功、无法生效”家族第 7 例）：EVO _inject 写入嵌套清洁键，但 active_strategy.json 中历史遗留的点号扁平死键与其共存（exploration['exploration.gate_jump_threshold']），脑模型读取 _expl.get('gate_jump_threshold') 只命中默认值——**进化值从未真正生效**；另一路 coach 写入整体覆盖 active_strategy.json，抹掉 EVO 的 __generation 与未被 coach 提及的进化参数。原始诉求：09-22 18:12 [99cab60f seq=2753]“修复 _inject/读取方的键名归一化……Coach 与 EVO 写同一文件会产生互相覆盖”。",
+      "changes": [
+        "evolution_skill.py: BrainMutator._load_active_strategy 迁移点号前缀死键 → 清洁键（prefix = sec + '.'），保留兄弟键与 __generation",
+        "plugin/strategy_writer.py: coach StrategyWriter.write_strategy 改为与磁盘现有内容逐 section 合并（merged[sec] = {**merged[sec], **body}，coach 键胜出、EVO 键保留），不再整体覆盖",
+        "fly64/main.py: 热加载端防御性归一化（不依赖 EVO 先跑）",
+        "tests/test_strategy_key_contract.py: 新增 7 项 PIN（点号键迁移 / 清洁键胜出 / 兄弟键保留 / __generation 保留 / writer 合并保留 EVO 键等）",
+        "tests/test_phase6_fitness_inputs.py: 修正 test_candidates_stay_within_param_bounds 适配子集采样语义（39 维 wired，每 trial 随机 5 维）"
+      ],
+      "tests": "tests/test_strategy_key_contract.py 7/7 PIN 通过（879d983 新增）；tests/test_phase6_fitness_inputs.py 适配后通过。⚠️ 已知残留（A3 §4.3 实测）：归一化只清“同段前缀”死键，真实 active_strategy.json 的 exploration 段内跨段 escape.* 死键（forward_accum_step 0.015757 vs 清白键 0.005）未迁移，且文件本体未被修正（修复只在读取端）。",
+      "deployed": true,
+      "source": "commit 879d983 fix(EVO-072): active_strategy键名归一化 + coach合并写入 — 修复EVO进化值从未生效（2026-09-22 18:22:03 +0800）",
+      "notes": "**版本轨**：该 commit 上 main.py 已为 BRAIN_VERSION 2.23.12 / SKILL_VERSION 3.5.0，本条为 skill 侧修正（3.4.2 → 3.5.0）。**本条为 P0-1 补录**：提交信息声称已按 agent.md 规则 15 记录，但 evolution_history.json 此前止于 EVO-071（79 条）且不含 EVO-072；补录依据为 879d983 的 diff 与 tests/test_strategy_key_contract.py 的 7 条 PIN（A3 §2.4 / A2 D10）。"
+    },
+    {
       "id": "AUTO-0023",
       "recorded_at": "2026-09-23T12:54:49.422547+00:00",
       "kind": "brain_update_auto",
@@ -1595,6 +1616,32 @@
       ],
       "tests": "实机验证：swrast软渲染下SM64 CPU 27-30%，桥更新正常，Mario坐标平滑移动",
       "source": "本次会话：WSLg渲染瓶颈分析 -> vsync修复 -> 软件渲染验证 -> README更新"
+    },
+    {
+      "id": "EVO-073",
+      "date": "2026-09-24",
+      "round": "motor-pool-team-fix",
+      "kind": "brain",
+      "brain_version": "2.24.0",
+      "skill_version": "3.5.1",
+      "trigger": "forward 池贴顶 46.15/50 Hz（实测 post-leak 恒流地板 0.88 V/tick）、steering 池静默 0.000 Hz（双侧 -0.25 硬钳位 + 推挽对自锁）、gate 阈值单位契约破裂（per-tick 比例 vs Hz 致 gate_jump 恒假）",
+      "changes": [
+        "model.py: forward 池占用率负反馈 (forward_homeo_gain: 0.30 起抑/0.60 触底/0.25 下限) 调制 MBON→forward 注入与池 intrinsic tonic",
+        "model.py: _aux_forward_current() 聚合上限 0.20 V/tick，覆盖 escape_current 前向片 / escape accumulator / R16 breakout 前向腿 / reflex 前向桥",
+        "model.py: breakout_split() 双侧 turn 钳位改为乘实际交替量 min(L,R)/saturation，静默飞行=0",
+        "model.py: reflex 标志到期 (reflex_flag_scale: ttl 0.30s / tau 0.20s, step_count*dt 计时, 回放安全)",
+        "model.py: _last_disp_x/_z 死读中性化（全仓无写入点时不 ramp）",
+        "model.py: blend_reflex_control() + reflex_network_share=0.25（反射期保留 LIF 份额，待 main.py 接线）",
+        "main.py: gate 阈值统一为 Hz（rate_per_tick_to_hz + gate_open_hz 助手；flow.json 发布 *_rate_hz / *_threshold_hz / gate_forward/gate_jump 均为 Hz 比较）",
+        "brain_tunable_params.json: gate_forward_threshold [0.4,8.0] default 2.0 Hz; gate_jump_threshold [2.0,20.0] default 8.0 Hz",
+        "contract_registry.json: v1.0.0 -> v1.1.0 (rate_gate_group 9 keys / unit_contract 8 fields / RULE-19k)",
+        "tests/test_motor_pool_dynamics.py: 22 test (新增); tests/test_gate_units.py: 15 test (新增); tests/test_strategy_key_contract.py: 7 PIN (维持)",
+        "docs/analysis/motor-pool-saturation-findings.md: t1 根因报告 537 行 + t8 §7.4 + t7 §8 修复对照/残留/部署步骤"
+      ],
+      "tests": "22+15+7=44 passed (gate_units+strategy_key_contract+motor_pool_dynamics); 66 passed (mushroom_body+brain_alternation+cpg_priority+dashboard_protocol); 148+1 passed (phase6+memory+optic_flow, deselect 基线性能项); 全量 37F/1266P/36S. 规则 20 门禁: 基线 2 NEW tests/test_plugin_mhr.py (test-drift, 他人 commit 78b3175 型号切换, A/B 对照确认).",
+      "deployed": false,
+      "source": "AgentTeams fly64-motor-pool-recovery (t1-t9, 2026-09-24). BRAIN 2.23.12->2.24.0 minor, SKILL 3.5.0->3.5.1 patch. Commit tbd.",
+      "notes": "规则 15 记录。本记录对应 agent.md §2026-09-23: 运动池机动动态范围恢复 + gate 单位契约统一。—history-check OK。部署待用户确认。"
     }
   ]
 }
