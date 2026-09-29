@@ -93,6 +93,7 @@ def load_mbon_ticks():
                             "steering_bias": _f(row.get("cx_steering_bias")),
                             "compass_entropy": _f(row.get("cx_entropy")),
                             "compass_peak": _f(row.get("cx_peak")),
+                            "goal_source": row.get("cx_goal_source") or None,
                         } if row.get("cx_heading_column") not in (None, "") else None,
                     })
         except OSError:
@@ -157,7 +158,7 @@ _COLUMNS = (["ts", "decision_source", "cpg_active", "completed", "aborted",
             + [f"mb_w_{m}" for m in ("punch", "dive", "groundpound", "longjump")]
             + CX_COLS
             + ["cx_heading_column", "cx_goal_column", "cx_steering_bias",
-               "cx_entropy", "cx_peak"])
+               "cx_entropy", "cx_peak", "cx_goal_source"])
 
 INTERVAL_S = 2.0      # sample cadence (matches the external sampler)
 KEEP_DAYS = 7         # rolling retention
@@ -190,8 +191,7 @@ class TraceRecorder:
         try:
             self.roll_dir.mkdir(parents=True, exist_ok=True)
             day = time.strftime("%Y%m%d", time.localtime(now))
-            path = self.roll_dir / f"mbon_eval_{day}.csv"
-            new_file = not path.exists()
+            path, new_file = self._resolve_target(day)
             with path.open("a", newline="", encoding="utf-8") as fh:
                 w = csv.writer(fh)
                 if new_file:
@@ -204,6 +204,25 @@ class TraceRecorder:
         except Exception:
             # tracing must never break the brain loop
             return False
+
+    def _resolve_target(self, day: str) -> tuple[Path, bool]:
+        """Pick today's target file; if an existing file's header does not
+        match the current schema (e.g. legacy external-sampler rows), rotate
+        to a versioned file so DictReader never sees mixed headers."""
+        header = ",".join(_COLUMNS)
+        path = self.roll_dir / f"mbon_eval_{day}.csv"
+        for suffix in ("", "_v2", "_v3", "_v4"):
+            path = self.roll_dir / f"mbon_eval_{day}{suffix}.csv"
+            if not path.exists():
+                return path, True
+            try:
+                with path.open(encoding="utf-8") as fh:
+                    if fh.readline().strip() == header:
+                        return path, False
+            except OSError:
+                break
+        # all versioned slots mismatched: append to the last one anyway
+        return path, False
 
     @staticmethod
     def _row(f: dict, now: float) -> list:
@@ -223,7 +242,7 @@ class TraceRecorder:
                 *[cx[i] if i < len(cx) else None for i in range(16)],
                 cs.get("heading_column"), cs.get("goal_column"),
                 cs.get("steering_bias"), cs.get("compass_entropy"),
-                cs.get("compass_peak")]
+                cs.get("compass_peak"), cs.get("goal_source")]
 
     def _prune(self, now: float) -> None:
         self._last_prune = now

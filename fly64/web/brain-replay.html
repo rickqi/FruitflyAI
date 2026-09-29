@@ -97,7 +97,8 @@
 </div>
 
 <h2>③ 当前 tick 明细</h2>
-<div class="explain">鼠标悬停字段名可看含义。关键判读：<span class="kw">decision_source</span>=cpg_primitive:* 表示该 tick 由本能反射直接驱动（脑未干预）；
+<div id="coachPanel" class="explain" style="display:none"></div>
+<div class="explain">🖱 点击时间序列图：落在红竖线附近 = 查看该 coach 事件的<b>前后均值对齐分析</b>；其他位置 = 跳到最近 tick。悬停字段名可看含义。关键判读：<span class="kw">decision_source</span>=cpg_primitive:* 表示该 tick 由本能反射直接驱动（脑未干预）；
 =steering 表示 CX+MBON 综合决策。<span class="kw">disp_60s</span> 长期接近 0 说明在原地卡死 —— 这正是触发 escape/coach 的信号。</div>
 <table id="detail"><thead><tr><th>字段</th><th>当前值</th><th>含义</th></tr></thead><tbody></tbody></table>
 
@@ -224,7 +225,8 @@ function drawCx(){
     const mx=Math.max(...vs)||1;
     vals=vs.map(v=>v/mx);
     const st=tk.cx_stats||{};
-    title=`CX 16列环（真实遥测：heading col=${st.heading_column??"-"} · goal col=${st.goal_column??"-"} · steering=${typeof st.steering_bias==="number"?st.steering_bias.toFixed(3):"-"} · 峰值=${typeof st.compass_peak==="number"?st.compass_peak.toFixed(3):"-"}）`;
+    const GS={vectors:"记忆/目标向量合成",novelty:"新奇探索",wander:"闲适游走",loop_break:"卡死破环跳转",none:"无"};
+    title=`CX 16列环（真实遥测：heading col=${st.heading_column??"-"} · goal col=${st.goal_column??"-"}[${GS[st.goal_source]||st.goal_source||"-"}] · steering=${typeof st.steering_bias==="number"?st.steering_bias.toFixed(3):"-"} · 峰值=${typeof st.compass_peak==="number"?st.compass_peak.toFixed(3):"-"}）`;
   } else {
     const dop=tk.dopamine??0;
     const act=trace.mbon_channels.map(k=>tk.mbon?Math.abs(tk.mbon[k]??0):0);
@@ -253,8 +255,31 @@ function drawCx(){
   g.fillStyle="#58a6ff"; g.font="11px monospace"; const tx=cx0+R+40;
   g.fillText("decision: "+(tk.decision_source||"-")+(tk.primitive?" → "+tk.primitive:""), tx-40, cy0-46);
   g.fillText("事件: "+(tk.event||"-"), tx-40, cy0-26);
-  g.fillText("disp_60s: "+(tk.disp_60s??"-"), tx-40, cy0-6);
+  g.fillText("目标来源: "+(tk.cx_stats?.goal_source||"-"), tx-40, cy0-6);
   g.fillText("完成/中断: "+tk.completed+"/"+tk.aborted, tx-40, cy0+14);
+}
+
+// ── coach 事件点击对齐分析：事件前后 dopamine/MBON 均值对比 ──
+function coachAnalysis(ev){
+  const el=document.getElementById("coachPanel");
+  const W=10; // ticks each side
+  const after = trace.ticks.filter(t=>t.t>=ev.t && t.t<ev.t+W*2);
+  const before= trace.ticks.filter(t=>t.t<ev.t && t.t>=ev.t-W*2);
+  const mean=(arr,k)=>{ const vs=arr.map(t=>k==="dopamine"?t.dopamine:(t.mbon?.[k])).filter(v=>v!=null);
+    return vs.length? vs.reduce((a,b)=>a+b,0)/vs.length : null; };
+  const fmt=v=>v==null?"-":(v>=0?"+":"")+v.toFixed(4);
+  const rows=[["dopamine","dopamine"],...trace.mbon_channels.map(k=>[k,CN[k]||k])]
+    .map(([k,label])=>{
+      const b=mean(before,k), a=mean(after,k);
+      const delta=(b!=null&&a!=null)? a-b : null;
+      return `<tr><td class="k">${label}</td><td>${fmt(b)}</td><td>${fmt(a)}</td><td>${fmt(delta)}</td></tr>`;
+    }).join("");
+  const verdictHint = ev.verdict==="improved" ? "✅ 教练判定有效" :
+      ev.verdict==="unchanged" ? "⚠️ 教练判定未见效" : "";
+  el.innerHTML=`<b style="color:#f85149">coach 事件 ${fmtClock(ev.t)} · ${ev.anomaly||"?"} / ${ev.verdict||"?"}</b> ${verdictHint}
+    （事件前${before.length} tick → 后${after.length} tick 均值对比）　<span style="color:#8b949e">点击空白处清除</span>
+    <table><thead><tr><th>通道</th><th>事件前均值</th><th>事件后均值</th><th>Δ</th></tr></thead><tbody>${rows}</tbody></table>`;
+  el.style.display="block";
 }
 
 function drawDetail(){
@@ -290,6 +315,25 @@ document.getElementById("step").onclick=()=>stepTo(idx+1);
 document.getElementById("rewind").onclick=()=>stepTo(0);
 document.getElementById("scrub").oninput=e=>{ document.getElementById("live").checked=false; stepTo(+e.target.value); };
 document.getElementById("yfit").onchange=draw;
+// canvas click: coach event (±6px) → alignment analysis; otherwise jump to nearest tick
+document.getElementById("mbon").onclick=e=>{
+  const cv=e.target, rect=cv.getBoundingClientRect();
+  const px=(e.clientX-rect.left)*(cv.width/rect.width)/(window.devicePixelRatio||1);
+  const n=trace.ticks.length, L=44, R=10, plotW=cv.clientWidth-L-R;
+  const xs=i=>L+(n<2?0:i/(n-1)*plotW);
+  let bestEv=null,bd=6;
+  trace.events.forEach(ev=>{
+    let bi=0,dd=Infinity;
+    trace.ticks.forEach((tk,i)=>{ const d=Math.abs(tk.t-ev.t); if(d<dd){dd=d;bi=i;} });
+    const d=Math.abs(xs(bi)-px); if(d<bd){bd=d;bestEv=ev;}
+  });
+  if(bestEv){ coachAnalysis(bestEv); return; }
+  document.getElementById("coachPanel").style.display="none";
+  document.getElementById("live").checked=false;
+  let bi=0,bdd=Infinity;
+  trace.ticks.forEach((tk,i)=>{ const d=Math.abs(xs(i)-px); if(d<bdd){bdd=d;bi=i;} });
+  stepTo(bi);
+};
 window.addEventListener("resize",draw);
 
 // ── 实时刷新：每5s重新拉取 trace，按时间戳合并新 tick ──

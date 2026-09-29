@@ -42,6 +42,12 @@ CX_LOOP_BREAK_STUCK_S = 45.0
 #: guard, which no longer depends on the synthetically raised goal_strength,
 #: would re-aim the heading on every single tick while stuck.
 CX_LOOP_BREAK_COOLDOWN_TICKS = 1500
+#: P1-b5 (EVO-057, spec §5.5): the progress-gate threshold on ``loop_score``.
+#: ``_no_progress`` is ``progress_ineffective or loop_score > threshold``; the
+#: threshold is overridable per-instance (registered key
+#: ``navigation.loop_breakout_threshold``) and this module constant is the
+#: default the spec pins for that key's initial value.
+CX_LOOP_BREAKOUT_THRESHOLD = 0.6
 
 
 class AnchorPathIntegrator:
@@ -193,18 +199,23 @@ class MultiSourceGoalCompetition:
                  optic_flow_gain: float = OPTIC_FLOW_GAIN,
                  goal_update_rate: float = GOAL_UPDATE_RATE,
                  goal_memory_decay: float = GOAL_MEMORY_DECAY,
-                 max_steering: float = MAX_STEERING):
+                 max_steering: float = MAX_STEERING,
+                 loop_breakout_threshold: float = CX_LOOP_BREAKOUT_THRESHOLD):
         self.n_columns = n_columns
         self.steering_gain = steering_gain
         self.optic_flow_gain = optic_flow_gain
         self.goal_update_rate = goal_update_rate
         self.goal_memory_decay = goal_memory_decay
         self.max_steering = max_steering
+        #: P1-b5: ``loop_score`` rung of the progress gate.  Registered key
+        #: ``navigation.loop_breakout_threshold`` (initial 0.6 per spec §5.5).
+        self.loop_breakout_threshold = loop_breakout_threshold
 
         # Goal state
         self.goal_column: int = 0
         self.goal_strength: float = 0.0
         self._goal_float: float = 0.0
+        self.goal_source: str = "none"
 
         # Steering output
         self.steering_bias: float = 0.0
@@ -217,6 +228,13 @@ class MultiSourceGoalCompetition:
         self._jump_seq: int = 0
         self._ticks_since_jump: int = CX_LOOP_BREAK_COOLDOWN_TICKS
         self._ext_goal_strength: float = 0.0
+        #: P1-b5 (F6) observation: was a forward deadlock burst active on the
+        #: tick the last loop break fired?  Derived from the *input* the caller
+        #: handed in, never from a global, so the CX stays import-free.
+        self._last_burst_active: bool = False
+        #: P1-b5 (F6) observation: ``_no_progress`` on the previous tick, used
+        #: by ``CentralComplex`` to tell a *breakout* from a stray jump.
+        self._last_no_progress: bool = False
 
     def update(self, goal_vectors: list[tuple[float, float, float]] | None,
                heading_column: int, heading_estimate: float,
@@ -225,7 +243,10 @@ class MultiSourceGoalCompetition:
                heading: float | None = None,
                flow_asymmetry: float = 0.0,
                stuck_duration: float = 0.0,
-               n_columns: int | None = None) -> float:
+               n_columns: int | None = None,
+               progress_ineffective: bool | None = None,
+               loop_score: float = 0.0,
+               burst_active: bool = False) -> float:
         """One timestep of goal competition and steering computation.
 
         Parameters
@@ -246,6 +267,24 @@ class MultiSourceGoalCompetition:
             Optic flow left-right imbalance.
         stuck_duration : float, optional
             Seconds stuck (for loop-break).
+        progress_ineffective : bool or None, optional
+            P1-b5 (§5.5): the single-progress-ledger verdict
+            (``MemoryController.progress_is_ineffective`` /
+            ``memory.py:progress_is_ineffective``).  ``True`` ⇒ the agent is
+            moving without making progress, so a loop break is warranted.
+            ``None`` (the default — no caller-supplied verdict) keeps the
+            pre-P1-b5 tree behaviour: "no active goal and stuck" counts as no
+            progress.  Passing a real verdict makes that verdict authoritative.
+        loop_score : float, optional
+            P1-b5 (§5.5): fraction of the recent window spent revisiting old
+            cells.  ``> loop_breakout_threshold`` is the second progress-gate
+            rung, so a *reported* verdict of "progress is fine" cannot mask a
+            measured loop.
+        burst_active : bool, optional
+            P1-b5 (F6): a forward deadlock burst is running.  The burst already
+            writes ``control.x/y``, so CX must not re-aim the heading at the
+            same time — ``burst_active`` is a suppression precondition of the
+            break (``breakout_ok AND NOT burst_active``), not a new threshold.
 
         Returns
         -------
@@ -255,6 +294,7 @@ class MultiSourceGoalCompetition:
         n = n_columns if n_columns is not None else self.n_columns
 
         # ---- Goal vector competition ----
+        self.goal_source = "none"
         if goal_vectors:
             sx = sz = 0.0
             for dx, dz, w in goal_vectors:
@@ -262,6 +302,7 @@ class MultiSourceGoalCompetition:
                 sz += w * dz
             norm = np.hypot(sx, sz)
             if norm > 1e-6:
+                self.goal_source = "vectors"
                 goal_angle = float(np.arctan2(sx, sz))
                 self._goal_float = goal_angle / (2 * np.pi) * n
                 self.goal_column = (int(round(self._goal_float)) % n + n) % n
@@ -269,6 +310,7 @@ class MultiSourceGoalCompetition:
                 self._ext_goal_strength = self.goal_strength
         elif (abs(novelty_direction) > 0.1 or abs(novelty - 0.5) > 0.3):
             # Legacy fallback: novelty-only goal
+            self.goal_source = "novelty"
             h_ref = heading if heading is not None else heading_estimate
             column_idx = int((h_ref % (2 * np.pi)) / (2 * np.pi) * n) % n
             col_offset = novelty_direction * n * 0.25
@@ -283,8 +325,50 @@ class MultiSourceGoalCompetition:
             self._ext_goal_strength *= self.goal_memory_decay
 
         # ---- Idle exploration wander ----
-        _no_goal = self._ext_goal_strength < 0.05
+        # P1-b5 (EVO-057, spec §5.5): the "no active goal" test is demoted from
+        # *gate* to *amplitude term* (``_no_goal``).  The gate is now the
+        # progress question: ``_no_progress = progress_ineffective or
+        # loop_score > loop_breakout_threshold``, suppressed while a forward
+        # deadlock burst already owns ``control.x/y`` (F6: ``burst_active`` ⇒
+        # CX does not re-aim).  Motion alone is not progress — this is the
+        # single progress ledger, not a new mechanism, and it writes no control
+        # quantity (the break is still expressed through the CX steering
+        # current in model.py).
+        #
+        # R3 correction (SP5-A, verified by t8): ``_no_goal`` is currently a
+        # **DEAD ASSIGNMENT**.  It is assigned here and read *nowhere* in this
+        # module (grep ``_no_goal`` ⇒ this line plus comments only); the
+        # "amplitude term" of spec §5.5 — the goal-strength bias applied after a
+        # break — was never wired into the steering signal below.  The earlier
+        # claim that it "is still used as an amplitude term, not a dead
+        # variable" is WRONG and is retracted here.  Kept (rather than deleted)
+        # for one reason: the name is the §5.5 anchor a future amplitude
+        # implementation must attach to, and deleting it silently would hide that
+        # the documented mechanism is only half built.  Status: **待清理**
+        # (either wire it into the post-break bias, or delete it together with
+        # the §5.5 amplitude claim).
+        _no_goal = self._ext_goal_strength < 0.05      # R3: dead assignment (待清理)
+        _loop_breakout_threshold = float(getattr(
+            self, "loop_breakout_threshold", CX_LOOP_BREAKOUT_THRESHOLD))
+        _loop_score = float(loop_score or 0.0)
+        if progress_ineffective is None:
+            # No caller-supplied verdict: keep the pre-P1-b5 tree behaviour
+            # ("stuck ⇒ no progress").  An active goal is the *only* thing that
+            # must still block a break here, because a live goal vector means
+            # the fly is pursuing something
+            # (``test_active_goal_is_never_overridden``); every other stuck
+            # tick is a genuine no-progress tick for the loop-break purpose.
+            _has_active_goal = bool(goal_vectors) or (
+                abs(novelty_direction) > 0.1 or abs(novelty - 0.5) > 0.3)
+            _no_progress = bool(
+                (float(stuck_duration or 0.0) > 0.0) and not _has_active_goal)
+        else:
+            _no_progress = bool(
+                bool(progress_ineffective)
+                or _loop_score > _loop_breakout_threshold)
+        _burst_ok = not bool(burst_active)
         if self.goal_strength < 0.05:
+            self.goal_source = "wander"
             self._idle_wander_phase += self._idle_wander_rate
             wander = np.sin(self._idle_wander_phase) * 8.0
             self._goal_float = (self._goal_float + wander * 0.05 + 0.002) % n
@@ -295,15 +379,22 @@ class MultiSourceGoalCompetition:
         stuck = float(stuck_duration or 0.0)
         self._ticks_since_jump += 1
         if (stuck > getattr(self, '_loop_break_stuck_s', CX_LOOP_BREAK_STUCK_S)
-                and _no_goal
+                and _no_progress and _burst_ok
                 and self._ticks_since_jump >= CX_LOOP_BREAK_COOLDOWN_TICKS):
             self._jump_seq += 1
+            self.goal_source = "loop_break"
             _h = (self._jump_seq * 2654435761) & 0xFFFFFFFF
             jump = _h % n
             self._goal_float = float(jump)
             self.goal_column = jump
             self.goal_strength = 0.60
             self._ticks_since_jump = 0
+        # F6 observability: the caller reads these back for
+        # ``flow.json["cx_loop_break_count_burst_off"]`` /
+        # ``cx_loop_break_last_ts``.  ``_last_no_progress`` distinguishes a
+        # real breakout from the wander-driven steering writes.
+        self._last_burst_active = bool(burst_active)
+        self._last_no_progress = bool(_no_progress)
 
         # ---- Steering signal ----
         offset = (self.goal_column - heading_column) % n
@@ -326,6 +417,9 @@ class MultiSourceGoalCompetition:
         self._jump_seq = 0
         self._ticks_since_jump = CX_LOOP_BREAK_COOLDOWN_TICKS
         self._ext_goal_strength = 0.0
+        # P1-b5 (F6): the observation mirrors are episode state too.
+        self._last_burst_active = False
+        self._last_no_progress = False
 
 
 class CentralComplex:
@@ -383,6 +477,10 @@ class CentralComplex:
         self._goal_float = 0.0
         self._ext_goal_strength = 0.0
         self._jump_seq = 0
+        # P1-b5 (§5.5): registered key ``navigation.loop_breakout_threshold``.
+        self.loop_breakout_threshold = CX_LOOP_BREAKOUT_THRESHOLD
+        self._last_burst_active = False
+        self._last_no_progress = False
         self.stuck_time = 0.0
         self._ticks_since_jump = CX_LOOP_BREAK_COOLDOWN_TICKS
         self._idle_wander_phase = 0.0
@@ -446,12 +544,18 @@ class CentralComplex:
     def _sync_cx3_backrefs(self) -> None:
         """Sync backward-compatible goal/steering references."""
         self.goal_column = self._goal_comp.goal_column
+        self.goal_source = getattr(self._goal_comp, "goal_source", "none")
         self.goal_strength = self._goal_comp.goal_strength
         self.steering_bias = self._goal_comp.steering_bias
         self._goal_float = self._goal_comp._goal_float
         self._ext_goal_strength = self._goal_comp._ext_goal_strength
         self._jump_seq = self._goal_comp._jump_seq
         self._ticks_since_jump = self._goal_comp._ticks_since_jump
+        # P1-b5 (§5.5 / F6) mirrors: the registered threshold and the two
+        # observation flags the caller reads back for flow.json.
+        self.loop_breakout_threshold = self._goal_comp.loop_breakout_threshold
+        self._last_burst_active = self._goal_comp._last_burst_active
+        self._last_no_progress = self._goal_comp._last_no_progress
 
     # ── CX internal methods ──
 
@@ -499,7 +603,10 @@ class CentralComplex:
                scene_id: int | None = None,
                scene_confidence: float = 0.0,
                scene_total: int = 0,
-               stuck_duration: float = 0.0) -> float:
+               stuck_duration: float = 0.0,
+               progress_ineffective: bool | None = None,
+               loop_score: float = 0.0,
+               burst_active: bool = False) -> float:
         """One timestep of CX processing: compass → path integration → steering.
 
         Parameters
@@ -530,6 +637,16 @@ class CentralComplex:
             Total scene count (unused, kept for signature compat).
         stuck_duration : float, optional
             Seconds stuck (for loop-break).
+        progress_ineffective : bool or None, optional
+            P1-b5 (§5.5): single-progress-ledger verdict
+            (``MemoryController.progress_is_ineffective``).  ``None`` keeps the
+            pre-P1-b5 tree behaviour.
+        loop_score : float, optional
+            P1-b5 (§5.5): revisit fraction of the recent window; the second
+            rung of the progress gate.
+        burst_active : bool, optional
+            P1-b5 (F6): a forward deadlock burst owns ``control.x/y`` this tick,
+            so CX must not re-aim the heading (``burst_active ⇒ CX 不复位``).
 
         Returns
         -------
@@ -573,6 +690,14 @@ class CentralComplex:
             heading=heading,
             flow_asymmetry=flow_asymmetry,
             stuck_duration=stuck_duration,
+            # P1-b5 (§5.5): the progress gate + F6 burst interlock.  All three
+            # default to zero-behaviour-change values; ``progress_ineffective``
+            # defaults to ``None`` ("no verdict supplied") so an unwired caller
+            # keeps the tree behaviour, while a wired producer's real verdict
+            # becomes authoritative.
+            progress_ineffective=progress_ineffective,
+            loop_score=loop_score,
+            burst_active=burst_active,
         )
         self._sync_cx3_backrefs()
         self.stuck_time = float(stuck_duration or 0.0)
@@ -612,6 +737,7 @@ class CentralComplex:
         return {
             "heading_column": self.heading_column,
             "goal_column": self.goal_column,
+            "goal_source": getattr(self, "goal_source", "none"),
             "goal_strength": round(self.goal_strength, 4),
             "steering_bias": round(self.steering_bias, 4),
             "compass_entropy": float(

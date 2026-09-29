@@ -48,7 +48,7 @@ def sample(minutes: float, interval: float, out: str) -> None:
                     *[f"mb_w_{m}" for m in MBONS],
                     *[f"cx_col_{i}" for i in range(16)],
                     "cx_heading_column", "cx_goal_column", "cx_steering_bias",
-                    "cx_entropy", "cx_peak"])
+                    "cx_entropy", "cx_peak", "cx_goal_source"])
         while time.time() < end:
             f = fetch_flow()
             if f:
@@ -74,7 +74,7 @@ def sample(minutes: float, interval: float, out: str) -> None:
                             *(st.get(k) if (st := f.get("cx_stats")) else None
                               for k in ("heading_column", "goal_column",
                                         "steering_bias", "compass_entropy",
-                                        "compass_peak"))])
+                                        "compass_peak", "goal_source"))])
                 rows += 1
                 fh.flush()  # flush every row so the dashboard replay page sees live data
             time.sleep(interval)
