@@ -269,6 +269,15 @@ class DashboardHTTP(BaseHTTPRequestHandler):
                 body, mime = _btp.read_bytes(), "application/json"
             except OSError:
                 body, mime = b'{"params":{}}', "application/json"
+        elif path == "/brain-replay-trace.json":
+            # Decision-process replay data for web/brain-replay.html: MBON
+            # channels + dopamine + coach events, built from runtime logs on
+            # every request (stdlib only, no model access).
+            from .brain_trace import build_trace
+            try:
+                body, mime = json.dumps(build_trace(), ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8"
+            except Exception as _e:  # never break the dashboard on trace errors
+                body, mime = json.dumps({"error": str(_e)}).encode(), "application/json"
         elif path == "/coach_frames" or path.startswith("/coach_frames/"):
             # t21 wrap-up UI: read-only static endpoint for the consult
             # frame snapshots.  Directory traversal is blocked by resolving
@@ -557,6 +566,7 @@ def start_http(project: Path, model, port: int, ws_port: int) -> ThreadingHTTPSe
         "/monitor-preview.html": (project / "web/monitor-preview.html", "text/html; charset=utf-8"),
         "/layout-wireframe.html": (project / "web/layout-wireframe.html", "text/html; charset=utf-8"),
         "/evo-params.html": (project / "web/evo-params.html", "text/html; charset=utf-8"),
+        "/brain-replay.html": (project / "web/brain-replay.html", "text/html; charset=utf-8"),
         "/measured.bin": (model.position_measured.astype(np.uint8).tobytes(), "application/octet-stream"),
     }
     DashboardHTTP.metadata = json.dumps(dict(n=model.n, ws=ws_port, label=model.label,
@@ -1374,6 +1384,7 @@ async def run(args) -> None:
     pending_jump = False
     dash_seq = 0
     DashboardHTTP.trajectory_points = []
+    DashboardHTTP.scene_changes = []
     DashboardHTTP.memory_json = b"{}"
     memory_ctrl = MemoryController()
     # Phase 2 motor expansion: VNC-style CPG motor primitives (priority 4.5)
@@ -2878,6 +2889,20 @@ async def run(args) -> None:
                 model.forward_units_per_tick = getattr(control, "forward_rate", 0.0) * 1.2
                 if getattr(model, "scene_change", False):
                     model.cx.set_anchor(pose[0], pose[2])
+                    # P0 display: scene-boundary markers for the trajectory page.
+                    # The buffer deliberately persists across scenes (see
+                    # trajectory_points retention), so without these markers a
+                    # multi-scene buffer silently mixes unrelated runs — the
+                    # exact confound that twice invalidated coverage comparisons.
+                    try:
+                        DashboardHTTP.scene_changes.append(
+                            {"t": round(tick_start - started, 2),
+                             "scene": str(getattr(model, "scene_sig", ""))[:8],
+                             "x": round(pose[0], 1), "z": round(pose[2], 1)})
+                        if len(DashboardHTTP.scene_changes) > 200:
+                            DashboardHTTP.scene_changes = DashboardHTTP.scene_changes[-200:]
+                    except Exception:
+                        pass
                 # EVO R20 (CX-1): sky azimuth from blue-dominant hue bands —
                 # visual compass correction for the CX ring attractor
                 _sx = _sy = 0.0
@@ -2943,6 +2968,11 @@ async def run(args) -> None:
                     # traversal topology, for the 3D trajectory map overlay
                     "heat_cells": [[round(float(x), 1), round(float(z), 1), round(float(h), 3)]
                                    for x, z, h in zip(xs, zs, heats)],
+                    # P0 display: honest truncation hint + navigation-vector
+                    # debug (frontier / repulsion / plateau) + scene boundaries.
+                    "total_cells": int(memory_ctrl.spatial.visited_cells),
+                    "nav_debug": getattr(memory_ctrl, "_last_nav_debug", None),
+                    "scene_changes": DashboardHTTP.scene_changes,
                     "adjacency": memory_ctrl.spatial.adjacency_list(400),
                     "stuck_score": round(memory_ctrl.stuck_score, 3),
                     "stuck_duration": round(memory_ctrl.stuck_duration, 3),
@@ -3265,6 +3295,10 @@ async def run(args) -> None:
                     "no_progress_gate": bool(
                         getattr(model.cx, "_last_no_progress", False)),
                     "deadlock_burst_count": int(_deadlock_burst_count),
+                    # CX-1 ring attractor real telemetry for web/brain-replay.html:
+                    # 16-column compass activity + compass diagnostics.
+                    "cx_compass": [round(float(v), 4) for v in model.cx.compass],
+                    "cx_stats": model.cx.compass_stats,
                 }, separators=(",", ":")).encode()
                 # P2-3: Serve EVO health trend from the JSONL file (if available)
                 try:

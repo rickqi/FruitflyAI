@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Fly64 决策过程回放</title>
+<style>
+  :root { color-scheme: dark; --bg:#0d1117; --panel:#161b22; --line:#21262d; --muted:#8b949e; --cyan:#58a6ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:13px/1.6 "Cascadia Code", Consolas, "Microsoft YaHei", monospace; background:var(--bg); color:#c9d1d9; }
+  header { padding:10px 16px; border-bottom:1px solid var(--line); display:flex; gap:16px; align-items:baseline; flex-wrap:wrap; }
+  header h1 { font-size:15px; margin:0; color:var(--cyan); }
+  header .meta { color:var(--muted); font-size:11px; }
+  header a.back { font-size:12px; color:var(--cyan); text-decoration:none; border:1px solid #2a6a78; border-radius:3px; padding:3px 8px; }
+  main { padding:12px 16px; max-width:1150px; margin:0 auto; }
+  h2 { font-size:13px; color:#e6edf3; margin:18px 0 6px; }
+  .explain { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:10px 14px; font-size:12px; color:var(--muted); margin-bottom:8px; }
+  .explain b { color:#c9d1d9; }
+  .explain .kw { color:var(--cyan); }
+  canvas { width:100%; display:block; background:#010409; border:1px solid var(--line); border-radius:6px; }
+  .controls { display:flex; gap:8px; align-items:center; margin:10px 0; flex-wrap:wrap; }
+  button { background:#21262d; color:#c9d1d9; border:1px solid #30363d; border-radius:6px; padding:5px 12px; cursor:pointer; font:inherit; }
+  button:hover { background:#30363d; }
+  input[type=range] { flex:1; min-width:200px; }
+  .t { color:var(--cyan); min-width:300px; }
+  .legend { display:flex; gap:14px; flex-wrap:wrap; align-items:center; margin:6px 0 4px; font-size:11px; color:var(--muted); }
+  .legend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; vertical-align:-1px; }
+  .lg-item:hover { color:#e6edf3; }
+  table { border-collapse:collapse; width:100%; font-size:11px; }
+  td,th { border:1px solid var(--line); padding:4px 8px; text-align:left; vertical-align:top; }
+  th { color:var(--muted); font-weight:normal; white-space:nowrap; }
+  td.k { color:var(--cyan); white-space:nowrap; }
+  #err { color:#f85149; padding:8px 16px; display:none; }
+  details { margin-top:6px; }
+  summary { cursor:pointer; color:var(--cyan); font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🧠 Fly64 决策过程回放</h1>
+  <span class="meta" id="meta">loading…</span>
+  <a class="back" href="/">← 返回主监控台</a>
+</header>
+<div id="err"></div>
+<main>
+
+<details open>
+<summary>📖 这个页面在显示什么？（点开/收起说明）</summary>
+<div class="explain">
+  <p><b>一句话：</b>这是脑模型「做过什么决策、为什么做」的<b>时间轴回放器</b>。它读取脑模型运行时写下的两类日志，
+  让你像看录像一样逐 tick 回放蘑菇体（MBON）四个动作通道的打分、多巴胺奖励信号、CX 环吸引子航向、以及教练（coach）介入事件。</p>
+  <p><b>数据链路与时效：</b>脑模型 flow.json → 评估采样器（<span class="kw">scripts/m3_mbon_eval.py</span>，每 2 秒采一条写
+  <span class="kw">runtime/mbon_eval.csv</span>）+ <span class="kw">skills/coach_outcomes.jsonl</span>（教练处理记录）→ 本页。
+  页面每 5 秒自动拉取新数据；从脑状态变化到显示的端到端延迟 ≈ <b>2~7 秒</b>。
+  可回放的时间窗口 = <b>采样器本次启动以来</b>的全部样本（右上角显示窗口起止时间）；采样器重启会开新文件，更早的数据不在窗口内。</p>
+  <p><b>两种观看方式：</b>勾选「实时跟随最新 tick」= 准实时监视器（游标始终停在最新数据）；
+  取消勾选 / 拖动时间轴 = 历史回放器，可任意回看窗口内任一时刻，时间戳显示该 tick 的真实采集时刻。</p>
+  <p><b>背景模型：</b>脑模型是果蝇启发式三层结构 —— 感知（视网膜流+场景记忆）→ 决策（CX 中央复合体定向 +
+  MB 蘑菇体动作价值）→ 输出（动作基元）。本页聚焦<b>决策层与输出层</b>：蘑菇体给四个本能动作打分，
+  多巴胺根据结果奖惩，最终由 CPG（本能反射）或综合决策选出动作执行。</p>
+</div>
+</details>
+
+<h2>① MBON 动作通道 · 多巴胺 时间序列</h2>
+<div class="explain">
+  横轴 = 采样 tick（每格 ≈ 2 秒），纵轴 = 读数（-1 ~ +1）。四条彩色曲线是蘑菇体对四个<b>本能动作</b>的价值读数：
+  <span class="kw">punch</span>拳击 / <span class="kw">dive</span>俯冲 / <span class="kw">groundpound</span>砸地 /
+  <span class="kw">longjump</span>远跳。某通道 <b>&gt;0</b> 表示支持该动作、<b>&lt;0</b> 表示抑制。
+  <span class="kw">紫色 dopamine</span> 是多巴胺奖励信号：<b>负值=刚完成的动作带来坏结果（权重被抑制）</b>，
+  <b>正值=好结果（被强化）</b>。<b style="color:#f85149">红色竖线</b> = 教练介入事件（对齐到最近 tick），
+  标注为 异常类型/处理结论，如 fallen/unchanged = 摔倒异常且策略调整未生效。
+  <span style="color:#58a6ff">蓝色光标</span> = 当前回放位置，其真实采集时刻显示在下方控制条。
+</div>
+<div class="legend"><span style="color:#58a6ff">🖱 点击图例显示/隐藏曲线（提示：dopamine 实际摆幅仅 ±0.4，建议只勾「多巴胺」并保持 Y轴自适应）：</span><span id="legend" style="display:contents"></span></div>
+<canvas id="mbon" height="230"></canvas>
+
+<h2>② CX 16 列环吸引子（真实遥测）</h2>
+<div class="explain">
+  果蝇中央复合体（CX）用 16 列环形神经毡编码<b>航向</b>。<b>绿色环 = 真实遥测</b>：来自
+  <span class="kw">central_complex.py</span> 的环吸引子 16 列激活（经 flow.json cx_compass 字段 → 采样器 → 本页）。
+  看法：<b>白圈</b>=当前航向列，<b>黄点</b>=目标列，绿色亮度=列激活强度；亮块追着黄点转 = 正在朝目标转向；
+  整环均匀暗淡（熵高）= 航向不确定。若该 tick 采样早于 CX 遥测上线，则回退为<b>蓝色示意环</b>（dopamine 相位 + MBON 能量驱动）。
+</div>
+<canvas id="cx" height="210"></canvas>
+
+<div class="controls">
+  <button id="play">▶ 播放</button>
+  <button id="step">⏭ 单步</button>
+  <button id="rewind">⟲ 回到起点</button>
+  <label style="font-size:12px;color:#8b949e;display:flex;gap:4px;align-items:center">
+    <input type="checkbox" id="live" checked> 实时跟随最新 tick（每5s自动拉取）
+  </label>
+  <label style="font-size:12px;color:#8b949e;display:flex;gap:4px;align-items:center">
+    <input type="checkbox" id="yfit" checked> Y轴自适应缩放（放大可见数据的实际波动区间）
+  </label>
+  <input type="range" id="scrub" min="0" max="0" value="0">
+  <span class="t" id="tlabel">t=0</span>
+</div>
+
+<h2>③ 当前 tick 明细</h2>
+<div class="explain">鼠标悬停字段名可看含义。关键判读：<span class="kw">decision_source</span>=cpg_primitive:* 表示该 tick 由本能反射直接驱动（脑未干预）；
+=steering 表示 CX+MBON 综合决策。<span class="kw">disp_60s</span> 长期接近 0 说明在原地卡死 —— 这正是触发 escape/coach 的信号。</div>
+<table id="detail"><thead><tr><th>字段</th><th>当前值</th><th>含义</th></tr></thead><tbody></tbody></table>
+
+</main>
+<script>
+const MBON_COLORS = { mb_mbon_punch:"#f85149", mb_mbon_dive:"#58a6ff",
+  mb_mbon_groundpound:"#d29922", mb_mbon_longjump:"#3fb950" };
+const DA_COLOR = "#bc8cff";
+const CN = { mb_mbon_punch:"拳击", mb_mbon_dive:"俯冲", mb_mbon_groundpound:"砸地", mb_mbon_longjump:"远跳", dopamine:"多巴胺(奖励)", coach:"coach 介入事件" };
+const COACH_COLOR = "#f85149";
+// series visibility: which curves/overlays the user has toggled on
+const SERIES = [...Object.keys(MBON_COLORS), "dopamine", "coach"];
+const visible = Object.fromEntries(SERIES.map(k=>[k,true]));
+let trace=null, idx=0, playing=false, timer=null, fieldHelp={};
+
+fetch("/brain-replay-trace.json").then(r=>{ if(!r.ok) throw new Error("HTTP "+r.status); return r.json(); })
+.then(t=>{ trace=t; fieldHelp=t.field_help||{}; init(); })
+.catch(e=>{ const el=document.getElementById("err"); el.style.display="block";
+  el.textContent="trace 加载失败: "+e.message+" — 需要脑模型主进程已启动且 runtime/mbon_eval.csv 存在"; });
+
+function init(){
+  document.getElementById("scrub").max = trace.ticks.length-1;
+  updateMeta();
+  const lg=document.getElementById("legend");
+  lg.innerHTML = SERIES.map(k=>{
+    const col = k==="dopamine"?DA_COLOR : k==="coach"?COACH_COLOR : MBON_COLORS[k];
+    return `<span class="lg-item" data-k="${k}" title="${fieldHelp[k]||CN[k]||""}" style="cursor:pointer">
+      <i style="background:${col}"></i>${CN[k]||k}</span>`;
+  }).join("") + `<button id="lgAll" style="font-size:11px;padding:2px 8px;margin-left:6px">全选</button>`;
+  lg.querySelectorAll(".lg-item").forEach(el=>{
+    el.onclick=()=>{
+      const k=el.dataset.k;
+      visible[k]=!visible[k];
+      el.style.opacity = visible[k]?1:0.32;
+      draw();
+    };
+  });
+  document.getElementById("lgAll").onclick=()=>{
+    SERIES.forEach(k=>visible[k]=true);
+    lg.querySelectorAll(".lg-item").forEach(el=>el.style.opacity=1);
+    draw();
+  };
+  draw();
+}
+const tick=i=>trace.ticks[Math.max(0,Math.min(i,trace.ticks.length-1))];
+const fmtClock=t=>{ const d=new Date(t*1000); const p=n=>String(n).padStart(2,"0");
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; };
+function updateMeta(){
+  const n=trace.ticks.length;
+  if(!n){ document.getElementById("meta").textContent="暂无样本"; return; }
+  const t0=trace.ticks[0].t, t1=trace.ticks[n-1].t;
+  document.getElementById("meta").textContent =
+    `${n} ticks · 窗口 ${fmtClock(t0)} → ${fmtClock(t1)}（${((t1-t0)/60).toFixed(1)} 分钟）· ${trace.events.length} coach 事件`;
+}
+
+function drawMbon(){
+  const cv=document.getElementById("mbon"), dpr=window.devicePixelRatio||1;
+  const W=cv.clientWidth, H=230; cv.width=W*dpr; cv.height=H*dpr;
+  const g=cv.getContext("2d"); g.scale(dpr,dpr); g.clearRect(0,0,W,H);
+  const n=trace.ticks.length, L=44, R=10, T=10, B=26, plotW=W-L-R, plotH=H-T-B;
+  const shown = SERIES.filter(k=>k!=="coach" && visible[k]);
+  // Y scale: fixed [-1,1] or auto-fit to visible series' actual range
+  let yMin=-1, yMax=1;
+  if(document.getElementById("yfit").checked && shown.length){
+    let lo=Infinity, hi=-Infinity;
+    trace.ticks.forEach(tk=>{ for(const k of shown){ const v = k==="dopamine" ? tk.dopamine : (tk.mbon ? tk.mbon[k] : tk[k]);
+      if(v!=null && isFinite(v)){ if(v<lo)lo=v; if(v>hi)hi=v; } } });
+    if(lo<hi){ const pad=(hi-lo)*0.12 || 0.05; yMin=lo-pad; yMax=hi+pad; }
+  }
+  const ys=v=>T+plotH - (Math.max(yMin,Math.min(yMax,v))-yMin)/(yMax-yMin)*plotH;
+  g.strokeStyle="#21262d"; g.beginPath(); g.moveTo(L,T); g.lineTo(L,T+plotH); g.lineTo(L+plotW,T+plotH); g.stroke();
+  g.fillStyle="#8b949e"; g.font="10px monospace";
+  g.fillText("+"+yMax.toFixed(2), L-44, T+8);
+  if(yMin<0 && yMax>0){ g.fillText("0", L-14, ys(0)+3);
+    g.strokeStyle="#30363d"; g.beginPath(); g.moveTo(L,ys(0)); g.lineTo(L+plotW,ys(0)); g.stroke(); }
+  g.fillText(yMin.toFixed(2), L-44, T+plotH);
+  if(document.getElementById("yfit").checked) g.fillText("Y轴自适应", L+6, T+plotH-4);
+  const xs=i=>L+(n<2?0:i/(n-1)*plotW);
+  for(const key of SERIES){
+    if(key==="coach" || !visible[key]) continue;
+    g.strokeStyle = key==="dopamine"?DA_COLOR:MBON_COLORS[key]; g.lineWidth=1.6; g.beginPath();
+    trace.ticks.forEach((tk,i)=>{ const v = key==="dopamine" ? tk.dopamine : (tk.mbon ? tk.mbon[key] : tk[key]);
+      if(v==null)return;
+      i===0?g.moveTo(xs(i),ys(v)):g.lineTo(xs(i),ys(v)); });
+    g.stroke();
+  }
+  if(visible.coach && trace.events.length){
+    // map each coach event to nearest tick; label only when labels won't overlap
+    const evs = trace.events.map(ev=>{
+      let best=0,bd=Infinity;
+      trace.ticks.forEach((tk,i)=>{ const d=Math.abs(tk.t-ev.t); if(d<bd){bd=d;best=i;} });
+      return {...ev, i:best};
+    }).filter(ev=>visible[ev.anomaly]!==false);
+    const minGap = 90; // px of plot per event before labels are drawn
+    const labelled = evs.length>0 && plotW/evs.length >= 60;
+    g.fillStyle=COACH_COLOR; g.font="9px monospace";
+    evs.forEach((ev,j)=>{
+      const x=xs(ev.i); g.fillRect(x-1,T,2,plotH);
+      if(labelled){
+        g.fillText((ev.anomaly||"?")+"/"+(ev.verdict||""), x+3, T+9+((j%3)*11));
+      }
+    });
+    if(!labelled && evs.length){
+      g.fillStyle="#8b949e"; g.font="9px monospace";
+      g.fillText(`coach 事件 ×${evs.length}（放大时间窗或隐藏曲线后显示标注）`, L+6, T+9);
+    }
+  }
+  const cx=xs(idx); g.strokeStyle="#58a6ff"; g.lineWidth=1;
+  g.beginPath(); g.moveTo(cx,T); g.lineTo(cx,T+plotH); g.stroke();
+  g.fillStyle="#58a6ff"; g.fillText("tick "+idx, Math.min(cx+4,W-60), H-8);
+}
+
+function drawCx(){
+  const cv=document.getElementById("cx"), dpr=window.devicePixelRatio||1;
+  const W=cv.clientWidth, H=210; cv.width=W*dpr; cv.height=H*dpr;
+  const g=cv.getContext("2d"); g.scale(dpr,dpr); g.clearRect(0,0,W,H);
+  const cx0=W/2, cy0=H/2+6, R=70, colR=16, N=16;
+  const tk=tick(idx);
+  const real = tk.cx_compass && tk.cx_compass.some(v=>v!=null);
+  let title, vals;
+  if(real){
+    // normalise real ring-attractor activity to 0..1 for shading
+    const vs=tk.cx_compass.map(v=>v??0);
+    const mx=Math.max(...vs)||1;
+    vals=vs.map(v=>v/mx);
+    const st=tk.cx_stats||{};
+    title=`CX 16列环（真实遥测：heading col=${st.heading_column??"-"} · goal col=${st.goal_column??"-"} · steering=${typeof st.steering_bias==="number"?st.steering_bias.toFixed(3):"-"} · 峰值=${typeof st.compass_peak==="number"?st.compass_peak.toFixed(3):"-"}）`;
+  } else {
+    const dop=tk.dopamine??0;
+    const act=trace.mbon_channels.map(k=>tk.mbon?Math.abs(tk.mbon[k]??0):0);
+    const energy=act.reduce((a,b)=>a+b,0)/Math.max(1,act.length);
+    vals=Array.from({length:N},(_,i)=>Math.max(0,Math.cos(i/N*Math.PI*2-dop*Math.PI*2))*(0.25+energy));
+    title=`CX 16列环（示意：多巴胺相位=${dop.toFixed(3)} · MBON平均能量=${energy.toFixed(3)}）`;
+  }
+  g.fillStyle="#8b949e"; g.font="11px monospace"; g.fillText(title, 12, 16);
+  for(let i=0;i<N;i++){
+    const a=i/N*Math.PI*2-Math.PI/2;
+    const amp=Math.min(1,vals[i]||0);
+    const x=cx0+Math.cos(a)*R, y=cy0+Math.sin(a)*R;
+    g.beginPath(); g.arc(x,y,colR,0,Math.PI*2);
+    g.fillStyle=real?`rgba(63,185,80,${0.10+amp*0.85})`:`rgba(88,166,255,${0.12+amp*0.85})`;
+    g.fill();
+    g.strokeStyle="#30363d"; g.stroke();
+    if(real && tk.cx_stats){
+      if(i===tk.cx_stats.heading_column){ g.strokeStyle="#e6edf3"; g.lineWidth=2; g.stroke(); g.lineWidth=1; }
+      if(i===tk.cx_stats.goal_column){ g.fillStyle="#d29922"; g.beginPath(); g.arc(x,y,4,0,Math.PI*2); g.fill(); }
+    }
+  }
+  if(real){
+    g.fillStyle="#8b949e"; g.font="10px monospace";
+    g.fillText("白圈=当前航向列 · 黄点=目标列 · 绿色亮度=列激活强度", cx0-R-20, H-6);
+  }
+  g.fillStyle="#58a6ff"; g.font="11px monospace"; const tx=cx0+R+40;
+  g.fillText("decision: "+(tk.decision_source||"-")+(tk.primitive?" → "+tk.primitive:""), tx-40, cy0-46);
+  g.fillText("事件: "+(tk.event||"-"), tx-40, cy0-26);
+  g.fillText("disp_60s: "+(tk.disp_60s??"-"), tx-40, cy0-6);
+  g.fillText("完成/中断: "+tk.completed+"/"+tk.aborted, tx-40, cy0+14);
+}
+
+function drawDetail(){
+  const tk=tick(idx), tb=document.querySelector("#detail tbody");
+  const rows=[
+    ["t", tk.t?.toFixed(2),"采样时刻（秒）"],
+    ["decision_source",tk.decision_source,fieldHelp["decision_source"]],
+    ["primitive",tk.primitive,fieldHelp["primitive"]],
+    ["event",tk.event,fieldHelp["event"]],
+    ["cpg_active",tk.cpg_active,fieldHelp["cpg_active"]],
+    ["disp_60s",tk.disp_60s,fieldHelp["disp_60s"]],
+    ["dopamine",tk.dopamine?.toFixed(4),fieldHelp["dopamine"]],
+    ...trace.mbon_channels.map(k=>[k,(tk.mbon?.[k]??0).toFixed(4),fieldHelp[k]||CN[k]||""]),
+    ...Object.entries(tk.mbw||{}).map(([k,v])=>[k,(v??0).toFixed(4),fieldHelp["mb_w_*"]||"权重均值"])
+  ];
+  tb.innerHTML=rows.map(r=>`<tr><td class="k" title="${r[2]||""}">${r[0]}</td><td>${r[1]??""}</td><td>${r[2]||""}</td></tr>`).join("");
+}
+
+function draw(){ if(!trace)return; drawMbon(); drawCx(); drawDetail();
+  const tk=tick(idx);
+  const age=tk.t? Math.max(0,(Date.now()/1000)-tk.t) : 0;
+  document.getElementById("tlabel").textContent =
+    `采集 ${fmtClock(tk.t||0)} · 距今 ${age<90?age.toFixed(0)+"s":(age/60).toFixed(1)+"min"} · tick ${idx+1}/${trace.ticks.length}`;
+  document.getElementById("scrub").value=idx; }
+function stepTo(i){ idx=Math.max(0,Math.min(i,trace.ticks.length-1)); draw(); }
+
+document.getElementById("play").onclick=e=>{
+  playing=!playing; e.target.textContent=playing?"⏸ 暂停":"▶ 播放";
+  if(playing) timer=setInterval(()=>{ if(idx>=trace.ticks.length-1){playing=false;clearInterval(timer);e.target.textContent="▶ 播放";return;} stepTo(idx+1); },350);
+  else clearInterval(timer);
+};
+document.getElementById("step").onclick=()=>stepTo(idx+1);
+document.getElementById("rewind").onclick=()=>stepTo(0);
+document.getElementById("scrub").oninput=e=>{ document.getElementById("live").checked=false; stepTo(+e.target.value); };
+document.getElementById("yfit").onchange=draw;
+window.addEventListener("resize",draw);
+
+// ── 实时刷新：每5s重新拉取 trace，按时间戳合并新 tick ──
+const liveCb=document.getElementById("live");
+let followLive=true;
+liveCb.onchange=()=>{ if(liveCb.checked){ idx=trace.ticks.length-1; draw(); } };
+setInterval(async ()=>{
+  try{
+    const r=await fetch("/brain-replay-trace.json",{cache:"no-store"});
+    if(!r.ok) return;
+    const t=await r.json();
+    // merge: keep current array, append ticks newer than the last known t
+    const lastT = trace.ticks.length? trace.ticks[trace.ticks.length-1].t : -1;
+    const fresh = t.ticks.filter(k=>k.t>lastT);
+    if(fresh.length){
+      trace.ticks.push(...fresh);
+      trace.tick_count = trace.ticks.length;
+      // events: replace wholesale (cheap, few dozen)
+      trace.events = t.events;
+      document.getElementById("scrub").max = trace.ticks.length-1;
+      updateMeta();
+      if(liveCb.checked && !playing){ idx=trace.ticks.length-1; }
+    }
+    draw();  // refresh "距今" age display even when no new ticks
+  }catch(e){ /* transient poll failure: keep showing last snapshot */ }
+},5000);
+</script>
+</body>
+</html>

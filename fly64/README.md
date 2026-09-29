@@ -274,6 +274,7 @@ cat runtime/phase2_gate.json      # 连续稳定 ≥12h 后由 scripts/phase2_ga
 | **布局线框图** | `/layout-wireframe.html` | 全部 8 个组件区块的线框图：双布局模式 + 四档响应式断点条（<650 / 650–1100 / 1100–1400 / ≥1400）+ grid-template-areas 原文 |
 | **轨迹回放** | `/trajectory.html` | 马里奥运动轨迹 3D 回放：平滑主路径（Line2 2.5px）+ 原始细节层开关 + 时间渐隐 + 海拔着色记忆热毯（蓝→红=低→高，亮度=新鲜度）+ 高频会话快照（重启最多丢 ~2s）；网格与轨迹默认均为**本次脑模型启动后**数据，历史轨迹经下拉单独加载 |
 | **进化参数面板** | `/evo-params.html` | 39 参数六分区滑块实时调参（热重载 ~12s）+ 进化试验历史 + 参数漂移监测 + 中文说明（详见 `skills/brain_tunable_params.json`） |
+| **决策过程回放** | `/brain-replay.html` | **决策层时间轴回放器**（导航栏 🧠 决策回放 进入）：逐 tick 回放 MBON 四动作通道（拳击/俯冲/砸地/远跳）价值读数、多巴胺奖励信号、CX 16 列环吸引子真实遥测（白圈=航向列、黄点=目标列）与 coach 介入事件。功能：图例点击开关任意曲线组合、Y 轴自适应缩放（dopamine 实际摆幅仅 ±0.4）、实时跟随最新 tick（5s 轮询，端到端延迟 2~7s）/ 历史回放双模式、采集时间戳（墙钟 + 数据年龄）。数据链路：`flow.json`（含 `cx_compass`/`cx_stats`）→ `scripts/m3_mbon_eval.py sample`（2s 间隔写 `runtime/mbon_eval.csv`，`FLY64_FLOW_URL` 可覆盖目标）→ `fly64/brain_trace.py` 合并 coach 事件 → `/brain-replay-trace.json`。回放窗口 = 采样器本次启动以来数据 |
 | **空间记忆热力图**（组件） | `web/memory-heatmap.js` | 独立热力图组件：1s 自刷新，消费 `/memory.json` + `/flow.json`，可嵌入其他页面 |
 
 **页面模块化**：主面板逻辑集中在 `web/dashboard.js`（60KB，含 `explain()` 因果派生与四泳道时间轴），样式单一来源 `web/dashboard.css`，热力图可独立复用。
@@ -294,7 +295,7 @@ cat runtime/phase2_gate.json      # 连续稳定 ≥12h 后由 scripts/phase2_ga
 |------|------|-----------|
 | `/bridge-status.json` | 桥接状态（`pose`/`x`/`y`/`jump`/`age_ms`/`game_frame`） | 仪表板、EVO Monitor 阶段 |
 | `/memory.json` | 空间记忆与异常态（`stuck_duration`/`loop_score`/`coverage_pct`/`anomaly_state`/`reflex_*`/`escape_behavior`/`health_score`/`scene_label`） | 仪表板、EVO pattern 条件 |
-| `/flow.json` | 视觉与神经信号（`wall_score`/`ramp_score`/`ground_angle`/`tau`/`danger_red_index`/`emd_on_down`/`target_count`/`mb_*`/`dopamine_gain`/`decision_source`/门控/`evo_iter` + **6 项 plasticity 汇总**） | 仪表板、EVO pattern 条件 |
+| `/flow.json` | 视觉与神经信号（`wall_score`/`ramp_score`/`ground_angle`/`tau`/`danger_red_index`/`emd_on_down`/`target_count`/`mb_*`/`dopamine_gain`/`decision_source`/门控/`evo_iter` + **6 项 plasticity 汇总** + `cx_compass` 16 列环吸引子激活 + `cx_stats` 航向/目标列/转向偏置/熵/峰值） | 仪表板、EVO pattern 条件、决策回放采样器 |
 | `/events.json` | Escape 事件缓冲 + 计数器 | Escape 事件表 |
 | `/history.json` | 信号历史（stuck/coverage/光流时序） | 60s 趋势图 |
 | `/evolution.json` | EVO 轮次与 findings | 仪表板 EVO 胶囊 |
@@ -305,6 +306,7 @@ cat runtime/phase2_gate.json      # 连续稳定 ≥12h 后由 scripts/phase2_ga
 | `/evolution-log.json` | 最近 50 条 Phase 6 进化试验（delta/passed/params） | evo-params 散点图 |
 | `/param-history.json` | 最近 300 条参数漂移记录（manual/self-heal，含 from→to） | evo-params 历史曲线 |
 | `/coach_advice.json` | 教官建议全文（Coach 面板折叠展示） | 仪表板 Coach 面板 |
+| `/brain-replay-trace.json` | 决策回放 trace：MBON 通道 + 多巴胺 + `cx_compass`/`cx_stats` + coach 事件（每次请求实时构建，含 `field_help` 中文说明） | `/brain-replay.html` 决策回放页 |
 | `/metadata.json` · `/trajectory.json` · `/trajectory-list.json` | 元数据 / 实时轨迹 / 轨迹清单 | 轨迹回放页 |
 | `ws://127.0.0.1:8766/` | F643 二进制 packet（`causal_schema=1`；tick 行含 `decision_source`/`cliff_conf`/`stuck_conf`/`gate_forward`/`gate_jump`，帧行含 `sector_active`/`sector_contrast`） | 仪表板实时渲染 |
 

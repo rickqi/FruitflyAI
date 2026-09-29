@@ -18,11 +18,12 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import statistics
 import time
 import urllib.request
 
-FLOW = "http://127.0.0.1:8765/flow.json"
+FLOW = os.environ.get("FLY64_FLOW_URL", "http://127.0.0.1:8765/flow.json")
 MBONS = ("punch", "dive", "groundpound", "longjump")
 DISP_FLOOR = 30.0   # same as reflex_ineffective threshold
 
@@ -44,7 +45,10 @@ def sample(minutes: float, interval: float, out: str) -> None:
         w.writerow(["ts", "decision_source", "cpg_active", "completed", "aborted",
                     "event", "primitive", "disp_60s", "dopamine",
                     *[f"mb_mbon_{m}" for m in MBONS],
-                    *[f"mb_w_{m}" for m in MBONS]])
+                    *[f"mb_w_{m}" for m in MBONS],
+                    *[f"cx_col_{i}" for i in range(16)],
+                    "cx_heading_column", "cx_goal_column", "cx_steering_bias",
+                    "cx_entropy", "cx_peak"])
         while time.time() < end:
             f = fetch_flow()
             if f:
@@ -59,14 +63,20 @@ def sample(minutes: float, interval: float, out: str) -> None:
                     elif ab > last_aborted:
                         event, prim = "abort", str(cpg.get("last") or "")
                 last_completed, last_aborted = comp, ab
+                cx = f.get("cx_compass") or []
+                cx_cols = [cx[i] if i < len(cx) else None for i in range(16)]
                 w.writerow([round(time.time(), 2), src, active, comp, ab,
                             event, prim,
                             f.get("primitive_disp"), f.get("mb_dopamine"),
                             *[f.get(f"mb_mbon_{m}") for m in MBONS],
-                            *[f.get(f"mb_w_{m}") for m in MBONS]])
+                            *[f.get(f"mb_w_{m}") for m in MBONS],
+                            *cx_cols,
+                            *(st.get(k) if (st := f.get("cx_stats")) else None
+                              for k in ("heading_column", "goal_column",
+                                        "steering_bias", "compass_entropy",
+                                        "compass_peak"))])
                 rows += 1
-                if event:
-                    fh.flush()
+                fh.flush()  # flush every row so the dashboard replay page sees live data
             time.sleep(interval)
     print(f"sampled {rows} rows -> {out}")
 
