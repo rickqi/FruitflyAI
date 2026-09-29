@@ -3094,7 +3094,7 @@ async def run(args) -> None:
                     if not _cx_burst_active_now:
                         _cx_loop_breaks_burst_off += 1
                     _cx_prev_jump_seq = _cx_jump_seq_now
-                DashboardHTTP.flow_json = json.dumps({
+                _flow_obj = {
                     "asymmetry": round(model.flow_asymmetry, 4),
                     "true_asymmetry": round(model.true_asymmetry, 4),
                     "heading_rate": round(model.heading_rate, 4),
@@ -3299,7 +3299,17 @@ async def run(args) -> None:
                     # 16-column compass activity + compass diagnostics.
                     "cx_compass": [round(float(v), 4) for v in model.cx.compass],
                     "cx_stats": model.cx.compass_stats,
-                }, separators=(",", ":")).encode()
+                }
+                DashboardHTTP.flow_json = json.dumps(
+                    _flow_obj, separators=(",", ":")).encode()
+                # P0 data-persistence: in-brain rolling decision trace (2s
+                # cadence, runtime/mbon_eval/YYYYMMDD.csv, 7-day retention).
+                # Tracing failures must never break the telemetry loop.
+                try:
+                    from .brain_trace import get_recorder
+                    get_recorder().maybe_record(_flow_obj)
+                except Exception:
+                    pass
                 # P2-3: Serve EVO health trend from the JSONL file (if available)
                 try:
                     _htp = Path(__file__).resolve().parent.parent / "skills" / "evolution_health_trend.jsonl"

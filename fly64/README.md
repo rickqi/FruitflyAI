@@ -274,7 +274,7 @@ cat runtime/phase2_gate.json      # 连续稳定 ≥12h 后由 scripts/phase2_ga
 | **布局线框图** | `/layout-wireframe.html` | 全部 8 个组件区块的线框图：双布局模式 + 四档响应式断点条（<650 / 650–1100 / 1100–1400 / ≥1400）+ grid-template-areas 原文 |
 | **轨迹回放** | `/trajectory.html` | 马里奥运动轨迹 3D 回放：平滑主路径（Line2 2.5px）+ 原始细节层开关 + 时间渐隐 + 海拔着色记忆热毯（蓝→红=低→高，亮度=新鲜度）+ 高频会话快照（重启最多丢 ~2s）；网格与轨迹默认均为**本次脑模型启动后**数据，历史轨迹经下拉单独加载 |
 | **进化参数面板** | `/evo-params.html` | 39 参数六分区滑块实时调参（热重载 ~12s）+ 进化试验历史 + 参数漂移监测 + 中文说明（详见 `skills/brain_tunable_params.json`） |
-| **决策过程回放** | `/brain-replay.html` | **决策层时间轴回放器**（导航栏 🧠 决策回放 进入）：逐 tick 回放 MBON 四动作通道（拳击/俯冲/砸地/远跳）价值读数、多巴胺奖励信号、CX 16 列环吸引子真实遥测（白圈=航向列、黄点=目标列）与 coach 介入事件。功能：图例点击开关任意曲线组合、Y 轴自适应缩放（dopamine 实际摆幅仅 ±0.4）、实时跟随最新 tick（5s 轮询，端到端延迟 2~7s）/ 历史回放双模式、采集时间戳（墙钟 + 数据年龄）。数据链路：`flow.json`（含 `cx_compass`/`cx_stats`）→ `scripts/m3_mbon_eval.py sample`（2s 间隔写 `runtime/mbon_eval.csv`，`FLY64_FLOW_URL` 可覆盖目标）→ `fly64/brain_trace.py` 合并 coach 事件 → `/brain-replay-trace.json`。回放窗口 = 采样器本次启动以来数据 |
+| **决策过程回放** | `/brain-replay.html` | **决策层时间轴回放器**（导航栏 🧠 决策回放 进入）：逐 tick 回放 MBON 四动作通道（拳击/俯冲/砸地/远跳）价值读数、多巴胺奖励信号、CX 16 列环吸引子真实遥测（白圈=航向列、黄点=目标列）与 coach 介入事件。功能：图例点击开关任意曲线组合、Y 轴自适应缩放（dopamine 实际摆幅仅 ±0.4）、实时跟随最新 tick（5s 轮询，端到端延迟 2~7s）/ 历史回放双模式、采集时间戳（墙钟 + 数据年龄）。数据链路：主循环内置 `TraceRecorder`（`fly64/brain_trace.py`，2s 一行按日滚动写 `runtime/mbon_eval/YYYYMMDD.csv`，保留 7 天，含 `cx_compass`/`cx_stats`）→ `fly64/brain_trace.py` 合并 coach 事件 → `/brain-replay-trace.json`。回放窗口 = 滚动文件保留期；外挂采样器 `scripts/m3_mbon_eval.py` 仍可用于离线分析（`analyse` 模式） |
 | **空间记忆热力图**（组件） | `web/memory-heatmap.js` | 独立热力图组件：1s 自刷新，消费 `/memory.json` + `/flow.json`，可嵌入其他页面 |
 
 **页面模块化**：主面板逻辑集中在 `web/dashboard.js`（60KB，含 `explain()` 因果派生与四泳道时间轴），样式单一来源 `web/dashboard.css`，热力图可独立复用。
@@ -286,6 +286,16 @@ cat runtime/phase2_gate.json      # 连续稳定 ≥12h 后由 scripts/phase2_ga
 **降级开关**：`http://127.0.0.1:8765/?noviz=1`（或 `localStorage['fly64.causal']='off'`）一键隐藏全部因果组件（`.causal-ui`），恢复基础布局；因果组件异常不会影响既有面板渲染（try/catch 隔离）。
 
 **资产热更新**：`web/` 下的静态资产（css/js/预览/线框图页）为每请求即时读取——修改后刷新浏览器即生效，无需重启主进程；仅面板 `index.html` 本体与 `metadata.json`/`measured.bin` 仍是启动时快照。
+
+### WSL 部署（单一实例纪律）
+
+脑模型正式运行环境是 WSL（SM64 游戏同环境）；Windows 检出仅用于开发编辑。同步+重启一条命令（在 Windows 侧执行）：
+
+```bash
+wsl -e bash /mnt/d/codes/flygym/fly64/scripts/sync_from_windows.sh
+```
+
+脚本做四件事：① rsync 代码目录到 `/root/fly64`（排除 runtime/artifacts/.cache 等运行态，`skills/` 下的策略/进化状态文件不覆盖）；② 全树语法门禁（坏了不重启）；③ 单实例守卫重启（先 pkill 旧 fly64.main 与外挂采样器——trace 记录已内置于主循环）；④ 健康检查（仪表盘 200 + 回放 tick 数）。
 
 ### API 端点
 
