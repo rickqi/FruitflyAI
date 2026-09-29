@@ -8,6 +8,20 @@ set -x
 
 DISPLAY_MODE="${1:-wslg}"  # wslg (default) or xvfb
 
+# === 幂等保护：检测已有实例，避免重复启动（多实例事故根因修复）===
+# 已有 SM64 进程？
+EXISTING_SM64=$(pgrep -f 'sm64.us.f3dex2e' | head -1 || true)
+# 已有脑模型（dashboard 8765 在线）？
+DASH_UP=$(python3 -c "import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8765/',timeout=3); exit(0)" 2>/dev/null && echo yes || echo no)
+
+if [ -n "$EXISTING_SM64" ] || [ "$DASH_UP" = "yes" ]; then
+    echo "ALREADY_RUNNING: SM64=${EXISTING_SM64:-none} dashboard=$DASH_UP"
+    echo "检测到已有 Fly64 实例（SM64 PID $EXISTING_SM64 / 仪表板 $DASH_UP）——拒绝重复启动。"
+    echo "如需重启：先 bash scripts/wsl_launcher.sh --stop 停掉旧实例，再重新 launch。"
+    exit 1
+fi
+echo "IDEMPOTENT_CHECK: 无已有实例，继续启动。"
+
 # === Start brain ===
 cd /root/fly64
 export PYTHONPATH=/root/fly64
@@ -46,7 +60,7 @@ window_x 300
 window_y 200
 window_w 640
 window_h 771
-vsync true
+vsync false
 texture_filtering 1
 master_volume 127
 music_volume 127
