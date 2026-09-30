@@ -9,8 +9,13 @@ import numpy as np
 from scipy import sparse
 from .retina import SphericalRetina
 from .mushroom_body import MushroomBody
-from .gain_modulation import DopamineGainController
+from .gain_modulation import DEFAULT_GAINS, DopamineGainController
 from .central_complex import CentralComplex
+
+# P0-a1 / P1-b3: denominator floor for jump gate ratio comparison.
+# When forward_rate is below this value the ratio would blow up; the
+# floor prevents division-by-near-zero without adding a new branch.
+FWD_RATIO_FLOOR = 0.008
 
 
 def synaptic_current(w, spikes):
@@ -638,6 +643,9 @@ class FlyModel:
         self.mbon_gain_turn = self.mbon_turn_weight
         self.mbon_gain_jump = self.mbon_jump_weight
         self.mbon_gain_explore = self.mbon_explore_weight
+        # P1-b1: jump leg weight configurable via exploration section
+        self._jump_leg_weight = 0.35
+        self._jump_leg_nominal_gain = float(DEFAULT_GAINS.get("jump", 1.50))
 
         # ---- T2: forward-pool homeostatic occupancy feedback ----
         # t1 root-cause evidence (docs/analysis/motor-pool-saturation-findings.md
@@ -653,6 +661,21 @@ class FlyModel:
         self._fwd_occupancy = 0.0        # EWMA of forward-pool spike occupancy
         self._fwd_homeo_gain = 1.0       # last applied gain (telemetry / tests)
         self._fwd_tonic_current = self.tonic_current  # tonic limb (T2, tests)
+
+        # ---- P1-b2: jump-pool homeostatic occupancy feedback ----
+        # Analogous to forward-pool homeostat: low-pass occupancy → derive a
+        # gain that suppresses MBON→jump injection at high occupancy, and
+        # boosts intrinsic excitability at low occupancy.
+        self.jump_occ_tau = 0.15          # s: occupancy low-pass time constant
+        self.jump_occ_ref = 0.30          # occupancy where suppression starts
+        self.jump_occ_full = 0.60         # occupancy where the gain reaches its floor
+        self.jump_homeo_floor = 0.25      # min MBON-path gain (never silent)
+        self._jump_occupancy = 0.0        # EWMA of jump-pool spike occupancy
+        self._jump_homeo_gain = 1.0       # last applied gain (telemetry / tests)
+        self._jump_tonic_current = 0.0    # intrinsic excitability limb (P1-b2)
+        self._jump_intrinsic_max = 0.05   # max intrinsic excitability for jump tonic
+        # P1-b3: jump gate ratio threshold (replaces absolute occupancy gate)
+        self._jump_rate_ratio_gate = 0.75
 
         # ---- T2: R16 breakout drive split (oscillation-gated turn clamp) ----
         # t1 §A5/§B4: breakout_drive's stuck boost was paid in full whenever
@@ -755,6 +778,17 @@ class FlyModel:
         self.target_nearest_velocity = (0.0, 0.0)
         self.fg_fraction = 0.0
         self.max_target_energy = 0.0
+        # T5: static (color-contrast) and large (BOSS-class) channels
+        self.static_target_count = 0
+        self.large_target_count = 0
+        # T5: target→strike behaviour + hit reward (wired from active_strategy)
+        self.target_strike_gain = 0.35
+        self.target_strike_range_s = 2.0
+        self.target_hit_reward = 0.6
+        self._target_strike_active = False
+        self._prev_target_count = 0      # for hit detection (target vanished)
+        self._strike_was_active = False  # struck while a target was in range
+        self._last_target_hit = -1       # step_count of last landed strike
 
         # ---- Python→neuron error gradient bridge (t3) ----
         self._last_error_gradient = {
@@ -1158,6 +1192,9 @@ class FlyModel:
         self.target_count = int(flow.get("target_count", 0))
         self.fg_fraction = float(flow.get("fg_fraction", 0.0))
         self.max_target_energy = float(flow.get("max_target_energy", 0.0))
+        # T5: static color-contrast channel + large (BOSS-class) channel
+        self.static_target_count = int(flow.get("static_target_count", 0))
+        self.large_target_count = int(flow.get("large_target_count", 0))
 
         # Self-motion gating: suppress target detection during fast turns
         _heading_rate_mag = abs(getattr(self, "heading_rate", 0.0))
@@ -1300,6 +1337,17 @@ class FlyModel:
         scenes in the landmark memory database.
         """
         return self.scene_sig
+
+    @property
+    def _jump_leg_weight_effective(self) -> float:
+        """Effective jump leg weight including gain chain modulation.
+
+        Returns the product of the tunable weight and the dopamine-gated
+        pathway gain ratio, matching the actual current injection factor
+        applied to jump neurons.  Read-only telemetry.
+        """
+        _gain = self.dopamine_gain.get_gain("jump")
+        return self._jump_leg_weight * (_gain / self._jump_leg_nominal_gain)
 
     def reset_scene(self) -> None:
         """Clear the scene memory buffer and reset statistics.
@@ -1473,6 +1521,29 @@ class FlyModel:
         span = max(1e-6, self.fwd_occ_full - self.fwd_occ_ref)
         over = min(1.0, max(0.0, (occ - self.fwd_occ_ref) / span))
         return float(1.0 - over * (1.0 - self.fwd_homeo_floor))
+
+    def jump_homeostat(self, occupancy: float | None = None) -> float:
+        """Occupancy → MBON-path gain in ``[jump_homeo_floor, 1.0]`` (P1-b2).
+
+        Analogue of forward_homeo_gain for the jump pool: flat below
+        ``jump_occ_ref``, linearly suppressed above it, floored at
+        ``jump_homeo_floor`` so the pathway can never go fully silent.
+
+        Parameters
+        ----------
+        occupancy : float or None
+            Pool spike occupancy in [0, 1]; ``None`` uses the model's current
+            low-passed ``_jump_occupancy``.
+
+        Returns
+        -------
+        float
+            Multiplicative gain applied to the MBON→jump current.
+        """
+        occ = self._jump_occupancy if occupancy is None else float(occupancy)
+        span = max(1e-6, self.jump_occ_full - self.jump_occ_ref)
+        over = min(1.0, max(0.0, (occ - self.jump_occ_ref) / span))
+        return float(1.0 - over * (1.0 - self.jump_homeo_floor))
 
     def breakout_split(self, stuck_duration: float | None = None) -> tuple:
         """Split the R16 breakout drive into its two effects (T2).
@@ -1775,6 +1846,11 @@ class FlyModel:
         _occ_alpha = 1.0 - float(np.exp(-self.dt / max(self.fwd_occ_tau, 1e-6)))
         self._fwd_occupancy += _occ_alpha * (_fwd_occ_now - self._fwd_occupancy)
         self._fwd_homeo_gain = self.forward_homeo_gain()
+        # P1-b2: jump-pool occupancy feedback (analogous to forward pool)
+        _jump_occ_now = float(self.spikes[self.jump_nodes].mean()) if len(self.jump_nodes) else 0.0
+        _jump_occ_alpha = 1.0 - float(np.exp(-self.dt / max(self.jump_occ_tau, 1e-6)))
+        self._jump_occupancy += _jump_occ_alpha * (_jump_occ_now - self._jump_occupancy)
+        self._jump_homeo_gain = self.jump_homeostat()
         self._fwd_aux_used = 0.0   # T8: per-tick auxiliary forward budget
 
         # ---- MBON-to-motor current injection ----
@@ -1784,12 +1860,46 @@ class FlyModel:
                                      * self._fwd_homeo_gain)
             self.v[self.turn_left] += mbon[1] * self.mbon_gain_turn
             self.v[self.turn_right] += mbon[2] * self.mbon_gain_turn
-            self.v[self.jump_nodes] += mbon[3] * self.mbon_gain_jump
+            _jump_gain = self.dopamine_gain.get_gain("jump")
+            self.v[self.jump_nodes] += mbon[3] * self._jump_leg_weight * (
+                _jump_gain / self._jump_leg_nominal_gain) * self._jump_homeo_gain
             # Phase 3: primitive columns shape the strike/crouch pools.
             if len(self.strike_nodes):
                 self.v[self.strike_nodes] += 0.4 * (mbon[5] + mbon[6])
             if len(self.crouch_nodes):
                 self.v[self.crouch_nodes] += 0.4 * (mbon[7] + mbon[8])
+            # ---- T5: target-driven strike activation + hit reward ----
+            # When a target is approaching within strike range (or a large
+            # BOSS target is present), inject extra current into the strike
+            # pools so the fly attempts an interactive strike (punch/dive)
+            # instead of passively steering around the object.  The gain is
+            # EVO-tunable (``target.strike_gain``); the effective interaction
+            # range is ``target.strike_range_s`` (intercept seconds).
+            _t_in_range = (self.target_approaching
+                           and self.target_intercept_time
+                           <= self.target_strike_range_s)
+            _boss_present = self.large_target_count > 0
+            self._target_strike_active = bool(_t_in_range or _boss_present)
+            if self._target_strike_active:
+                _strike_bias = (self.target_strike_gain
+                                * (mbon[5] + mbon[6] + 0.15))
+                if len(self.strike_nodes):
+                    self.v[self.strike_nodes] += _strike_bias
+            # Hit detection: a target that was in range and being struck
+            # vanished on this tick (count dropped) → the strike landed.
+            # Reward the interaction (EVO-tunable ``target.hit_reward``),
+            # then reset so a lingering target does not re-fire the pulse.
+            if (self._strike_was_active
+                    and self._target_strike_active is False
+                    and self._prev_target_count > 0
+                    and self.target_count == 0):
+                self._pending_dopamine += self.target_hit_reward
+                self._last_target_hit = self.step_count
+            if self._target_strike_active:
+                self._strike_was_active = True
+            else:
+                self._strike_was_active = False
+            self._prev_target_count = self.target_count
             if mbon[4] > 0.2:
                 self.escape_current = min(0.25, self.escape_current * 1.02)
             elif mbon[4] < -0.2:
@@ -1808,7 +1918,9 @@ class FlyModel:
                                          * self._fwd_homeo_gain)
                 self.v[self.turn_left] += _recalled[1] * self.mbon_gain_turn * 0.5
                 self.v[self.turn_right] += _recalled[2] * self.mbon_gain_turn * 0.5
-                self.v[self.jump_nodes] += _recalled[3] * self.mbon_gain_jump * 0.5
+                _recall_jump_gain = self.dopamine_gain.get_gain("jump")
+                self.v[self.jump_nodes] += _recalled[3] * self._jump_leg_weight * (
+                    _recall_jump_gain / self._jump_leg_nominal_gain) * 0.5 * self._jump_homeo_gain
 
             # ---- Scene familiarity modulation (t7) ----
             # Familiar scenes (high familiarity) → reduce escape tendency
@@ -1888,6 +2000,12 @@ class FlyModel:
         if len(self.forward):
             self._fwd_tonic_current = self.tonic_current * self._fwd_homeo_gain
             self.v[self.forward] -= self.tonic_current * (1.0 - self._fwd_homeo_gain)
+        # P1-b2: intrinsic-excitability limb of the jump-pool homeostat.
+        # When occupancy is high, the MBON→jump gain chain is suppressed;
+        # the pool receives a small intrinsic boost to maintain excitability.
+        if len(self.jump_nodes):
+            self._jump_tonic_current = self._jump_intrinsic_max * (1.0 - self._jump_homeo_gain)
+            self.v[self.jump_nodes] += self._jump_tonic_current
         if self.visual_connected:
             _vis_gain = self.dopamine_gain.get_gain("visual")
             self.v[self.visual] += sensory * 0.62 * novelty_gain * _vis_gain
@@ -2094,6 +2212,18 @@ class FlyModel:
             # that lives on StuckDetector/FlyModel, never on CentralComplex,
             # so the loop-break test always saw 0.0 and could never fire.
             stuck_duration=getattr(self, "stuck_duration", 0.0),
+            # P1-b5 (spec §5.5): the loop break is gated on *progress*, not on
+            # "no goal".  ``progress_ineffective`` is the single progress ledger
+            # published by main.py (`memory_ctrl`'s verdict; None ⇒ no verdict
+            # supplied, which keeps the pre-P1-b5 tree behaviour), ``loop_score``
+            # is the measured revisit fraction, and ``burst_active`` is the F6
+            # interlock: while a forward deadlock burst owns control.x/y the CX
+            # must not re-aim the heading.  None of these writes a control
+            # quantity — the break is still expressed through the CX steering
+            # current below.
+            progress_ineffective=getattr(self, "progress_ineffective", None),
+            loop_score=float(getattr(self, "loop_score", 0.0) or 0.0),
+            burst_active=bool(getattr(self, "burst_active", False)),
         )
         self.cx_bias = cx_bias  # EVO R28: mirror for reflex turn mix
         self.anchor_distance = self.cx.anchor_distance
@@ -2475,7 +2605,11 @@ class FlyModel:
 
         self.filtered_y = 0.78 * self.filtered_y + 0.22 * raw_y
         self.filtered_x = 0.78 * self.filtered_x + 0.22 * raw_x
-        jump = jump_rate > 0.04 and now - self.last_jump >= 0.8
+        # P1-b3: jump gate uses ratio semantics: jump_rate / max(forward_rate, FWD_RATIO_FLOOR)
+        # replaces absolute occupancy threshold (jump_rate > 0.04).
+        jump = ((jump_rate / max(forward_rate, FWD_RATIO_FLOOR))
+                > getattr(self, '_jump_rate_ratio_gate', 0.75)
+                and now - self.last_jump >= 0.8)
         if jump:
             self.last_jump = now
         # T2: mirror the LIF jump decode so blend_reflex_control() can hand the

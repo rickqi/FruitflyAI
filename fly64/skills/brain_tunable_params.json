@@ -36,10 +36,10 @@
       "wired": true
     },
     "exploration.gate_jump_threshold": {
-      "default": 8.0,
-      "min": 2.0,
-      "max": 20.0,
-      "description": "跳跃池门限（单位：Hz；RULE-19 单位契约）：gate_jump 的判定阈值，两侧同为 Hz——Control.jump_rate 是 LIF 跳跃池 13-tick 窗口的每-tick 放电比例，main.py 用 1/dt 换算成 Hz 后比较（dt=0.02s → ×50；与 telemetry.py 一致）。标定：下限 2.0 Hz=模型自身跳跃触发点(model.py:2138 的 jump_rate>0.04/tick)，门必须严于解码触发否则恒开；默认 8.0 Hz=4×触发点，要求跳跃池强力招募；20.0 Hz=1/dt 的 40%，再高即数学上不可达。实测跳跃池 0.276/tick=13.8 Hz > 8.0 Hz → gate_jump 可达 True（修复前 0.276<2.0 恒假）。推荐 4~12；过低频繁跳跃浪费动量，过高撞墙不跳。",
+      "default": 0.75,
+      "min": 0.25,
+      "max": 4.0,
+      "description": "跳跃池门限（单位：ratio dimensionless；RULE-19 单位契约已迁移）：gate_jump 的判定阈值改为比值语义 gate_jump = (jump_rate / max(forward_rate, FWD_RATIO_FLOOR=0.008)) > r。P0-a1 冻结设计：FWD_RATIO_FLOOR = 0.008 (model.py:2282 解码零点)；r ∈ [0.25, 4.0]；default = 0.75。与旧 Hz 门限的关系：旧默认 8.0 Hz 乘以旧 FWD_RATIO_FLOOR 的 Hz 对应值(8.0 Hz / 50 Hz = 0.16) 不直接换算——改用比值语义后行为等价性由 P1-b3 验证。标定：下限 0.25=跳跃/前进比很低时仍可跳（≈旧 0.5 Hz 对应触发灵敏度）；默认 0.75=中等比值要求，实测跳跃池 0.276/tick + 前进 0.923/tick = 0.299 < 0.75 不再无条件开门（行为变化由 P1-b3 仲裁）；4.0=跳跃/前进比极高才开门。推荐 0.5~1.5；过低 gate 恒开浪费动量，过高难以开门撞墙不跳。",
       "wired": true
     },
     "exploration.cliff_tangent_gain": {
@@ -257,6 +257,125 @@
       "min": 0.1,
       "max": 1.0,
       "description": "勇气突围转向电流：forced-bold 突围时转向池的电流幅度（方向由 bold_turn_bias 符号决定）。推荐 0.25~0.45。",
+      "wired": true
+    },
+    "stuck.rate_threshold": {
+      "default": 0.008,
+      "min": 0.0,
+      "max": 0.05,
+      "description": "B15: WIRED. 前进速率阈值（per-tick 分数，与 RULE-19 一致）：forward_rate 低于此值判定为「低速率」。\n用途：控制 rate 子信号灵敏度。默认 0.008 是解码零点(P0-a2)；调高=更易判定低速率（假阳性），调低=更宽松。\n受 intent_active 门控制：forward_rate==0（无指令）时不累积，避免正常待机误判。",
+      "wired": true
+    },
+    "stuck.rate_stuck_s": {
+      "default": 3.0,
+      "min": 0.5,
+      "max": 30.0,
+      "description": "B15: WIRED. rate 子信号卡死判定门限（秒）：forward_rate 持续低于 rate_threshold 多少秒后判定为 stuck。\n用途：控制低速率卡死灵敏度。默认 3s 与修复前一致；调短=更快反应假阳性，调长=延迟反应。\n只在意图激活期间累积，静止待机不计时。",
+      "wired": true
+    },
+    "stuck.temporal_stuck_s": {
+      "default": 2.0,
+      "min": 0.5,
+      "max": 30.0,
+      "description": "B15: WIRED. 时间能量卡死判定门限（秒）：temporal_energy 持续低于 temporal_threshold 多少秒后判定为 stuck。\n用途：控制视觉静止卡死灵敏度。默认 2s 与修复前一致；调短=更快对视觉停滞反应。",
+      "wired": true
+    },
+    "stuck.release_k": {
+      "default": 0.005,
+      "min": 0.001,
+      "max": 0.1,
+      "description": "B15: WIRED. stuck_duration 泄放衰减系数：disp_60s>500 时 stuck_duration 每 tick 减去 k·dt（非旧版硬减 1.0）。\n用途：保留卡死历史但防止无限累积。k=0.005 时每秒泄放 0.005 秒；调高=更快消退（但可能丢掉挂起判定），调低=更持久。",
+      "wired": true
+    },
+    "target.motion_gate_hi": {
+      "default": 0.005,
+      "min": 0.001,
+      "max": 0.05,
+      "description": "T5: WIRED. 运动目标检测高门槛：帧平均 ON/OFF 运动能量超过此值才运行完整小目标计算。调低=更敏感（捕获远处微弱运动），调高=更稳健（避免噪声误检）。",
+      "wired": true
+    },
+    "target.motion_gate_lo": {
+      "default": 0.001,
+      "min": 0.0001,
+      "max": 0.02,
+      "description": "T5: WIRED. 运动目标检测低门槛（双档）：低于此值完全跳过检测；介于 lo 与 hi 之间时在 motion_weak_enabled 开启时仍执行计算。用于捕获微弱但真实的目标运动。",
+      "wired": true
+    },
+    "target.motion_weak_enabled": {
+      "default": true,
+      "min": 0,
+      "max": 1,
+      "description": "T5: WIRED. 是否启用双档弱运动检测（介于 lo/hi 之间仍计算）。关闭=只用高门槛（更省算力，更保守）。",
+      "wired": true
+    },
+    "target.alpha": {
+      "default": 1.2,
+      "min": 0.5,
+      "max": 3.0,
+      "description": "T5: WIRED. 小目标中心-环绕对抗系数：fg = max(0, center − alpha·surround)。调高=更严格分离小目标（抑制背景），调低=更容易把大块当作目标。",
+      "wired": true
+    },
+    "target.min_size": {
+      "default": 2,
+      "min": 1,
+      "max": 10,
+      "description": "T5: WIRED. 目标最小尺寸（网格单元，48×64 网格）。低于此值的连通域被忽略（去噪）。",
+      "wired": true
+    },
+    "target.max_size": {
+      "default": 30,
+      "min": 10,
+      "max": 100,
+      "description": "T5: WIRED. 普通目标最大尺寸：超过此值的运动目标归入大目标（BOSS）通道而非丢弃。",
+      "wired": true
+    },
+    "target.large_max_size": {
+      "default": 240,
+      "min": 50,
+      "max": 1000,
+      "description": "T5: WIRED. 大目标（BOSS 级）最大尺寸：超过此值的连通域视为整场运动（如大范围视流）而忽略。",
+      "wired": true
+    },
+    "target.static_contrast_gain": {
+      "default": 0.8,
+      "min": 0.1,
+      "max": 3.0,
+      "description": "T5: WIRED. 静止目标通道增益：颜色对立（红绿+蓝黄）强度加权后的静止目标显著度系数。调高=更容易把静止高饱和物体（金币/开关/站立敌人）识别为目标。",
+      "wired": true
+    },
+    "target.static_sat_min": {
+      "default": 0.25,
+      "min": 0.05,
+      "max": 0.8,
+      "description": "T5: WIRED. 静止目标饱和度下限：低于此饱和度的区域不进入静止目标检测（抑制灰暗背景）。",
+      "wired": true
+    },
+    "target.static_size_max": {
+      "default": 60,
+      "min": 10,
+      "max": 300,
+      "description": "T5: WIRED. 静止目标最大尺寸：超过此值的静止色块视为场景整体配色而非目标。",
+      "wired": true
+    },
+    "target.strike_gain": {
+      "default": 0.35,
+      "min": 0.0,
+      "max": 2.0,
+      "description": "T5: WIRED. 目标→打击行为增益：检测到接近目标时注入 punch/dive MBON 电流的系数（激活互动行为）。",
+      "wired": true
+    },
+    "target.strike_range_s": {
+      "default": 2.0,
+      "min": 0.5,
+      "max": 10.0,
+      "description": "T5: WIRED. 目标交互距离（秒）：target_intercept_time 低于此值才激活打击行为。",
+      "wired": true
+    },
+    "target.hit_reward": {
+      "default": 0.6,
+      "min": 0.0,
+      "max": 2.0,
+      "description": "T5: WIRED. 目标打击成功奖励（多巴胺脉冲）：执行打击类动作且目标消失/位移突变时发放的奖励强度。",
       "wired": true
     },
     "memory.recency_decay": {

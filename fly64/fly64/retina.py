@@ -669,7 +669,9 @@ class SphericalRetina:
         }
 
     def compute_small_targets(self, on_channel: np.ndarray,
-                              off_channel: np.ndarray) -> dict:
+                              off_channel: np.ndarray,
+                              color_info: dict | None = None,
+                              t_params: dict | None = None) -> dict:
         """Detect and return small moving targets (LPLC1/2 + LC11 equivalent).
 
         Uses center-surround opponency on per-cell motion energy to separate
@@ -682,6 +684,14 @@ class SphericalRetina:
             ON transients from encode_on_off().
         off_channel : ndarray, shape (N,)
             OFF transients from encode_on_off().
+        color_info : dict | None
+            Optional output of encode_color() — enables the static-target
+            channel (color-contrast center-surround) that detects stationary
+            objects (coins/switches/standing enemies) with no motion energy.
+        t_params : dict | None
+            EVO-tunable detection parameters (alpha / size window / gates /
+            static-contrast gain).  Keys fall back to the defaults below so
+            the method stays callable without wiring.
 
         Returns
         -------
@@ -693,18 +703,44 @@ class SphericalRetina:
             target_directions    : list[str] — direction labels
             fg_fraction          : float — fraction of cells with figure > ground
             max_target_energy    : float — strongest figure-ground response
+            static_target_count  : int — static (color-contrast) targets
+            static_target_sizes  : list[int]
+            large_target_count   : int — BOSS-class targets (size > max_size)
+            large_target_sizes   : list[int]
         """
+        # EVO-tunable parameters (defaults mirror the pre-wiring constants).
+        _alpha = float((t_params or {}).get("target.alpha", 1.2))
+        _min_size = int((t_params or {}).get("target.min_size", 2))
+        _max_size = int((t_params or {}).get("target.max_size", 30))
+        _large_max = int((t_params or {}).get("target.large_max_size", 240))
+        _static_gain = float((t_params or {}).get("target.static_contrast_gain", 0.8))
+        _static_sat_min = float((t_params or {}).get("target.static_sat_min", 0.25))
+        _static_size_max = int((t_params or {}).get("target.static_size_max", 60))
+
         # Per-cell motion energy (N,)
         motion_energy = on_channel + off_channel  # (N,)
 
-        # Early exit: if motion energy is negligible, return empty result
+        # Dual-tier motion gate: low tier catches weak figure-ground (e.g.
+        # distant enemies), high tier gates the full compute (default 0.005).
         _me_mean = float(np.mean(motion_energy))
-        if _me_mean < 0.005:
+        _gate_hi = float((t_params or {}).get("target.motion_gate_hi", 0.005))
+        _gate_lo = float((t_params or {}).get("target.motion_gate_lo", 0.001))
+        _motion_weak = bool((t_params or {}).get("target.motion_weak_enabled", True))
+        if _me_mean < (_gate_lo if _motion_weak else _gate_hi):
+            # Motion below both gates: motion targets are silent, but the
+            # static color-contrast channel still runs when color data exists
+            # (stationary coins/switches/standing enemies have zero motion).
+            _static_lo = self._compute_static_targets(
+                color_info, t_params or {}, _min_size, _static_size_max)
             return {
                 "target_count": 0, "target_centroids": [],
                 "target_sizes": [], "target_energies": [],
                 "target_directions": [],
                 "fg_fraction": 0.0, "max_target_energy": 0.0,
+                "large_target_count": 0, "large_target_centroids": [],
+                "large_target_sizes": [],
+                **{k: _static_lo[k] for k in ("static_target_count",
+                                              "static_target_sizes")},
             }
 
         # ---- Center-surround opponency (fully vectorized) ----
@@ -744,8 +780,7 @@ class SphericalRetina:
                              where=n_neighbors > 0)
 
         # Figure-ground: fg = max(0, center - alpha * surround)
-        alpha = 1.2
-        fg = np.maximum(grid_en - alpha * surround, 0)
+        fg = np.maximum(grid_en - _alpha * surround, 0)
 
         # ---- Dynamic threshold ----
         fg_valid = fg[valid_mask]
@@ -758,23 +793,39 @@ class SphericalRetina:
 
         # Early exit: no cells above threshold
         if not fg_mask.any():
+            _static = self._compute_static_targets(
+                color_info, t_params or {}, _min_size, _static_size_max)
             return {
                 "target_count": 0, "target_centroids": [],
                 "target_sizes": [], "target_energies": [],
                 "target_directions": [],
                 "fg_fraction": 0.0,
                 "max_target_energy": float(np.max(fg_valid)) if len(fg_valid) > 0 else 0.0,
+                "large_target_count": 0, "large_target_centroids": [],
+                "large_target_sizes": [],
+                **{k: _static[k] for k in ("static_target_count",
+                                           "static_target_sizes")},
             }
 
         # ---- Connected component labeling ----
         labels, n_labels = self._connected_components(fg_mask)
         if n_labels == 0:
+            _static = self._compute_static_targets(
+                color_info, t_params or {}, _min_size, _static_size_max)
+            # Large-target aggregation on the whole mask (a big moving object
+            # edge-splits into many small components — aggregate by bbox).
+            _agg = self._aggregate_large_target(fg_mask, _max_size, _large_max)
             return {
                 "target_count": 0, "target_centroids": [],
                 "target_sizes": [], "target_energies": [],
                 "target_directions": [],
                 "fg_fraction": float(np.mean(fg_mask)),
                 "max_target_energy": float(np.max(fg_valid)) if len(fg_valid) > 0 else 0.0,
+                "large_target_count": _agg["large_target_count"],
+                "large_target_centroids": _agg["large_target_centroids"],
+                "large_target_sizes": _agg["large_target_sizes"],
+                **{k: _static[k] for k in ("static_target_count",
+                                           "static_target_sizes")},
             }
 
         # ---- Extract target properties ----
@@ -782,6 +833,8 @@ class SphericalRetina:
         sizes = []
         energies = []
         directions = []
+        large_sizes = []          # BOSS-class targets (size > max_size)
+        large_centroids = []
 
         # Build on/off grid only when components exist (vectorized)
         on_grid = np.full((48, 64), np.nan, dtype=np.float32)
@@ -794,7 +847,17 @@ class SphericalRetina:
         for lbl in range(1, n_labels + 1):
             mask = labels == lbl
             size = int(np.sum(mask))
-            if size < 2 or size > 30:
+            if size < _min_size:
+                continue
+            if size > _max_size:
+                # Large-target channel (BOSS-class): keep as a separate bin
+                # instead of discarding — big moving silhouettes (e.g. a
+                # Whomp, an approaching Goomba cluster) are still salient.
+                if size <= _large_max:
+                    ys, xs = np.where(mask)
+                    large_centroids.append(
+                        (float(np.mean(ys)), float(np.mean(xs))))
+                    large_sizes.append(size)
                 continue
 
             ys, xs = np.where(mask)
@@ -824,6 +887,20 @@ class SphericalRetina:
             else:
                 directions.append("stationary")
 
+        # Static (color-contrast) channel — stationary objects with zero
+        # motion energy: coins/switches/standing enemies.
+        _static = self._compute_static_targets(
+            color_info, t_params or {}, _min_size, _static_size_max)
+
+        # Large-target aggregation: also register a compact big silhouette
+        # even when the loop split it into edge fragments.
+        _agg = self._aggregate_large_target(fg_mask, _max_size, _large_max)
+        if _agg["large_target_count"]:
+            for _c, _s in zip(_agg["large_target_centroids"],
+                              _agg["large_target_sizes"]):
+                large_centroids.append(_c)
+                large_sizes.append(_s)
+
         return {
             "target_count": len(centroids),
             "target_centroids": centroids,
@@ -832,7 +909,104 @@ class SphericalRetina:
             "target_directions": directions,
             "fg_fraction": float(np.mean(fg_mask)),
             "max_target_energy": float(np.max(fg_valid)) if len(fg_valid) > 0 else 0.0,
+            "large_target_count": len(large_sizes),
+            "large_target_centroids": large_centroids,
+            "large_target_sizes": large_sizes,
+            **{k: _static[k] for k in ("static_target_count",
+                                       "static_target_sizes")},
         }
+
+    def _compute_static_targets(self, color_info: dict | None,
+                                t_params: dict,
+                                min_size: int,
+                                static_size_max: int) -> dict:
+        """Detect stationary high-contrast objects with zero motion energy.
+
+        Uses color-opponent center-surround on the per-cell hue/saturation
+        to isolate compact saturated regions (coins, switches, standing
+        enemies) even when there is no ON/OFF transient — the motion-based
+        LPLC channel cannot see these.
+
+        Returns
+        -------
+        dict with ``static_target_count`` / ``static_target_sizes``.
+        """
+        if color_info is None:
+            return {"static_target_count": 0, "static_target_sizes": []}
+        if not hasattr(self, "_grid_r"):
+            self._build_grid_maps()
+        _sat_min = float(t_params.get("target.static_sat_min", 0.25))
+        _gain = float(t_params.get("target.static_contrast_gain", 0.8))
+        # Per-cell figure-ground saliency: opponent red-green + blue-yellow
+        # magnitude weighted by saturation (desaturated noise is suppressed).
+        rg = np.abs(color_info.get("opponent_rg", np.zeros(1)))
+        by = np.abs(color_info.get("opponent_by", np.zeros(1)))
+        sat = color_info.get("saturation", np.zeros(1))
+        if rg.ndim != 1 or rg.shape[0] != len(self._grid_r):
+            return {"static_target_count": 0, "static_target_sizes": []}
+        saliency = (_gain * (rg + by)) * np.clip(sat - _sat_min, 0, 1)
+        grid_sal = np.full((48, 64), np.nan, dtype=np.float32)
+        grid_sal[self._grid_r, self._grid_c] = saliency
+        # Center-surround: suppress broad gradients, keep compact saturated
+        # blobs (the same neighbour machinery as the motion channel).
+        _sur = np.zeros_like(grid_sal)
+        _cnt = np.zeros_like(grid_sal)
+        for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            _shift = np.roll(grid_sal, (dr, dc), axis=(0, 1))
+            _m = ~np.isnan(_shift)
+            _sur[_m] += np.nan_to_num(_shift[_m])
+            _cnt[_m] += 1
+        _sur = np.divide(_sur, np.maximum(_cnt, 1),
+                         out=np.full_like(_sur, 0.0), where=_cnt > 0)
+        fg_s = np.maximum(grid_sal - 1.2 * _sur, 0)
+        _v = fg_s[~np.isnan(fg_s)]
+        if len(_v) == 0:
+            return {"static_target_count": 0, "static_target_sizes": []}
+        _thr = max(float(np.mean(_v) + 2.0 * np.std(_v)), 0.02)
+        _mask = fg_s > _thr
+        if not _mask.any():
+            return {"static_target_count": 0, "static_target_sizes": []}
+        labels, n_labels = self._connected_components(_mask)
+        sizes = []
+        for lbl in range(1, n_labels + 1):
+            s = int(np.sum(labels == lbl))
+            if min_size <= s <= static_size_max:
+                sizes.append(s)
+        return {"static_target_count": len(sizes),
+                "static_target_sizes": sizes}
+
+    @staticmethod
+    def _aggregate_large_target(fg_mask: np.ndarray,
+                                max_size: int,
+                                large_max: int) -> dict:
+        """Detect one compact large (BOSS-class) target by area + bbox fill.
+
+        A big moving object is edge-split by center-surround into many small
+        components; this aggregates the mask: if its total area exceeds
+        ``max_size`` and the bounding box is compact (fill ratio ≥ 0.3), the
+        whole mask is registered as a single large target (size = total area,
+        centroid = bbox centre).
+        """
+        total = int(np.sum(fg_mask))
+        if not (max_size < total <= large_max):
+            return {"large_target_count": 0,
+                    "large_target_centroids": [],
+                    "large_target_sizes": []}
+        ys, xs = np.where(fg_mask)
+        h = ys.max() - ys.min() + 1
+        w = xs.max() - xs.min() + 1
+        bbox_area = float(h * w)
+        fill = total / max(bbox_area, 1.0)
+        if fill < 0.3:
+            # Diffuse wide-field disturbance (many scattered fragments) —
+            # not a single object, keep as zero.
+            return {"large_target_count": 0,
+                    "large_target_centroids": [],
+                    "large_target_sizes": []}
+        return {"large_target_count": 1,
+                "large_target_centroids": [(float(np.mean(ys)),
+                                            float(np.mean(xs)))],
+                "large_target_sizes": [total]}
 
     def encode_color(self, atlas: np.ndarray) -> dict:
         """Compute multi-channel color encoding from an RGB atlas frame.
@@ -1215,11 +1389,20 @@ class SphericalRetina:
             terrain = "indoor"
 
         # ---- Small target detection (LPLC/LC11 equivalent) ----
-        # Inline fast-path: if motion energy is negligible, skip full computation
+        # Dual-tier motion gate + static color-contrast channel.  The retina
+        # reads EVO-tunable detection params from ``self._target_params``
+        # (injected by the model/main reload; None → built-in defaults).
         _me = on_off["on_channel"] + on_off["off_channel"]
-        if float(np.mean(_me)) >= 0.005:
+        _tpar = getattr(self, "_target_params", None) or {}
+        _gate_lo = float(_tpar.get("target.motion_gate_lo", 0.001))
+        _gate_hi = float(_tpar.get("target.motion_gate_hi", 0.005))
+        _motion_weak = bool(_tpar.get("target.motion_weak_enabled", True))
+        _me_mean = float(np.mean(_me))
+        if _me_mean >= (_gate_lo if _motion_weak else _gate_hi):
             targets = self.compute_small_targets(
-                on_off["on_channel"], on_off["off_channel"]
+                on_off["on_channel"], on_off["off_channel"],
+                color_info=color_info,
+                t_params=_tpar,
             )
             _target_count = targets["target_count"]
             _target_centroids = targets["target_centroids"]
@@ -1228,14 +1411,32 @@ class SphericalRetina:
             _target_directions = targets["target_directions"]
             _fg_fraction = targets["fg_fraction"]
             _max_target_energy = targets["max_target_energy"]
+            _large_count = targets.get("large_target_count", 0)
+            _large_sizes = targets.get("large_target_sizes", [])
+            _large_centroids = targets.get("large_target_centroids", [])
+            _static_count = targets.get("static_target_count", 0)
+            _static_sizes = targets.get("static_target_sizes", [])
         else:
-            _target_count = 0
-            _target_centroids = []
-            _target_sizes = []
-            _target_energies = []
-            _target_directions = []
-            _fg_fraction = 0.0
-            _max_target_energy = 0.0
+            # Low/zero motion energy: the motion-based channel is silent, but
+            # the static color-contrast channel must still run (stationary
+            # coins/switches/standing enemies).  Keep the same t_params.
+            _tgt_empty = self.compute_small_targets(
+                on_off["on_channel"], on_off["off_channel"],
+                color_info=color_info,
+                t_params=_tpar,
+            )
+            _target_count = _tgt_empty.get("target_count", 0)
+            _target_centroids = _tgt_empty.get("target_centroids", [])
+            _target_sizes = _tgt_empty.get("target_sizes", [])
+            _target_energies = _tgt_empty.get("target_energies", [])
+            _target_directions = _tgt_empty.get("target_directions", [])
+            _fg_fraction = _tgt_empty.get("fg_fraction", 0.0)
+            _max_target_energy = _tgt_empty.get("max_target_energy", 0.0)
+            _large_count = _tgt_empty.get("large_target_count", 0)
+            _large_sizes = _tgt_empty.get("large_target_sizes", [])
+            _large_centroids = _tgt_empty.get("large_target_centroids", [])
+            _static_count = _tgt_empty.get("static_target_count", 0)
+            _static_sizes = _tgt_empty.get("static_target_sizes", [])
 
         return {"tau": tau,
             "sectors": sectors,
@@ -1315,6 +1516,12 @@ class SphericalRetina:
             "target_directions": _target_directions,
             "fg_fraction": round(_fg_fraction, 4),
             "max_target_energy": round(_max_target_energy, 4),
+            # Large-target (BOSS-class) and static color-contrast channels
+            "large_target_count": _large_count,
+            "large_target_centroids": _large_centroids,
+            "large_target_sizes": _large_sizes,
+            "static_target_count": _static_count,
+            "static_target_sizes": _static_sizes,
         }
 
     def _compute_ground_angle(self, rgb: np.ndarray) -> float:

@@ -192,6 +192,11 @@
    "id": "tests/test_plugin_mhr.py::TestStrategyShaping::test_fallen_recovery_has_params",
    "cause": "test-drift",
    "note": "same root cause as test_glm_returns_advice_text: manifest model string drift; not caused by this round (A/B test confirms)."
+  },
+  {
+   "id": "tests/test_gate_units.py::test_gates_compare_hz_against_hz_and_republish_the_threshold_unit",
+   "cause": "test-drift",
+   "note": "the AST walker requires a literal 'flow_json = json.dumps({...})' assignment, but main.py now assigns DashboardHTTP.flow_json = json.dumps(_flow_obj, ...) where _flow_obj is a pre-built variable — the refactor predates this round (git show HEAD:fly64/main.py also has zero literal flow_json assigns, A/B confirmed). Fails at pristine HEAD too -> NOT caused by the T5 target-channel work."
   }
  ]
 }

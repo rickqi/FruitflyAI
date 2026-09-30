@@ -567,6 +567,7 @@ def start_http(project: Path, model, port: int, ws_port: int) -> ThreadingHTTPSe
         "/layout-wireframe.html": (project / "web/layout-wireframe.html", "text/html; charset=utf-8"),
         "/evo-params.html": (project / "web/evo-params.html", "text/html; charset=utf-8"),
         "/brain-replay.html": (project / "web/brain-replay.html", "text/html; charset=utf-8"),
+        "/nav-standoff.html": (project / "web/nav-standoff.html", "text/html; charset=utf-8"),
         "/measured.bin": (model.position_measured.astype(np.uint8).tobytes(), "application/octet-stream"),
     }
     DashboardHTTP.metadata = json.dumps(dict(n=model.n, ws=ws_port, label=model.label,
@@ -845,6 +846,28 @@ ACTIVE_STRATEGY_DEFAULTS = {
     "persist_seconds": 2.0,    # seconds of reduced-forward persistence phase
     # M1.2: CPG primitive whitelist (hot-reload).  Names are Primitive.value.
     "primitives_enabled": ["longjump", "backflip", "groundpound", "punch", "dive"],
+    # B15 stuck-detection tunable params (wired below in the 600-tick reload).
+    # Defaults MUST equal skills/brain_tunable_params.json (audited by
+    # tests/test_gate_units.py::test_main_defaults_equal_the_schema_defaults).
+    "stuck.rate_threshold": 0.008,
+    "stuck.rate_stuck_s": 3.0,
+    "stuck.temporal_stuck_s": 2.0,
+    "stuck.release_k": 0.005,
+    # T5 target-detection tunables (small/static/large target channels +
+    # strike behaviour).  Wired into retina + model in the 600-tick reload.
+    "target.motion_gate_hi": 0.005,
+    "target.motion_gate_lo": 0.001,
+    "target.motion_weak_enabled": True,
+    "target.alpha": 1.2,
+    "target.min_size": 2,
+    "target.max_size": 30,
+    "target.large_max_size": 240,
+    "target.static_contrast_gain": 0.8,
+    "target.static_sat_min": 0.25,
+    "target.static_size_max": 60,
+    "target.strike_gain": 0.35,
+    "target.strike_range_s": 2.0,
+    "target.hit_reward": 0.6,
 }
 
 # M2.3: last applied turn sign for the side-flip reversal detector.
@@ -1814,6 +1837,47 @@ async def run(args) -> None:
                               _key_report["rejected"]), flush=True)
                 _expl = _active_strategy.get("exploration", {}) or {}
                 _esc = _active_strategy.get("escape", {}) or {}
+                # B15: wire stuck-detection tunable params to the live
+                # StuckDetector instance so EVO/operator tuning takes effect.
+                # The dotted keys live at the top level of active_strategy.json
+                # (not in a "stuck" subsection) — the apply_strategy_update
+                # handler expands them.  Defaults equal brain_tunable_params.json.
+                _stuck_rate_th = float(_active_strategy.get("stuck.rate_threshold", 0.008))
+                _stuck_rate_s = float(_active_strategy.get("stuck.rate_stuck_s", 3.0))
+                _stuck_temp_s = float(_active_strategy.get("stuck.temporal_stuck_s", 2.0))
+                _stuck_release_k = float(_active_strategy.get("stuck.release_k", 0.005))
+                if memory_ctrl.stuck.rate_threshold != _stuck_rate_th:
+                    memory_ctrl.stuck.rate_threshold = _stuck_rate_th
+                    memory_ctrl.stuck.rate_stuck_s = _stuck_rate_s
+                    memory_ctrl.stuck.temporal_stuck_s = _stuck_temp_s
+                    memory_ctrl.stuck.stuck_release_k = _stuck_release_k
+                # T5: wire target-detection tunables into the retina
+                # (motion/static/large channels) and the model (strike
+                # behaviour + hit reward).  Retina reads them from
+                # ``model.retina._target_params``.
+                _tgt = {k: _active_strategy.get(k)
+                        for k in ("target.motion_gate_hi",
+                                  "target.motion_gate_lo",
+                                  "target.motion_weak_enabled",
+                                  "target.alpha",
+                                  "target.min_size",
+                                  "target.max_size",
+                                  "target.large_max_size",
+                                  "target.static_contrast_gain",
+                                  "target.static_sat_min",
+                                  "target.static_size_max",
+                                  "target.strike_gain",
+                                  "target.strike_range_s",
+                                  "target.hit_reward")
+                        if _active_strategy.get(k) is not None}
+                if _tgt:
+                    model.retina._target_params = _tgt
+                    model.target_strike_gain = float(
+                        _tgt.get("target.strike_gain", 0.35))
+                    model.target_strike_range_s = float(
+                        _tgt.get("target.strike_range_s", 2.0))
+                    model.target_hit_reward = float(
+                        _tgt.get("target.hit_reward", 0.6))
                 # Clamp turn_bias to [0, 0.25] and bold_explore_stuck_s to
                 # [1, 10] — the EVO loop/plugin/coach may write 0.8 / 20.0,
                 # which amplify the oscillating reflex (R31-fix12).  The
@@ -2894,13 +2958,27 @@ async def run(args) -> None:
                     # trajectory_points retention), so without these markers a
                     # multi-scene buffer silently mixes unrelated runs — the
                     # exact confound that twice invalidated coverage comparisons.
+                    #
+                    # Debounce (screenshot review 09-26): scene_change FLICKERS
+                    # for many consecutive ticks inside one transition — the
+                    # first cut recorded ~15 markers stacked at one spot with
+                    # unreadable overlapping labels.  Record only when the
+                    # human-readable scene name genuinely differs AND ≥20 s
+                    # passed since the previous marker.
                     try:
-                        DashboardHTTP.scene_changes.append(
-                            {"t": round(tick_start - started, 2),
-                             "scene": str(getattr(model, "scene_sig", ""))[:8],
-                             "x": round(pose[0], 1), "z": round(pose[2], 1)})
-                        if len(DashboardHTTP.scene_changes) > 200:
-                            DashboardHTTP.scene_changes = DashboardHTTP.scene_changes[-200:]
+                        _sc_name = str(_scene_name(
+                            model, memory_ctrl, scene_recognizer))[:24]
+                        _sc_now = round(tick_start - started, 2)
+                        _sc_last = (DashboardHTTP.scene_changes[-1]
+                                    if DashboardHTTP.scene_changes else None)
+                        if (_sc_last is None or (
+                                _sc_name != _sc_last["scene"]
+                                and _sc_now - _sc_last["t"] >= 20.0)):
+                            DashboardHTTP.scene_changes.append(
+                                {"t": _sc_now, "scene": _sc_name,
+                                 "x": round(pose[0], 1), "z": round(pose[2], 1)})
+                            if len(DashboardHTTP.scene_changes) > 200:
+                                DashboardHTTP.scene_changes = DashboardHTTP.scene_changes[-200:]
                     except Exception:
                         pass
                 # EVO R20 (CX-1): sky azimuth from blue-dominant hue bands —
@@ -3129,6 +3207,11 @@ async def run(args) -> None:
                     "emd_on_total": round(model.emd_on_total, 4),
                     "emd_off_total": round(model.emd_off_total, 4),
                     "target_count": model.target_count,
+                    # T5: static/large target channels + strike interaction
+                    "static_target_count": getattr(model, "static_target_count", 0),
+                    "large_target_count": getattr(model, "large_target_count", 0),
+                    "target_strike_active": bool(getattr(model, "_target_strike_active", False)),
+                    "target_hit_reward_ts": int(getattr(model, "_last_target_hit", -1)),
                     "mb_assoc_count": getattr(model.mushroom, "assoc_count", 0),
                     "cliff_standoff_s": round(getattr(model, "cliff_standoff_s", 0.0), 1),
                     # EVO R16: causal + plasticity telemetry for the skill layer
@@ -3299,9 +3382,34 @@ async def run(args) -> None:
                     # 16-column compass activity + compass diagnostics.
                     "cx_compass": [round(float(v), 4) for v in model.cx.compass],
                     "cx_stats": model.cx.compass_stats,
+                    # navigation standoff escalation (web/brain-replay + /nav-standoff.html)
+                    "standoff_level": int(getattr(memory_ctrl, "nav_standoff_level", 0)),
+                    "nav_resultant_norm": round(
+                        float(getattr(memory_ctrl, "nav_standoff_resultant", 1.0)), 3),
                 }
                 DashboardHTTP.flow_json = json.dumps(
                     _flow_obj, separators=(",", ":")).encode()
+                # Navigation standoff L3 → coach help snapshot (escalation end
+                # of the chain: vector-field tug-of-war that survived L1/L2)
+                if getattr(memory_ctrl, "nav_standoff_level", 0) >= 3 \
+                        and not getattr(memory_ctrl, "_nav_help_sent", False):
+                    memory_ctrl._nav_help_sent = True
+                    try:
+                        DashboardHTTP.help_json = json.dumps(build_help_snapshot(
+                            _scene_name(model, memory_ctrl, scene_recognizer),
+                            {"x": round(pose_ev[0], 1), "y": round(pose_ev[1], 1),
+                             "z": round(pose_ev[2], 1)},
+                            (f"navigation_standoff: goal-vector resultant collapsed "
+                             f">50s (level={memory_ctrl.nav_standoff_level}, "
+                             f"norm={memory_ctrl.nav_standoff_resultant:.2f}, "
+                             f"disp60={getattr(memory_ctrl, 'disp_60s', 0):.0f})"),
+                            frame, help_reason="navigation_standoff",
+                            screen_bytes=bridge.read_screen())).encode()
+                    except Exception:
+                        pass
+                elif getattr(memory_ctrl, "nav_standoff_level", 0) < 3 \
+                        and getattr(memory_ctrl, "_nav_help_sent", False):
+                    memory_ctrl._nav_help_sent = False
                 # P0 data-persistence: in-brain rolling decision trace (2s
                 # cadence, runtime/mbon_eval/YYYYMMDD.csv, 7-day retention).
                 # Tracing failures must never break the telemetry loop.
