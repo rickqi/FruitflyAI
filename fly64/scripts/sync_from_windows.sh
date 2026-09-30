@@ -48,5 +48,14 @@ sleep 6
 code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/ || echo 000)
 if [ "$code" != "200" ]; then echo "❌ dashboard unhealthy ($code) — log tail:"; tail -20 "$LOG"; exit 1; fi
 n=$(curl -s http://127.0.0.1:8765/brain-replay-trace.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["tick_count"])' 2>/dev/null || echo 0)
+
+# ── 4. MHR coach service (single instance) — produces coach_outcomes events ──
+if ! pgrep -f 'plugin.runner' >/dev/null; then
+  nohup python3 -m plugin.runner --dashboard http://127.0.0.1:8765 \
+    >> /tmp/fly64_coach.log 2>&1 &
+  echo "coach runner pid $!"
+else
+  echo "coach runner already running"
+fi
 echo "✅ brain healthy · replay ticks=$n"
-pgrep -af 'fly64.main' | grep -v grep
+pgrep -af 'fly64.main|plugin.runner' | grep -v grep

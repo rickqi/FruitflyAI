@@ -135,6 +135,11 @@ def load_coach_events():
 def build_trace() -> dict:
     ticks = load_mbon_ticks()
     coach = load_coach_events()
+    # honest windowing: only report events inside the replay window — older
+    # events would otherwise be drawn clumped at the left edge (misleading)
+    if ticks:
+        t0, t1 = ticks[0]["t"], ticks[-1]["t"]
+        coach = [e for e in coach if t0 <= e["t"] <= t1]
     return {
         "schema": "fly64-brain-replay/1",
         "mbon_channels": MBON_KEYS,
