@@ -31,18 +31,32 @@ for f in pathlib.Path('/root/fly64').rglob('*.py'):
 print("syntax gate OK")
 EOF
 
-# ── 2. single-instance restart ──
+# ── 2. single-instance restart under a watchdog supervisor ──
+# The brain must NEVER be left dead: an auto-restart wrapper relaunches it
+# if the process ever dies (OOM, transient crash).  pkill order matters:
+# supervisor first, then the brain it spawned.
+pkill -f 'fly64_brain_sup' 2>/dev/null || true
 pkill -f 'm3_mbon_eval' 2>/dev/null || true   # external sampler retired: recording is in-brain now
 pkill -f 'fly64.main'   2>/dev/null || true
 sleep 2
 
-export PYTHONPATH=$DST
-nohup python3 -m fly64.main \
-  --bridge /tmp/f64b_traj --record /tmp/f64r_traj.npz \
-  --no-browser --http-port 8765 --ws-port 8766 \
-  >> "$LOG" 2>&1 &
-echo "brain pid $!"
-sleep 6
+cat > /tmp/fly64_brain_sup.sh <<'SUP'
+#!/usr/bin/env bash
+export PYTHONPATH=/root/fly64
+while true; do
+  python3 -m fly64.main \
+    --bridge /tmp/f64b_traj --record /tmp/f64r_traj.npz \
+    --no-browser --http-port 8765 --ws-port 8766 \
+    >> /tmp/fly64_brain.log 2>&1
+  echo "[watchdog] brain exited rc=$? at $(date '+%F %T') — restarting in 5s" \
+    >> /tmp/fly64_brain.log
+  sleep 5
+done
+SUP
+chmod +x /tmp/fly64_brain_sup.sh
+nohup bash /tmp/fly64_brain_sup.sh > /dev/null 2>&1 &
+echo "brain supervisor pid $!"
+sleep 8
 
 # ── 3. health check ──
 code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/ || echo 000)
