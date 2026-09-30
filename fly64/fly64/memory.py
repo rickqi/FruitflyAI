@@ -349,6 +349,21 @@ class SpatialMemoryMap:
 
     # -- helpers ----------------------------------------------------------
 
+    def _near_failure(self, cx: int, cz: int, radius: int = 6) -> bool:
+        """True when a known failure cell lies within *radius* grid steps of
+        (cx, cz).  ``failure_cells`` is wired from FailureMemory by the
+        MemoryController (the strategic layer needs the threat map that the
+        reflex layer already uses — otherwise the frontier keeps aiming at
+        unreachable/unfavourable ground across hazards)."""
+        cells = getattr(self, "failure_cells", None)
+        if not cells:
+            return False
+        for fx, fz in cells:
+            if abs(fx - cx) <= radius and abs(fz - cz) <= radius \
+                    and math.hypot(fx - cx, fz - cz) <= radius:
+                return True
+        return False
+
     def _key(self, x: float, y: float = 0.0, z: float = 0.0) -> tuple[int, int, int]:
         """Map world coords to grid key (x, y_layer, z).
 
@@ -365,25 +380,27 @@ class SpatialMemoryMap:
 
     def coverage_gap_vector(self, x: float, z: float,
                             radius: int = 6) -> tuple[float, float] | None:
-        """EVO R20 (CX-3): unit vector toward the centroid of UNVISITED
+        """EVO R20 (CX-3): weighted vector toward the centroid of UNVISITED
         cells within *radius* grid steps of (x, z) — the exploration goal
         direction.  None when the neighbourhood is fully covered.
 
-        EVO L2: keys are unbounded now (no modulo wrap — the old wrap-around
-        fabricated unvisited cells beyond the map edge), and the key axis
-        order follows the 3D (x, y_layer, z) grid."""
+        Threat filtering (standoff fix): unvisited cells within 6 cells of a
+        known failure get weight 0.2 instead of 1.0 — coverage that can only
+        be reached through (or across) a hazard pocket must not dominate the
+        goal sum, otherwise the agent orbits a bait it can never reach."""
         cxk = self._key(x, 0.0, z)
-        sx = sz = n = 0
+        sx = sz = wsum = 0.0
         for dx in range(-radius, radius + 1):
             for dz in range(-radius, radius + 1):
                 k = (cxk[0] + dx, cxk[1], cxk[2] + dz)
                 if k not in self._cells:
-                    sx += dx
-                    sz += dz
-                    n += 1
-        if n == 0:
+                    w = 0.2 if self._near_failure(k[0], k[2], 6) else 1.0
+                    sx += w * dx
+                    sz += w * dz
+                    wsum += w
+        if wsum <= 1e-6:
             return None
-        vec = (sx / n, sz / n)
+        vec = (sx / wsum, sz / wsum)
         norm = math.hypot(*vec)
         if norm < 1e-6:
             return None
@@ -419,7 +436,7 @@ class SpatialMemoryMap:
         toward the boundary of explored territory rather than just the nearest
         unvisited cell (which may be isolated and unreachable)."""
         cxk = self._key(x, y, z)
-        best_dist = float('inf')
+        best_score = 0.0
         best_dx = best_dz = 0.0
         for dx in range(-search_radius, search_radius + 1):
             for dz in range(-search_radius, search_radius + 1):
@@ -443,13 +460,35 @@ class SpatialMemoryMap:
                 if not is_frontier:
                     continue
                 dist = math.hypot(dx, dz)
-                if dist < best_dist:
-                    best_dist = dist
+                # Standoff fix: score-based selection instead of nearest-only.
+                #   reach — the frontier's visited stepping stones must include
+                #   at least one that is NOT failure-adjacent (a frontier only
+                #   reachable past a hazard is mostly bait);
+                #   threat — frontiers within 6 cells of a known failure are
+                #   heavily discounted.
+                w_reach = 0.3
+                for ndx in (-1, 0, 1):
+                    done = False
+                    for ndz in (-1, 0, 1):
+                        if ndx == 0 and ndz == 0:
+                            continue
+                        nk = (k[0] + ndx, cxk[1], k[2] + ndz)
+                        if nk in self._cells and not self._near_failure(nk[0], nk[2], 2):
+                            w_reach = 1.0
+                            done = True
+                            break
+                    if done:
+                        break
+                w_threat = 0.2 if self._near_failure(k[0], k[2], 6) else 1.0
+                score = w_reach * w_threat / (1.0 + dist)
+                if score > best_score:
+                    best_score = score
                     best_dx = dx / dist
                     best_dz = dz / dist
-        if best_dist == float('inf'):
+        if best_score <= 0.0:
             return None
-        return (best_dx, best_dz)
+        n = math.hypot(best_dx, best_dz) or 1.0
+        return (best_dx / n, best_dz / n)
 
     def _decay_recency(self) -> None:
         c = self.recency_decay
@@ -2212,6 +2251,8 @@ class MemoryController:
         self.stuck = stuck or StuckDetector()
         self.spatial = spatial or SpatialMemoryMap()
         self.failures = failures or FailureMemory()
+        # Strategic layer needs the threat map for frontier/gap filtering
+        self.spatial.failure_cells = self.failures._failures
         self.cliff = cliff or CliffDetector()
         self.anomaly = anomaly or MotionStateDetector()
         self.reflex = reflex or ReflexController()
@@ -2269,6 +2310,15 @@ class MemoryController:
 
         # Navigation auxiliary weights (Mechanism 2, 3)
         self.navigation_repulsion_weight: float = 0.12  # 【待标定】实测 0.30→0.12：过强回绝力导致 speed 下降6×
+        # Navigation standoff state machine (势场对峙升级链):
+        #   L1 (>20s) commit a breakout heading, suppress frontier/gap vectors
+        #   L2 (>35s) flip the breakout heading 180°
+        #   L3 (>50s) publish help_reason="navigation_standoff" → coach chain
+        self._nav_standoff_since: float | None = None
+        self.nav_standoff_level: int = 0
+        self._nav_standoff_break_heading: float | None = None
+        self._nav_standoff_cells0: int = 0
+        self.nav_standoff_resultant: float = 1.0
         self._plateau_break_heading: float | None = None
 
     def update(self, temporal_energy: float, frame_seq: int,
@@ -2313,15 +2363,20 @@ class MemoryController:
         self._novelty = self.spatial.update(x, pos_y, z,
                                              disp_60s=getattr(self, "disp_60s", None))
 
-        # Coverage plateau breakout: force a one-shot heading injection (Mechanism 3)
+        # Coverage plateau breakout: latch a heading injection until a new cell
+        # is discovered or the latch times out (the old 30-tick one-shot decayed
+        # before the agent could clear the pocket, so it re-triggered forever).
+        self._plateau_latch_until: float = 0.0
+        now_s = time.time()
         if self.spatial.coverage_plateau_triggered:
-            # Find a direction off the plateau via the best free heading
             _free = self.failures.best_free_heading(x, z, heading)
             _hdiff = (_free - heading) % (2 * math.pi)
             if _hdiff > math.pi:
                 _hdiff -= 2 * math.pi
-            # Inject a short-lived strong bias — consumed by navigation_vectors
-            self._plateau_break_heading = _hdiff
+            self._plateau_break_heading = (heading + _hdiff) % (2 * math.pi)
+            self._plateau_latch_until = now_s + 10.0
+        elif now_s < self._plateau_latch_until:
+            pass  # keep the latched heading until timeout / new cell
         else:
             self._plateau_break_heading = None
 
@@ -2937,6 +2992,11 @@ class MemoryController:
         repulsion, and coverage-plateau breakout override.
         """
         vecs: list[tuple[float, float, float]] = []
+        # Display capture (P0 visualisation): the named vectors below are the
+        # brain's actual navigation outputs — recorded so the dashboard can draw
+        # them as arrows instead of leaving the memory mechanism a black box.
+        dbg = self._last_nav_debug = {}
+        self._last_nav_heading = heading
         to_f = self.failures.nearest_failure_vector(
             x, z, radius_cells=getattr(self, '_failure_radius_cells', 3))
         if to_f is not None:
@@ -2947,26 +3007,105 @@ class MemoryController:
             vecs.append((gap[0], gap[1],
                          getattr(self, 'navigation_frontier_weight', 0.7)))
 
-        # ── Mechanism 1: Continuous frontier attraction (every tick, not only burst) ──
-        fd = self.spatial.frontier_direction(x, 0.0, z, search_radius=50)
+        _bh = getattr(self, "_plateau_break_heading", None)
+        # ── Mechanism 1: Continuous frontier attraction (every tick, not only
+        # burst) — suppressed while a plateau latch or standoff breakout owns
+        # the heading (their bait direction is what caused the pocket) ──
+        fd = None if (_bh is not None or self.nav_standoff_level >= 1) \
+            else self.spatial.frontier_direction(x, 0.0, z, search_radius=50)
         if fd is not None:
             vecs.append((fd[0], fd[1],
                          getattr(self, 'navigation_frontier_weight', 0.7)))
+            dbg['frontier'] = [round(fd[0], 3), round(fd[1], 3)]
 
-        # ── Mechanism 2: Repulsion from high-density visited zones ──
-        rep = self.spatial.visited_repulsion_vector(x, z, radius=3)
+        # ── Mechanism 2: Repulsion from high-density visited zones (also
+        # suppressed during a committed breakout — visited-zone repulsion is
+        # meaningless when we are deliberately leaving the pocket) ──
+        rep = None if (_bh is not None or self.nav_standoff_level >= 1) \
+            else self.spatial.visited_repulsion_vector(x, z, radius=3)
         if rep is not None:
             vecs.append((rep[0], rep[1],
                          getattr(self, 'navigation_repulsion_weight', 0.30)))
+            dbg['repulsion'] = [round(rep[0], 3), round(rep[1], 3)]
 
-        # ── Mechanism 3: Coverage plateau breakout override (one-shot, short-lived) ──
-        _bh = getattr(self, '_plateau_break_heading', None)
+        # ── Mechanism 3: Coverage plateau breakout override (latched) ──
         if _bh is not None:
             bdx = math.sin(_bh)
             bdz = math.cos(_bh)
             vecs.append((bdx, bdz, 1.5))  # High weight to override routine vectors; 实测 2.0→1.5 降低爆发过度干扰
+            dbg['plateau'] = [round(bdx, 3), round(bdz, 3)]
+        dbg['plateau_triggered'] = _bh is not None
+
+        # ── Navigation standoff: detect vector-sum collapse and escalate ──
+        # Root cause this fixes: danger+repulsion vs frontier+gap can reach a
+        # static balance (|Σw·v| ≈ 0) while disp_60s stays near zero — the
+        # agent orbits a pocket forever and every indicator stays lit.
+        rx = sum(w * dx for dx, _dz, w in vecs)
+        rz = sum(w * _dz for _dx, _dz, w in vecs)
+        rnorm = math.hypot(rx, rz)
+        self.nav_standoff_resultant = rnorm
+        dbg['resultant'] = [round(rx, 3), round(rz, 3)]
+        dbg['resultant_norm'] = round(rnorm, 3)
+        self._update_nav_standoff(rnorm)
+        if self.nav_standoff_level >= 1:
+            # committed breakout heading: replace the whole vector set —
+            # frontier/gap point at the bait that caused the standoff
+            bh = self._nav_standoff_break_heading
+            if bh is not None:
+                vecs = [(math.sin(bh), math.cos(bh), 2.0)]
+                dbg['standoff'] = [round(math.sin(bh), 3), round(math.cos(bh), 3)]
+            dbg['standoff_level'] = self.nav_standoff_level
 
         return vecs
+
+    def _update_nav_standoff(self, resultant_norm: float) -> None:
+        """Escalation state machine for navigation vector standoffs.
+
+        Entry: |Σ goal vectors| < 0.25 while disp_60s < 50 (no real progress).
+        Exit:  the condition clears AND new ground was discovered (or the norm
+        recovered decisively) — anything else keeps escalating L1→L2→L3."""
+        stuck = (resultant_norm < 0.25
+                 and (getattr(self, "disp_60s", 0) or 0.0) < 50.0)
+        now = time.time()
+        cells = self.spatial.visited_cells
+        if not stuck:
+            if self._nav_standoff_since is not None:
+                # recovered: only fully reset when new ground was found or the
+                # resultant decisively rose — otherwise re-enter immediately
+                if cells > self._nav_standoff_cells0 or resultant_norm >= 0.5:
+                    self._nav_standoff_since = None
+                    self.nav_standoff_level = 0
+                    self._nav_standoff_break_heading = None
+            return
+        if self._nav_standoff_since is None:
+            self._nav_standoff_since = now
+            self._nav_standoff_cells0 = cells
+            self.nav_standoff_level = 0
+            self._nav_standoff_break_heading = None
+        if cells > self._nav_standoff_cells0:
+            # breakout succeeded — new ground discovered
+            self._nav_standoff_since = None
+            self.nav_standoff_level = 0
+            self._nav_standoff_break_heading = None
+            return
+        elapsed = now - self._nav_standoff_since
+        if elapsed >= 50.0:
+            self.nav_standoff_level = 3
+        elif elapsed >= 35.0:
+            if self.nav_standoff_level < 2:
+                self.nav_standoff_level = 2
+                if self._nav_standoff_break_heading is not None:
+                    self._nav_standoff_break_heading = \
+                        (self._nav_standoff_break_heading + math.pi) % (2 * math.pi)
+        elif elapsed >= 20.0:
+            if self.nav_standoff_level < 1:
+                self.nav_standoff_level = 1
+                fd = (getattr(self, "_last_nav_debug", None) or {}).get("frontier")
+                # commit away from the bait frontier (heading conv: dx=sin,dz=cos);
+                # without a known frontier, steer opposite the current heading
+                self._nav_standoff_break_heading = (
+                    math.atan2(-fd[0], -fd[1]) if fd
+                    else (getattr(self, "_last_nav_heading", 0.0) + math.pi) % (2 * math.pi))
 
     @property
     def reflex_cooldowns(self) -> dict[str, float]:

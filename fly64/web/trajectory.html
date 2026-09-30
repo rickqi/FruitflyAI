@@ -21,11 +21,30 @@ input[type=range]{flex:1;min-width:100px;accent-color:#6cdaed;height:4px}
 #toggleView:hover{background:#354250;color:#f0f4f8}
 #fileSelect{max-width:200px}
 #errorMsg{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:20;background:#2a1515;color:#ff6b6b;padding:14px;border-radius:6px;border:1px solid #ff6b6b;display:none;font-size:13px}
+/* ── 图例面板：解释 3D 视图全部图层语义（色相/亮度/箭头/标记）── */
+#legend{position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:30;background:rgba(11,16,21,.9);border:1px solid #354250;border-radius:8px;padding:7px 12px;font-size:11px;color:#b0bdcc;max-width:min(860px,94vw);line-height:1.9}
+#legend b{color:#f0f4f8;font-weight:600}
+#legend .col{display:inline-block;margin-right:14px;white-space:nowrap}
+#legend .sw{display:inline-block;width:26px;height:0;border-top:4px solid;margin-right:5px;vertical-align:middle}
+#legend .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:middle}
+#legend .tile{display:inline-block;width:12px;height:12px;border-radius:2px;margin-right:5px;vertical-align:middle;border:1px solid #354250}
 </style></head><body>
 <div id="canvasWrap"><div id="info"><h2>🪰 Fly64 3D</h2><span id="buildTag" style="color:#536170;font-size:10px"></span><span id="liveDot">🟢 LIVE</span> <span id="frameInfo">0/0</span><div id="memInfo" style="color:#7dff9d;font-size:11px"></div></div><div id="stats"></div><div id="errorMsg"></div></div>
 <div id="toggleView">🗖</div>
+<div id="legend">
+<span class="col"><span class="tile" style="background:linear-gradient(90deg,#3f8cff,#ff4b4b)"></span><b>轨迹</b> 高度梯度 蓝=低→红=高</span>
+<span class="col"><span class="tile" style="background:linear-gradient(135deg,#3f8cff,#ff4b4b)"></span><b>网格地毯</b> 色=该格均高 · 亮度=访问新近度</span>
+<span class="col"><span class="dot" style="background:#7dff9d"></span><b>记忆足迹</b> recent_path 最近80格</span>
+<span class="col"><span class="sw" style="border-color:#7dff9d"></span><b>邻接边</b> 实走格间拓扑(≤400)</span><br>
+<span class="col"><span class="sw" style="border-color:#00e5ff"></span><b>前沿吸引</b> frontier(想去哪)</span>
+<span class="col"><span class="sw" style="border-color:#ff9e22"></span><b>回访斥力</b> repulsion(躲哪)</span>
+<span class="col"><span class="sw" style="border-color:#ff3c3c"></span><b>平台突围</b> 停滞换向</span>
+<span class="col"><span class="sw" style="border-color:#ffd54f"></span><b>场景边界</b> 两侧不可比</span>
+<span class="col">🏁<b>绿=起</b> 🏁<b>红=终</b></span>
+<div id="legendLive" style="margin-top:4px;border-top:1px solid #354250;padding-top:4px;color:#8fa3b8">实时：等待数据…</div>
+</div>
 <div class="controls">
-<button id="playBtn">▶</button><button id="resetBtn">⟲</button><button id="gridBtn">🧠 Grid: ON</button>
+<button id="playBtn">▶</button><button id="resetBtn">⟲</button><button id="gridBtn">🧠 Grid: ON</button><button id="legendBtn" title="显示/隐藏图例">🗂️ 图例</button>
 <label>Speed:<select id="speed"><option value="0.5" selected>0.5x</option><option value="1">1x</option><option value="2">2x</option><option value="5">5x</option><option value="10">10x</option></select></label>
 <label>File:<select id="fileSelect"><option>Loading...</option></select></label>
 <input type="range" id="slider" min="0" max="0" value="0">
@@ -39,12 +58,50 @@ import { Line2 } from 'three/addons/lines/Line2.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
 import { heightColor, verticalSegmentCount, verticalStep, autoGroundY } from './trajectory-height.js';
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Fly64 3D 轨迹视图 — 图层语义总览（与页面右上「🗂️ 图例」面板一致）
+ * ─────────────────────────────────────────────────────────────────────────
+ * 数据源（两路轮询，均 2s）：
+ *   /trajectory.json — 滚动缓冲最近 6000 点：t,x,y,z,heading,ctrl_x,ctrl_y,
+ *                      jump,game_frame（brain 重启即清空；场景切换不清空）
+ *   /memory.json    — 空间记忆快照：heat_cells[x,z,recency]、adjacency、
+ *                     recent_path、nav_debug{frontier,repulsion,plateau}、
+ *                     scene_changes、total_cells
+ * 图层（自下而上）：
+ *   ① 记忆地毯 carpet   — 每个已访问格一片瓦（≤2600）：色相=该格轨迹均高，
+ *                         亮度=recency 访问新近度。数据被截断时 memInfo 会
+ *                         显示「显示 M/共 N」。
+ *   ② 邻接拓扑 adjLines — 大脑实际持有的格间遍历边（≤400 条，绿色）。
+ *   ③ 记忆足迹 memDots  — recent_path 最近 80 格中心（绿点）。
+ *   ④ 轨迹主线 mainLine — 高度梯度着色（蓝低→红高），已抽稀+平滑防抖动。
+ *   ⑤ 垂直参考线        — 每 N 点一条到地毯基准面的垂线（≤~334 条）。
+ *   ⑥ 导航决策箭头 ×3   — nav_debug 的三支矢量（青=前沿吸引/橙=回访斥力/
+ *                         红=平台突围），钉在轨迹头部 —— 让记忆机制可见。
+ *                         随 🧠Grid 开关一起显隐。
+ *   ⑦ 场景边界 sceneGroup — scene_change 处黄竖线+标签（≤10，20s 防抖）；
+ *                         缓冲跨场景累积，分隔线两侧的数据不可直接对比。
+ *   ⑧ 起终点标记        — 🏁 绿=首点，🏁 红=末点；橙球+黄箭头=播放光标。
+ *   ⑨ jump 金点         — jump=true 的帧（仅 Live 源；npz 存档未存该字段）。
+ * 图例面板（🗂️ 开关）：静态语义 + 「实时」行（前沿角/斥力/突围/场景/格数）。
+ * 交互：LIVE 每 2s 增量拉取（只追加 t 更新的点）；拖动滑杆/播放即切 REPLAY；
+ *       🧠Grid 开关地毯+拓扑层+足迹+导航箭头；🗂️图例 开关本面板；
+ *       mini 小窗模式（默认）下图例自动收起，展开全屏时恢复。
+ * ═══════════════════════════════════════════════════════════════════════════ */
 
 const $=id=>document.getElementById(id),wrap=$('canvasWrap');
-const BUILD='2026-09-15b (follow-flag + time-based playback)';
+const BUILD='2026-09-26b (legend live values + jump dots + grid-coupled arrows)';
 document.getElementById('buildTag').textContent='build '+BUILD;
 console.info('[fly64] trajectory.html build', BUILD);
+// 图例开关：默认显示；🗂️ 图例按钮切换（记忆状态不持久，刷新即恢复）。
+$('legendBtn').addEventListener('click', () => {
+  const l = $('legend');
+  l.style.display = (l.style.display === 'none') ? '' : 'none';
+});
+// 页面默认 mini=true（右下角小窗）：图例先收起，避免「小窗+远端图例」割裂。
+// 初始化放在 mini 声明之后（见下）—— let 的 TDZ 会让提前引用直接崩掉整个
+// 模块（09-26 事故：该行曾位于声明之前，页面永远停在 Loading）。
 let pts=[],playing=0,pos=0,spd=0.5,anim=null,mini=true,gridOn=true;
+if(mini) $('legend').style.display='none';
 // follow=true: cursor rides the newest live point (default on Live source).
 // Cleared by ▶ play / slider scrub so the full recorded path can be replayed
 // without the poller yanking the cursor back to the head every 2 s (the
@@ -132,8 +189,40 @@ function heatColor(t){ // cold(blue)→green→yellow→hot(red), matches 2D leg
   _c3.setHSL(0.62-0.62*Math.max(0,Math.min(1,t)),0.85,0.5);return _c3;}
 const sphere=new THREE.Mesh(new THREE.SphereGeometry(1,12,12),new THREE.MeshBasicMaterial({color:0xffca72}));scene.add(sphere);
 const arrow=new THREE.ArrowHelper(new THREE.Vector3(1,0,0),new THREE.Vector3(0,0,0),1,0xffca72,.3,.15);scene.add(arrow);
+// P0 display: navigation-decision arrows — make the memory mechanisms visible
+// instead of a black box.  Cyan=frontier attraction, orange=visited repulsion,
+// red=plateau breakout.  Updated from memory.json nav_debug each poll.
+const navArrowFrontier=new THREE.ArrowHelper(new THREE.Vector3(1,0,0),new THREE.Vector3(0,0,0),1,0x00e5ff,60,25);
+const navArrowRepulse =new THREE.ArrowHelper(new THREE.Vector3(1,0,0),new THREE.Vector3(0,0,0),1,0xff9e22,60,25);
+const navArrowPlateau =new THREE.ArrowHelper(new THREE.Vector3(1,0,0),new THREE.Vector3(0,0,0),1,0xff3c3c,60,25);
+for(const a of [navArrowFrontier,navArrowRepulse,navArrowPlateau]){a.visible=false;scene.add(a);}
+// 箭头受 🧠Grid 开关统一控制（记忆衍生层随记忆层一起显隐）；navHas 记录
+// 最近一次轮询各矢量是否存在，供开关即时联动（不等下一次 2s 轮询）。
+const navHas={f:false,r:false,p:false};
+function syncNavArrows(){
+  if(typeof navArrowFrontier==='undefined')return;
+  navArrowFrontier.visible=gridOn&&navHas.f;
+  navArrowRepulse.visible=gridOn&&navHas.r;
+  navArrowPlateau.visible=gridOn&&navHas.p;
+}
+// P2: jump 事件金色标记 —— 0→113/6000 是本项目最重要的行为突破，应可见。
+// 仅 Live 源含 jump 字段（npz 存档未存 jump，回放模式无此层）。
+const jumpMat=new THREE.PointsMaterial({color:0xffd54f,sizeAttenuation:true,transparent:true,opacity:.95});
+const jumpGeo=new THREE.BufferGeometry();const jumpDots=new THREE.Points(jumpGeo,jumpMat);jumpDots.visible=false;scene.add(jumpDots);
+// P0 display: scene-boundary markers — see pool creation after `mk` below.
+const sceneGroup=new THREE.Group();scene.add(sceneGroup);sceneGroup.visible=false;
+const sceneLabels=[];
 const mk=(t,c)=>{const d=document.createElement('div');d.textContent=t;d.style.color=c;d.style.fontSize='11px';d.style.fontWeight='bold';return new CSS2DObject(d);};
 const sL=mk('🏁 Start','#4caf50'),eL=mk('🏁 End','#ff6b6b');scene.add(sL);scene.add(eL);
+// P0 display: scene-boundary markers — the buffer persists across scenes, so a
+// multi-scene run silently mixes unrelated paths.  One vertical line + label
+// per recorded scene change makes the split explicit (pool of 10, oldest win).
+for(let i=0;i<10;i++){
+  const sg=new THREE.BufferGeometry();
+  const sline=new THREE.LineSegments(sg,new THREE.LineBasicMaterial({color:0xffd54f,transparent:true,opacity:.75}));
+  sline.visible=false;sceneGroup.add(sline);
+  const lb=mk('🎞️ scene','#ffd54f');lb.visible=false;sceneGroup.add(lb);sceneLabels.push(lb);
+}
 const sel=$('fileSelect');
 
 function resize(){const r=wrap.getBoundingClientRect();const w=r.width||400,h=r.height||280;camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h);lr.setSize(w,h);if(mainMat)mainMat.resolution.set(w,h);}
@@ -209,6 +298,10 @@ function pushPts(){
   if(!isFinite(ymin)){ymin=0;ymax=0;}
   heightRange={min:ymin,max:ymax};
   const span=Math.max(1e-6,ymax-ymin);
+  // 低段亮度下限：t→0 的深蓝与页面背景 (#0b1015) 几乎同色，起飞段不可见。
+  // 等比抬升使最亮通道 ≥0.5 —— 色相不变，只加亮度。
+  const lift=rgb=>{const mx=Math.max(rgb[0],rgb[1],rgb[2],1e-3);const k=Math.max(1,0.5/mx);
+    return [Math.min(1,rgb[0]*k),Math.min(1,rgb[1]*k),Math.min(1,rgb[2]*k)];};
   // memory-map plane: flat base under the whole path — carpet, topology edges
   // and memory dots all sit here, so the grid aligns horizontally with the
   // trajectory footprint exactly (the old per-tile nearest-y scatter is gone).
@@ -217,7 +310,7 @@ function pushPts(){
   // ── raw detail layer (thin, faint): every telemetry point ──
   for(let i=0;i<n;i++){
     pathArr[i*3]=pts[i].x;pathArr[i*3+1]=pts[i].y;pathArr[i*3+2]=pts[i].z;
-    const rgb=heightColor((pts[i].y-ymin)/span);
+    const rgb=lift(heightColor((pts[i].y-ymin)/span));
     pathColArr[i*3]=rgb[0];pathColArr[i*3+1]=rgb[1];pathColArr[i*3+2]=rgb[2];
   }
   pathGeo.attributes.position.needsUpdate=true;
@@ -228,10 +321,19 @@ function pushPts(){
   const flat=[],cols=[];
   for(const p of sm){
     flat.push(p.x,p.y,p.z);
-    const rgb=heightColor((p.y-ymin)/span);
+    const rgb=lift(heightColor((p.y-ymin)/span));
     cols.push(rgb[0],rgb[1],rgb[2]);
   }
   if(sm.length>=2){mainGeo.setPositions(flat);mainGeo.setColors(cols);}
+  // jump 金点：jump=true 的帧（仅 Live 源带 jump 字段；npz 存档未存）
+  let jn=0;
+  for(let i=0;i<n;i++) if(pts[i].jump) jn++;
+  if(jn){ const ja=new Array(jn*3); let j=0;
+    for(let i=0;i<n;i++){ const p=pts[i]; if(p.jump){
+      ja[j*3]=p.x; ja[j*3+1]=p.y+15; ja[j*3+2]=p.z; j++; } }
+    jumpGeo.setAttribute('position',new THREE.Float32BufferAttribute(ja,3));
+  }
+  jumpDots.visible=jn>0;
   // vertical drop-lines: every Nth point → memory-map plane
   const seg=verticalSegmentCount(n),step=verticalStep(n);
   let v=0;
@@ -367,10 +469,69 @@ async function refreshMemoryOverlay(traj){
       memGeo.setAttribute('position',new THREE.Float32BufferAttribute(
         mem.recent_path.flatMap(c=>[c.x,my+7,c.z]),3));
       memDots.visible=true;
+      const tot=mem.total_cells, shown=mem.heat_cells?mem.heat_cells.length:0;
+      const trunc=(tot&&shown&&tot>shown)?` (显示 ${shown}/${tot})`:'';
       $('memInfo').textContent='🧠 memory: '+mem.recent_path.length+' path cells · '
-        +(mem.adjacency_edges??'?')+' edges · '+(mem.heat_cells?mem.heat_cells.length:0)+' grid tiles'
+        +(mem.adjacency_edges??'?')+' edges · '+shown+' grid tiles'+trunc
         +' · noveltyDir '+(mem.cx_novelty_direction??'—');
-    }}catch(_){}}
+    }
+    // P0 display: navigation-decision arrows at the agent's current position.
+    // Cyan=frontier attraction, orange=visited repulsion, red=plateau breakout.
+    try{
+      const nd=mem.nav_debug;
+      const head=traj.length?traj[traj.length-1]:null;
+      const pos=head?new THREE.Vector3(head.x,head.y+60,head.z):null;
+      const setArrow=(a,v,key)=>{ navHas[key]=!!v;
+        if(v&&pos&&gridOn){a.position.copy(pos);
+          a.setDirection(new THREE.Vector3(v[0],0,v[1]).normalize());a.visible=true;}
+        else a.visible=false; };
+      setArrow(navArrowFrontier, nd&&nd.frontier,'f');
+      setArrow(navArrowRepulse,  nd&&nd.repulsion,'r');
+      setArrow(navArrowPlateau, (nd&&nd.plateau_triggered)?nd.plateau:null,'p');
+      // standoff committed heading draws as a bold red arrow (same slot as plateau)
+      if(nd&&nd.standoff&&pos&&gridOn){navArrowPlateau.position.copy(pos);
+        navArrowPlateau.setDirection(new THREE.Vector3(nd.standoff[0],0,nd.standoff[1]).normalize());
+        navArrowPlateau.visible=true;}
+      // 图例「实时」区：把静态语义变成当前量（数据全部来自本次已取的 mem）
+      const ll=$('legendLive');
+      if(ll){
+        const ang=v=>v?(Math.atan2(v[0],v[1])*180/Math.PI).toFixed(0)+'°':'—';
+        const lastSc=(mem.scene_changes&&mem.scene_changes.length)
+          ? mem.scene_changes[mem.scene_changes.length-1].scene : '—';
+        const lv=nd.standoff_level||0;
+        const lvTxt=['正常','L1突围','L2反向','L3→COACH'][lv]||lv;
+        const lvCol=['#3fb950','#58a6ff','#d29922','#f85149'][lv]||'#8b949e';
+        ll.innerHTML='<b>实时</b>：前沿角 '+ang(nd.frontier)
+          +' · 斥力 '+(nd.repulsion?'激活':'—')
+          +' · 突围 '+(nd.plateau_triggered?'⚠️ 触发':'未触发')
+          +' · 合力 <span style="color:'+(nd.resultant_norm<0.25?'#f85149':'#3fb950')+'">'+(nd.resultant_norm!=null?nd.resultant_norm.toFixed(2):'—')+'</span>'
+          +' · 对峙 <span style="color:'+lvCol+'">'+lvTxt+'</span>'
+          +' · 场景 '+lastSc
+          +' · 格 '+(mem.heat_cells?mem.heat_cells.length:0)+'/'+(mem.total_cells??'??');
+      }
+    }catch(_){}
+    // P0 display: scene-boundary markers (last 10 changes, oldest dropped).
+    try{
+      const sc=Array.isArray(mem.scene_changes)?mem.scene_changes.slice(-10):[];
+      const shown=Math.min(sc.length,sceneLabels.length);
+      for(let i=0;i<shown;i++){
+        const c=sc[sc.length-shown+i];
+        const base=mapY;
+        sceneGroup.children[i*2].visible=true;
+        sceneGroup.children[i*2].geometry.setAttribute('position',
+          new THREE.Float32BufferAttribute([c.x,base,c.z, c.x,base+2500,c.z],3));
+        sceneLabels[i].visible=true;
+        // 错层排布：同一过渡区即便多条也不叠字（每条抬升 180 单位）
+        sceneLabels[i].position.set(c.x,base+2200+i*180,c.z);
+        sceneLabels[i].element.textContent='🎞️ '+(c.scene||'?').slice(0,16)+' · t='+c.t;
+      }
+      for(let i=shown;i<sceneLabels.length;i++){
+        sceneGroup.children[i*2].visible=false;sceneLabels[i].visible=false;
+      }
+      sceneGroup.visible=shown>0;
+    }catch(_){}
+  }catch(_){}
+}
 
 
 let lastHud=0;
@@ -399,7 +560,11 @@ function update(){
   $('stats').innerHTML='<div><span class=l>⏱</span> <span class=v>'+p.t+'s</span></div><div><span class=l>📍</span> <span class=v>['+(p.x|0)+','+(p.y|0)+','+(p.z|0)+']</span></div><div><span class=l>🧭</span> <span class=v>'+(p.heading*180/Math.PI|0)+'°</span></div><div><span class=l>🎮</span> <span class=v>x='+p.ctrl_x+' y='+p.ctrl_y+'</span></div><div><span class=l>📏</span> <span class=v>'+(dist|0)+'u</span></div>';
 }
 
-$('toggleView').onclick=()=>{mini=!mini;wrap.classList.toggle('mini',mini);$('toggleView').textContent=mini?'🗖':'✕';setTimeout(resize,50);if(mini)fitView();};
+$('toggleView').onclick=()=>{mini=!mini;wrap.classList.toggle('mini',mini);$('toggleView').textContent=mini?'🗖':'✕';
+  // P0：mini 小窗模式下自动收起图例 —— 图例钉在全屏顶部，而画布缩在右下角，
+  // 两者视觉分离会让图例显得「悬空不具体」；展开全屏时再恢复。
+  $('legend').style.display=mini?'none':'';
+  setTimeout(resize,50);if(mini)fitView();};
 sel.onchange=()=>{if(sel.value)loadFile(sel.value);};
 $('slider').oninput=function(){follow=false;pos=+this.value;update();};
 $('playBtn').onclick=function(){
@@ -417,7 +582,7 @@ $('playBtn').onclick=function(){
     pos=Math.min(pos+spd*dt/16.7,pts.length-1);update();anim=requestAnimationFrame(step);};
   anim=requestAnimationFrame(step);
 };
-$('gridBtn').onclick=function(){gridOn=!gridOn;carpet.visible=gridOn&&carpet.count>0;adjLines.visible=gridOn&&adjGeo.getAttribute('position')!=null;memDots.visible=gridOn&&memDots.geometry.getAttribute('position')!=null;this.textContent='🧠 Grid: '+(gridOn?'ON':'OFF');};
+$('gridBtn').onclick=function(){gridOn=!gridOn;carpet.visible=gridOn&&carpet.count>0;adjLines.visible=gridOn&&adjGeo.getAttribute('position')!=null;memDots.visible=gridOn&&memDots.geometry.getAttribute('position')!=null;syncNavArrows();this.textContent='🧠 Grid: '+(gridOn?'ON':'OFF');};
 // Raw detail layer: faint unsmoothed telemetry line + dots under the main path
 let rawOn=false;
 const rawBtn=document.createElement('button');rawBtn.textContent='Raw: OFF';rawBtn.className='mini';

@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Fly64 导航对峙状态 · Navigation Standoff</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.6 "Cascadia Code", Consolas, "Microsoft YaHei", monospace; background:#0d1117; color:#c9d1d9; }
+  header { padding:12px 20px; border-bottom:1px solid #21262d; display:flex; gap:16px; align-items:baseline; }
+  h1 { font-size:16px; margin:0; color:#58a6ff; }
+  .meta { color:#8b949e; font-size:11px; }
+  a.back { font-size:12px; color:#58a6ff; text-decoration:none; border:1px solid #2a6a78; border-radius:3px; padding:3px 8px; margin-left:auto; }
+  main { max-width:980px; margin:0 auto; padding:16px 20px; }
+  .badge { font-size:26px; font-weight:bold; padding:14px 26px; border-radius:10px; border:2px solid; display:inline-block; margin:10px 0; }
+  .l0 { color:#3fb950; border-color:#3fb950; background:rgba(63,185,80,.08); }
+  .l1 { color:#58a6ff; border-color:#58a6ff; background:rgba(88,166,255,.08); }
+  .l2 { color:#d29922; border-color:#d29922; background:rgba(210,153,34,.08); }
+  .l3 { color:#f85149; border-color:#f85149; background:rgba(248,81,73,.10); animation:pulse 1.2s infinite; }
+  @keyframes pulse { 50% { opacity:.55; } }
+  table { border-collapse:collapse; width:100%; font-size:12px; margin:8px 0 18px; }
+  td,th { border:1px solid #21262d; padding:6px 10px; text-align:left; }
+  th { color:#8b949e; font-weight:normal; }
+  td.k { color:#58a6ff; white-space:nowrap; }
+  .bar-wrap { background:#010409; border:1px solid #21262d; border-radius:6px; height:26px; position:relative; margin:6px 0 16px; }
+  .bar { height:100%; background:linear-gradient(90deg,#f85149 0%,#d29922 13%,#3fb950 26%,#3fb950 100%); border-radius:5px; transition:width .3s; }
+  .bar-threshold { position:absolute; top:-4px; bottom:-4px; width:2px; background:#f85149; left:12.5%; }
+  .bar-label { position:absolute; right:8px; top:3px; font-size:11px; color:#8b949e; }
+  canvas { width:100%; height:90px; display:block; background:#010409; border:1px solid #21262d; border-radius:6px; }
+  .hint { color:#8b949e; font-size:11px; margin:4px 0 18px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:0 24px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🧭 Fly64 导航对峙状态</h1>
+  <span class="meta" id="meta">connecting…</span>
+  <a class="back" href="/">← 主监控台</a>
+</header>
+<main>
+  <div class="badge l0" id="badge">L0 · 正常巡航</div>
+  <div class="hint">状态机：L0 正常 → (|合力|&lt;0.25 且 disp60&lt;50 持续 20s) → <b style="color:#58a6ff">L1 定向突围</b>（抑制前沿/斥力诱饵，承诺一个脱离航向）→ 35s <b style="color:#d29922">L2 反向重试</b> → 50s <b style="color:#f85149">L3 上报 coach</b>（help_reason=navigation_standoff，走 LLM 教官链）。发现新格立即复位。</div>
+
+  <h3 style="color:#e6edf3;margin-bottom:4px">目标向量合力 |Σw·v|</h3>
+  <div class="bar-wrap"><div class="bar" id="rbar" style="width:50%"></div><div class="bar-threshold" title="对峙阈值 0.25"></div><span class="bar-label" id="rlabel">—</span></div>
+  <canvas id="spark" height="90"></canvas>
+  <div class="hint">合力时序（最近 3 分钟，1s 采样）。红竖线 = 对峙阈值 0.25；持续低于阈值即进入升级链。</div>
+
+  <div class="grid">
+    <div>
+      <h3 style="color:#e6edf3">导航向量（world 系，含权重）</h3>
+      <table id="vec"><thead><tr><th>向量</th><th>dx</th><th>dz</th><th>权重</th></tr></thead><tbody></tbody></table>
+    </div>
+    <div>
+      <h3 style="color:#e6edf3">环境上下文</h3>
+      <table id="ctx"><tbody></tbody></table>
+    </div>
+  </div>
+</main>
+<script>
+const CN = { frontier:"前沿吸引 (想去哪)", repulsion:"回访斥力 (躲哪)", plateau:"平台突围 (换向)", standoff:"对峙突围 (承诺航向)" };
+const LEVEL_TXT = ["L0 · 正常巡航","L1 · 定向突围","L2 · 反向重试","L3 · 已上报 COACH"];
+const LEVEL_CLS = ["l0","l1","l2","l3"];
+const hist=[]; let lastLevel=-1;
+
+async function poll(){
+  try{
+    const m = await (await fetch("/memory.json",{cache:"no-store"})).json();
+    const nd = m.nav_debug||{};
+    // badge
+    const lv = nd.standoff_level || 0;
+    if(lv!==lastLevel){
+      const b=document.getElementById("badge");
+      b.className="badge "+LEVEL_CLS[lv]; b.textContent=LEVEL_TXT[lv];
+      lastLevel=lv;
+    }
+    // resultant bar (scale 0..2)
+    const rn = nd.resultant_norm!=null? nd.resultant_norm : 0;
+    document.getElementById("rbar").style.width = Math.min(100, rn/2*100)+"%";
+    document.getElementById("rlabel").textContent = "|Σw·v| = "+rn.toFixed(3)+"  (阈值 0.25)";
+    document.getElementById("meta").textContent =
+      `cells ${m.total_cells||0} · stuck ${m.stuck_duration||0}s · novelty ${m.novelty??"-"}`;
+    // vector table
+    const rows=[];
+    for(const k of ["frontier","repulsion","plateau","standoff"]){
+      if(nd[k]) rows.push(`<tr><td class="k">${CN[k]}</td><td>${nd[k][0]}</td><td>${nd[k][1]}</td><td>${k==="frontier"?"0.7":k==="repulsion"?"0.12":k==="plateau"?"1.5(锁存)":"2.0"}</td></tr>`);
+    }
+    if(nd.resultant) rows.push(`<tr><td class="k" style="color:#e6edf3">Σ 合力</td><td>${nd.resultant[0]}</td><td>${nd.resultant[1]}</td><td>|·|=${rn.toFixed(3)}</td></tr>`);
+    if(!rows.length) rows.push('<tr><td colspan="4" style="color:#8b949e">当前无可发布向量</td></tr>');
+    document.querySelector("#vec tbody").innerHTML=rows.join("");
+    // context
+    document.querySelector("#ctx").innerHTML = [
+      ["异常态", m.anomaly_state??"-"], ["卡死时长", (m.stuck_duration||0)+"s"],
+      ["stuck score", m.stuck_score??"-"], ["逃逸中", m.escape_behavior?"是":"否"],
+      ["悬崖对峙", (m.cliff_standoff_s||0)+"s"], ["terminal surrender", m.terminal_surrender?"是":"否"],
+    ].map(r=>`<tr><td class="k">${r[0]}</td><td>${r[1]}</td></tr>`).join("");
+    // sparkline
+    hist.push(rn); if(hist.length>180) hist.shift();
+    drawSpark();
+  }catch(e){ /* keep last snapshot */ }
+}
+function drawSpark(){
+  const cv=document.getElementById("spark"), dpr=devicePixelRatio||1;
+  const W=cv.clientWidth,H=90; cv.width=W*dpr; cv.height=H*dpr;
+  const g=cv.getContext("2d"); g.scale(dpr,dpr); g.clearRect(0,0,W,H);
+  const L=6,R=6,T=8,B=6, pw=W-L-R, ph=H-T-B, ymax=1.5;
+  const ys=v=>T+ph-Math.min(1,v/ymax)*ph;
+  // threshold line at 0.25
+  g.strokeStyle="rgba(248,81,73,.6)"; g.setLineDash([4,4]);
+  g.beginPath(); g.moveTo(L,ys(0.25)); g.lineTo(W-R,ys(0.25)); g.stroke(); g.setLineDash([]);
+  g.strokeStyle="#58a6ff"; g.lineWidth=1.5; g.beginPath();
+  hist.forEach((v,i)=>{ const x=L+i/(179)*pw, y=ys(v); i?g.lineTo(x,y):g.moveTo(x,y); });
+  g.stroke();
+  g.fillStyle="#8b949e"; g.font="9px monospace";
+  g.fillText("0.25",L+2,ys(0.25)-3); g.fillText("1.5",L+2,T+8);
+}
+setInterval(poll,1000); poll();
+window.addEventListener("resize",()=>{ if(hist.length) drawSpark(); });
+</script>
+</body>
+</html>
